@@ -1,0 +1,12 @@
+# Keep compilation settings in this file and user/runtime settings in `esp-config.toml`.
+include = ["esp-config.toml"]
+
+[target.riscv32imac-unknown-none-elf]
+runner = "espflash flash --monitor --chip esp32c6"
+
+[build]
+target = "riscv32imac-unknown-none-elf"
+rustflags = ["-C", "force-frame-pointers"]
+
+[unstable]
+build-std = ["core"]
