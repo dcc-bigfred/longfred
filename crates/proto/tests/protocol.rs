@@ -1,0 +1,108 @@
+use longfred_proto::model::{Direction, TurnoutAction};
+use longfred_proto::protocol as p;
+
+#[test]
+fn handshake_name() {
+    assert_eq!(p::handshake_name("WiFred").as_str(), "NWiFred");
+}
+
+#[test]
+fn handshake_id() {
+    assert_eq!(p::handshake_id("1234").as_str(), "HU1234");
+}
+
+#[test]
+fn quit_cmd() {
+    assert_eq!(p::quit().as_str(), "Q");
+}
+
+#[test]
+fn heartbeat() {
+    assert_eq!(p::heartbeat().as_str(), "*");
+    assert_eq!(p::heartbeat_enable(true).as_str(), "*+");
+    assert_eq!(p::heartbeat_enable(false).as_str(), "*-");
+}
+
+#[test]
+fn speed() {
+    assert_eq!(p::set_speed('T', 63).as_str(), "MTA*<;>V63");
+}
+
+#[test]
+fn speed_steps() {
+    assert_eq!(p::set_speed_steps('T', 1).as_str(), "MTA*<;>s1");
+}
+
+#[test]
+fn direction() {
+    assert_eq!(
+        p::set_direction('T', "*", Direction::Reverse).as_str(),
+        "MTA*<;>R0"
+    );
+    assert_eq!(
+        p::set_direction('T', "L341", Direction::Forward).as_str(),
+        "MTAL341<;>R1"
+    );
+}
+
+#[test]
+fn function() {
+    assert_eq!(
+        p::set_function('T', "L341", 8, true, false).as_str(),
+        "MTAL341<;>F18"
+    );
+    assert_eq!(
+        p::set_function('T', "L341", 8, true, true).as_str(),
+        "MTAL341<;>f18"
+    );
+}
+
+#[test]
+fn estop() {
+    assert_eq!(p::estop('T', "*").as_str(), "MTA*<;>X");
+}
+
+#[test]
+fn power() {
+    assert_eq!(p::track_power(true).as_str(), "PPA1");
+    assert_eq!(p::track_power(false).as_str(), "PPA0");
+}
+
+#[test]
+fn add_loco() {
+    assert_eq!(
+        p::add_loco('T', "L341", "Big Boy").as_str(),
+        "MT+L341<;>Big Boy"
+    );
+}
+
+#[test]
+fn release_loco() {
+    assert_eq!(p::release_loco('T', "L341").as_str(), "MT-L341<;>r");
+}
+
+#[test]
+fn steal_loco() {
+    assert_eq!(p::steal_loco('T', "L341").as_str(), "MTSL341<;>L341");
+}
+
+#[test]
+fn turnout() {
+    assert_eq!(
+        p::turnout(TurnoutAction::Close, "IT12").as_str(),
+        "PTACIT12"
+    );
+    assert_eq!(
+        p::turnout(TurnoutAction::Throw, "IT12").as_str(),
+        "PTATIT12"
+    );
+    assert_eq!(
+        p::turnout(TurnoutAction::Toggle, "IT12").as_str(),
+        "PTA2IT12"
+    );
+}
+
+#[test]
+fn route() {
+    assert_eq!(p::route("IO:001").as_str(), "PRA2IO:001");
+}
