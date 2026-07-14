@@ -5,5 +5,7 @@
 pub mod config;
 pub mod domain;
 pub mod input;
+pub mod net;
 pub mod power;
 pub mod storage;
+pub mod ui;
