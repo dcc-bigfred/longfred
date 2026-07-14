@@ -4,5 +4,6 @@
 
 pub mod config;
 pub mod domain;
+pub mod input;
 pub mod power;
 pub mod storage;
