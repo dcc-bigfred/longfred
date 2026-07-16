@@ -5,4 +5,4 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-heapless = "0.8"
+heapless = "0.9"

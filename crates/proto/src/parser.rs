@@ -1,7 +1,7 @@
 use crate::events::ServerEvent;
 use crate::model::*;
 
-/// Parsuje jedną linię (bez CR/LF). Listy wołają `emit` wielokrotnie.
+/// Parses one line (without CR/LF). Lists call `emit` multiple times.
 pub fn parse(line: &str, mut emit: impl FnMut(ServerEvent)) {
     let mut line = line;
 

@@ -89,3 +89,13 @@ impl TurnoutAction {
         }
     }
 }
+
+/// Throttle slot index (0..=5) to WiThrottle throttle character (`'0'`..`'5'`).
+pub fn throttle_char(index: usize) -> char {
+    (b'0' + index as u8) as char
+}
+
+/// Inverse of [`throttle_char`]: u8 throttle id to wire char.
+pub fn throttle_char_u8(throttle: u8) -> char {
+    (b'0' + throttle) as char
+}

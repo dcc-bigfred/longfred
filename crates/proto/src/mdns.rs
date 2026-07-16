@@ -1,27 +1,31 @@
-//! Minimalny klient mDNS: builder zapytania PTR + parser odpowiedzi (host-testowalny).
-//! I/O (UdpSocket, multicast) jest w firmware (`net/mdns.rs`).
+//! Minimal mDNS client: PTR query builder + response parser (host-testable).
+//! Socket I/O lives in firmware (`net/mdns.rs`).
+
+use crate::command::Protocol;
 
 pub const WITHROTTLE_SERVICE: &str = "_withrottle._tcp.local";
+pub const Z21_SERVICE: &str = "_z21._udp.local";
 pub const MDNS_MULTICAST_V4: [u8; 4] = [224, 0, 0, 251];
 pub const MDNS_PORT: u16 = 5353;
 
 const TYPE_A: u16 = 1;
 const TYPE_SRV: u16 = 33;
 
-/// Nazwa hosta/usługi w formacie kropkowym, np. `JMRI._withrottle._tcp.local`.
+/// Dotted host / service name, e.g. `JMRI._withrottle._tcp.local`.
 pub type Name = heapless::String<128>;
 
-/// Serwer WiThrottle skorelowany z rekordów SRV (+A).
+/// Discovered command station from SRV (+A) records.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WitServer {
-    /// Pierwsza etykieta instancji (np. "JMRI") do wyświetlenia.
+    /// First instance label (e.g. "JMRI") for display.
     pub label: heapless::String<32>,
     pub port: u16,
     pub ipv4: Option<[u8; 4]>,
+    pub protocol: Protocol,
 }
 
-/// Buduje zapytanie PTR o `_withrottle._tcp.local`. Zwraca długość zapisana do `buf`.
-pub fn build_ptr_query(buf: &mut [u8]) -> usize {
+/// Builds a PTR query for the given service name. Returns bytes written to `buf`.
+pub fn build_ptr_query(service: &str, buf: &mut [u8]) -> usize {
     let mut n = 0usize;
     let mut put = |b: u8| {
         if n < buf.len() {
@@ -29,11 +33,10 @@ pub fn build_ptr_query(buf: &mut [u8]) -> usize {
         }
         n += 1;
     };
-    // Header: ID=0, flags=0, QD=1, AN=NS=AR=0.
     for b in [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0] {
         put(b);
     }
-    for label in WITHROTTLE_SERVICE.split('.') {
+    for label in service.split('.') {
         put(label.len() as u8);
         for &c in label.as_bytes() {
             put(c);
@@ -50,7 +53,6 @@ fn be16(pkt: &[u8], off: usize) -> Option<u16> {
     Some(((*pkt.get(off)? as u16) << 8) | (*pkt.get(off + 1)? as u16))
 }
 
-/// Czyta nazwę DNS (z obsługą kompresji). Zwraca (nazwa, offset za nazwą w strumieniu).
 fn read_name(pkt: &[u8], start: usize) -> Option<(Name, usize)> {
     let mut name = Name::new();
     let mut off = start;
@@ -86,8 +88,11 @@ fn read_name(pkt: &[u8], start: usize) -> Option<(Name, usize)> {
     Some((name, next_after.unwrap_or(off)))
 }
 
-/// Parsuje odpowiedź i koreluje serwery. Zwraca listę (max N).
-pub fn collect_servers<const N: usize>(pkt: &[u8]) -> heapless::Vec<WitServer, N> {
+/// Parse a response and correlate servers. Returns up to N entries tagged with `protocol`.
+pub fn collect_servers<const N: usize>(
+    pkt: &[u8],
+    protocol: Protocol,
+) -> heapless::Vec<WitServer, N> {
     let mut servers: heapless::Vec<WitServer, N> = heapless::Vec::new();
     let mut addrs: heapless::Vec<(Name, [u8; 4]), N> = heapless::Vec::new();
     let mut srvs: heapless::Vec<(Name, u16, heapless::String<32>), N> = heapless::Vec::new();
@@ -153,7 +158,27 @@ pub fn collect_servers<const N: usize>(pkt: &[u8]) -> heapless::Vec<WitServer, N
 
     for (target, port, label) in srvs {
         let ipv4 = addrs.iter().find(|(n, _)| *n == target).map(|(_, ip)| *ip);
-        let _ = servers.push(WitServer { label, port, ipv4 });
+        let _ = servers.push(WitServer {
+            label,
+            port,
+            ipv4,
+            protocol,
+        });
     }
     servers
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ptr_query_lengths() {
+        let mut buf = [0u8; 64];
+        let w = build_ptr_query(WITHROTTLE_SERVICE, &mut buf);
+        let z = build_ptr_query(Z21_SERVICE, &mut buf);
+        assert!(w > 12);
+        assert!(z > 12);
+        assert_ne!(w, z);
+    }
 }
