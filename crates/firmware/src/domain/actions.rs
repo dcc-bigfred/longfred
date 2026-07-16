@@ -1,12 +1,12 @@
-//! Akcje przypisywane klawiszom/przyciskom. Odpowiednik actions.h,
-//! ale z parametryzowanymi wariantami zamiast osobnych stałych.
+//! Actions assigned to keys/buttons. Equivalent of actions.h,
+//! but with parameterized variants instead of separate constants.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    /// Nic nie rób (FUNCTION_NULL).
+    /// Do nothing (FUNCTION_NULL).
     None,
 
-    /// DCC funkcja 0-31 (FUNCTION_0..FUNCTION_31).
+    /// DCC function 0-31 (FUNCTION_0..FUNCTION_31).
     Function(u8),
 
     SpeedStop,
@@ -15,7 +15,7 @@ pub enum Action {
     SpeedUpFast,
     SpeedDownFast,
     SpeedMultiplier,
-    /// Zatrzymaj jeśli jedzie, w przeciwnym razie zmień kierunek.
+    /// Stop if moving, otherwise toggle direction.
     SpeedStopThenToggleDirection,
 
     EStop,
@@ -36,15 +36,15 @@ pub enum Action {
     Sleep,
 
     NextThrottle,
-    /// Przełącz na konkretny throttle 1-6 (THROTTLE_1..THROTTLE_6).
+    /// Switch to throttle 1-6 (THROTTLE_1..THROTTLE_6).
     Throttle(u8),
 
-    /// Komenda użytkownika 1-7 (CUSTOM_1..CUSTOM_7).
+    /// User command 1-7 (CUSTOM_1..CUSTOM_7).
     Custom(u8),
 }
 
 impl Action {
-    /// Czy akcja dotyczy loco (odpowiednik "wartości < 500" w actions.h).
+    /// Whether the action affects a loco (equivalent of "value < 500" in actions.h).
     pub const fn is_loco_action(self) -> bool {
         !matches!(
             self,

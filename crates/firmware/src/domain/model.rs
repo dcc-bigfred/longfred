@@ -1,4 +1,4 @@
-//! Typy wartościowe warstwy domenowej (throttle, roster, snapshot UI).
+//! Domain value types (throttle, roster, UI snapshot).
 
 use longfred_proto::model::{Direction, LocoAddr, ShortText, TrackPower, MAX_FUNCTIONS, MAX_THROTTLES};
 
@@ -6,7 +6,14 @@ pub const MAX_LOCOS: usize = 10;
 pub const MAX_SPEED: u8 = 126;
 pub const SHORT_DCC_ADDRESS_LIMIT: u32 = 127;
 
-/// Wpis rosteru z serwera.
+/// Turnout/route entry from the server (system name + user label).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedEntry {
+    pub sys_name: ShortText,
+    pub user_name: ShortText,
+}
+
+/// Roster entry from the server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RosterEntry {
     pub name: ShortText,
@@ -14,19 +21,19 @@ pub struct RosterEntry {
     pub length: char,
 }
 
-/// Czy funkcja DCC dotyczy leada czy całego składu.
+/// Whether a DCC function applies to the lead loco or the whole consist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionFollow {
     Lead,
     All,
 }
 
-/// Stan jednego slotu MultiThrottle.
+/// State of one MultiThrottle slot.
 #[derive(Debug, Clone)]
 pub struct ThrottleSlot {
     pub speed: u8,
     pub direction: Direction,
-    /// Kierunek „facing” per lok w składzie (równolegle do `consist`).
+    /// Per-loco "facing" direction in the consist (parallel to `consist`).
     pub facing: heapless::Vec<Direction, MAX_LOCOS>,
     pub functions: [bool; MAX_FUNCTIONS],
     pub labels: [ShortText; MAX_FUNCTIONS],
@@ -60,7 +67,7 @@ impl ThrottleSlot {
     }
 }
 
-/// Snapshot stanu dla UI (Watch) — tylko pola prymitywne / krótkie stringi.
+/// UI state snapshot (Watch) — primitive fields / short strings only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainSnapshot {
     pub current: u8,

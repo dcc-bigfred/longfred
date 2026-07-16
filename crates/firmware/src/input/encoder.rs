@@ -1,4 +1,4 @@
-//! Enkoder obrotowy (kwadratura na edge pinu A) + przycisk enkodera.
+//! Rotary encoder (quadrature on pin A edge) + encoder button.
 
 use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{AnyPin, Input, InputConfig, Pull};
@@ -16,7 +16,7 @@ pub struct Pins {
 
 /// # Safety
 ///
-/// Wywoływać raz, z `main`.
+/// Call once from `main`.
 pub fn build() -> Pins {
     let cfg = InputConfig::default().with_pull(Pull::Up);
     Pins {
@@ -30,7 +30,7 @@ pub fn build() -> Pins {
 pub async fn task(mut a: Input<'static>, b: Input<'static>, sender: InputSender) {
     loop {
         a.wait_for_falling_edge().await;
-        // Kierunek z odczytu B w momencie zbocza A (detent KY-040/EC11).
+        // Direction from B at the A edge (KY-040/EC11 detent).
         let cw = b.is_high();
         let ev = if cw {
             InputEvent::EncoderClockwise

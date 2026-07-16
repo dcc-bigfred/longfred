@@ -1,6 +1,6 @@
 #![no_std]
-//! LongFred firmware: biblioteka aplikacji (konfiguracja, domena, wejście, UI, sieć).
-//! Entry-point i inicjalizacja HAL są w `src/bin/main.rs`.
+//! LongFred firmware: application library (config, domain, input, UI, network).
+//! Entry point and HAL initialization are in `src/bin/main.rs`.
 
 pub mod config;
 pub mod domain;

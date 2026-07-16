@@ -1,109 +1,359 @@
-//! Sterownik SSD1306 128x64 przez async I2C + task ekranu startowego.
+//! SSD1306 128x64 driver — UiView renderer (no menu logic).
 
 use embassy_time::{Duration, Timer};
 use embedded_graphics::{
-    mono_font::MonoTextStyleBuilder,
+    mono_font::{MonoTextStyle, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
     text::{Baseline, Text},
 };
-use esp_hal::gpio::AnyPin;
-use esp_hal::i2c::master::{Config, I2c, Instance};
-use esp_hal::time::Rate;
-use esp_hal::Async;
 use ssd1306::{
-    mode::BufferedGraphicsModeAsync,
+    mode::BufferedGraphicsMode,
     prelude::*,
-    I2CDisplayInterface, Ssd1306Async,
+    I2CDisplayInterface, Ssd1306,
 };
 
 use crate::config::board;
-use crate::domain::{self, model::DomainSnapshot};
-use crate::net::{self, NetStatus, WitConnState, WitEndpoint};
-use crate::ui::{fonts, i18n};
+use crate::input::i2c_bus::SharedI2cDevice;
+use crate::ui::view::{GridView, ThrottleView, UiView, GRID_LINES, LINE_LEN};
+use crate::ui::{fonts, UI_VIEW};
 
-const BLINK_PERIOD_MS: u64 = 1000;
+const BLINK_PERIOD_MS: u64 = 200;
+const GRID_LEFT_X: i32 = 0;
+const GRID_RIGHT_X: i32 = 64;
+const GRID_Y: [i32; 6] = [10, 20, 30, 40, 50, 60];
 
-fn push_u8(buf: &mut heapless::String<24>, n: u8) {
-    if n >= 100 {
-        let _ = buf.push((b'0' + n / 100) as char);
-    }
-    if n >= 10 {
-        let _ = buf.push((b'0' + (n / 10) % 10) as char);
-    }
-    let _ = buf.push((b'0' + n % 10) as char);
-}
-
-fn fmt_domain_line(snap: DomainSnapshot) -> heapless::String<24> {
-    let mut s = heapless::String::<24>::new();
-    if snap.has_loco {
-        let _ = s.push('T');
-        push_u8(&mut s, snap.current + 1);
-        let _ = s.push_str(" v");
-        if snap.speed >= 100 {
-            let _ = s.push((b'0' + snap.speed / 100) as char);
-        }
-        if snap.speed >= 10 {
-            let _ = s.push((b'0' + (snap.speed / 10) % 10) as char);
-        }
-        let _ = s.push((b'0' + snap.speed % 10) as char);
-        let _ = s.push(' ');
-        let _ = s.push(if snap.forward { 'F' } else { 'R' });
-        let _ = s.push_str(" n");
-        push_u8(&mut s, snap.consist_len);
-    } else if !snap.addr.is_empty() {
-        let _ = s.push_str("addr:");
-        let _ = s.push_str(snap.addr.as_str());
-    } else {
-        let _ = s.push_str(i18n::MSG_ACQUIRE_HINT);
-    }
-    s
-}
-
-fn fmt_endpoint(ep: WitEndpoint) -> heapless::String<24> {
-    let mut s = heapless::String::<24>::new();
-    let _ = s.push_str("srv ");
-    push_u8(&mut s, ep.ip[0]);
-    let _ = s.push('.');
-    push_u8(&mut s, ep.ip[1]);
-    let _ = s.push('.');
-    push_u8(&mut s, ep.ip[2]);
-    let _ = s.push('.');
-    push_u8(&mut s, ep.ip[3]);
-    s
-}
-
-/// Buduje async I2C na `I2C0` z pinów BSP.
-///
-/// # Safety
-///
-/// Wywoływać raz, z `main`; piny `OLED_SDA`/`OLED_SCL` nie mogą być użyte gdzie indziej.
-pub fn build_i2c(i2c: impl Instance + 'static) -> I2c<'static, Async> {
-    I2c::new(
-        i2c,
-        Config::default().with_frequency(Rate::from_khz(board::OLED_I2C_FREQ_KHZ)),
-    )
-    .unwrap()
-    .with_sda(unsafe { AnyPin::steal(board::OLED_SDA) })
-    .with_scl(unsafe { AnyPin::steal(board::OLED_SCL) })
-    .into_async()
-}
-
-pub type Display = Ssd1306Async<
-    I2CInterface<I2c<'static, Async>>,
+pub type Display = Ssd1306<
+    I2CInterface<SharedI2cDevice>,
     DisplaySize128x64,
-    BufferedGraphicsModeAsync<DisplaySize128x64>,
+    BufferedGraphicsMode<DisplaySize128x64>,
 >;
 
+fn line_text(grid: &GridView, idx: usize) -> &str {
+    grid.lines
+        .get(idx)
+        .map(|l| l.as_str())
+        .unwrap_or("")
+}
+
+fn line_invert(grid: &GridView, idx: usize) -> bool {
+    grid.invert.get(idx).copied().unwrap_or(false)
+}
+
+fn draw_grid_line(
+    display: &mut Display,
+    x: i32,
+    y: i32,
+    text: &str,
+    invert: bool,
+    style_on: MonoTextStyle<'_, BinaryColor>,
+) {
+    let w = (text.len().min(LINE_LEN) as u32) * 6;
+    let h = 10u32;
+    if invert {
+        Rectangle::new(Point::new(x, y), Size::new(w + 2, h))
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .fill_color(BinaryColor::On)
+                    .build(),
+            )
+            .draw(display)
+            .ok();
+        let inv = MonoTextStyleBuilder::new()
+            .font(&fonts::TEXT)
+            .text_color(BinaryColor::Off)
+            .build();
+        Text::with_baseline(text, Point::new(x + 1, y), inv, Baseline::Top)
+            .draw(display)
+            .ok();
+    } else {
+        Text::with_baseline(text, Point::new(x, y), style_on, Baseline::Top)
+            .draw(display)
+            .ok();
+    }
+}
+
+fn draw_grid(display: &mut Display, grid: &GridView, text_style: MonoTextStyle<'_, BinaryColor>) {
+    if grid.top_line {
+        Rectangle::new(Point::new(0, 11), Size::new(127, 1))
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .fill_color(BinaryColor::On)
+                    .build(),
+            )
+            .draw(display)
+            .ok();
+    }
+    if grid.foot_line {
+        Rectangle::new(Point::new(0, 51), Size::new(127, 1))
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .fill_color(BinaryColor::On)
+                    .build(),
+            )
+            .draw(display)
+            .ok();
+    }
+
+    for row in 0..6 {
+        let left_idx = row + 1;
+        if left_idx < GRID_LINES {
+            draw_grid_line(
+                display,
+                GRID_LEFT_X,
+                GRID_Y[row],
+                line_text(grid, left_idx),
+                line_invert(grid, left_idx),
+                text_style,
+            );
+        }
+        let right_idx = row + 7;
+        if right_idx < GRID_LINES {
+            draw_grid_line(
+                display,
+                GRID_RIGHT_X,
+                GRID_Y[row],
+                line_text(grid, right_idx),
+                line_invert(grid, right_idx),
+                text_style,
+            );
+        }
+    }
+    if grid.lines.len() > 0 {
+        draw_grid_line(
+            display,
+            GRID_LEFT_X,
+            0,
+            line_text(grid, 0),
+            line_invert(grid, 0),
+            text_style,
+        );
+    }
+}
+
+/// Compact row of currently-ON function numbers (F0–F28) above the footer.
+fn draw_fn_active(display: &mut Display, functions: u32) {
+    const Y: i32 = 44;
+    const X0: i32 = 4;
+    const MAX_X: i32 = 124;
+    const CHAR_W: i32 = 6;
+
+    let style = MonoTextStyleBuilder::new()
+        .font(&fonts::TEXT)
+        .text_color(BinaryColor::On)
+        .build();
+
+    let mut x = X0;
+    let mut first = true;
+    let mut truncated = false;
+
+    for f in 0u8..29 {
+        if (functions & (1u32 << f)) == 0 {
+            continue;
+        }
+
+        let digits = if f < 10 { 1i32 } else { 2i32 };
+        let gap = if first { 0 } else { CHAR_W };
+        let needed = gap + digits * CHAR_W;
+
+        if x + needed > MAX_X {
+            truncated = true;
+            break;
+        }
+
+        if !first {
+            Text::with_baseline(" ", Point::new(x, Y), style, Baseline::Top)
+                .draw(display)
+                .ok();
+            x += CHAR_W;
+        }
+        first = false;
+
+        let mut label = heapless::String::<2>::new();
+        if f >= 10 {
+            let _ = label.push((b'0' + f / 10) as char);
+        }
+        let _ = label.push((b'0' + f % 10) as char);
+        Text::with_baseline(label.as_str(), Point::new(x, Y), style, Baseline::Top)
+            .draw(display)
+            .ok();
+        x += digits * CHAR_W;
+    }
+
+    if truncated && x + CHAR_W <= MAX_X {
+        Text::with_baseline("+", Point::new(x, Y), style, Baseline::Top)
+            .draw(display)
+            .ok();
+    }
+}
+
+fn draw_battery_icon(
+    display: &mut Display,
+    percent: u8,
+    show_percent: bool,
+    text_style: MonoTextStyle<'_, BinaryColor>,
+) {
+    let x = 114i32;
+    let y = 0i32;
+    Rectangle::new(Point::new(x, y), Size::new(12, 8))
+        .into_styled(
+            PrimitiveStyleBuilder::new()
+                .stroke_color(BinaryColor::On)
+                .stroke_width(1)
+                .build(),
+        )
+        .draw(display)
+        .ok();
+    let thresholds = [10u8, 25, 50, 75, 90];
+    for (i, th) in thresholds.iter().enumerate() {
+        if percent >= *th {
+            Rectangle::new(Point::new(x + 2 + i as i32, y + 6), Size::new(1, 2))
+                .into_styled(
+                    PrimitiveStyleBuilder::new()
+                        .fill_color(BinaryColor::On)
+                        .build(),
+                )
+                .draw(display)
+                .ok();
+        }
+    }
+    if show_percent {
+        let mut s = heapless::String::<4>::new();
+        if percent >= 100 {
+            let _ = s.push_str("100");
+        } else if percent >= 10 {
+            let _ = s.push((b'0' + percent / 10) as char);
+            let _ = s.push((b'0' + percent % 10) as char);
+        } else {
+            let _ = s.push((b'0' + percent) as char);
+        }
+        let _ = s.push('%');
+        Text::with_baseline(s.as_str(), Point::new(96, 0), text_style, Baseline::Top)
+            .draw(display)
+            .ok();
+    }
+}
+
+fn draw_throttle(
+    display: &mut Display,
+    t: &ThrottleView,
+    title_style: MonoTextStyle<'_, BinaryColor>,
+    text_style: MonoTextStyle<'_, BinaryColor>,
+) {
+    let mut throttle_label = heapless::String::<4>::new();
+    let _ = throttle_label.push((b'0' + t.current) as char);
+    Rectangle::new(Point::new(0, 0), Size::new(14, 14))
+        .into_styled(
+            PrimitiveStyleBuilder::new()
+                .stroke_color(BinaryColor::On)
+                .stroke_width(1)
+                .build(),
+        )
+        .draw(display)
+        .ok();
+    Text::with_baseline(
+        throttle_label.as_str(),
+        Point::new(4, 2),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)
+    .ok();
+
+    let mut spd = heapless::String::<4>::new();
+    if t.speed >= 100 {
+        let _ = spd.push((b'0' + t.speed / 100) as char);
+    }
+    if t.speed >= 10 {
+        let _ = spd.push((b'0' + (t.speed / 10) % 10) as char);
+    }
+    let _ = spd.push((b'0' + t.speed % 10) as char);
+    Text::with_baseline(spd.as_str(), Point::new(36, 2), title_style, Baseline::Top)
+        .draw(display)
+        .ok();
+
+    let dir = if t.forward { "Fwd" } else { "Rev" };
+    Text::with_baseline(dir, Point::new(90, 4), text_style, Baseline::Top)
+        .draw(display)
+        .ok();
+
+    if !t.heartbeat_on {
+        Rectangle::new(Point::new(100, 2), Size::new(8, 8))
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .stroke_color(BinaryColor::On)
+                    .stroke_width(1)
+                    .build(),
+            )
+            .draw(display)
+            .ok();
+        // strikethrough
+        Rectangle::new(Point::new(100, 6), Size::new(8, 1))
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .fill_color(BinaryColor::On)
+                    .build(),
+            )
+            .draw(display)
+            .ok();
+    }
+
+    if t.power_on {
+        Rectangle::new(Point::new(112, 2), Size::new(8, 8))
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .fill_color(BinaryColor::On)
+                    .build(),
+            )
+            .draw(display)
+            .ok();
+    } else {
+        Rectangle::new(Point::new(112, 2), Size::new(8, 8))
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .stroke_color(BinaryColor::On)
+                    .stroke_width(1)
+                    .build(),
+            )
+            .draw(display)
+            .ok();
+    }
+
+    if let Some(pct) = t.battery {
+        draw_battery_icon(display, pct, t.battery_show_percent, text_style);
+    }
+
+    Text::with_baseline(t.loco.as_str(), Point::new(4, 18), text_style, Baseline::Top)
+        .draw(display)
+        .ok();
+
+    draw_fn_active(display, t.functions);
+
+    Text::with_baseline(t.footer.as_str(), Point::new(4, 54), text_style, Baseline::Top)
+        .draw(display)
+        .ok();
+}
+
 #[embassy_executor::task]
-pub async fn task(i2c: I2c<'static, Async>) {
+pub async fn task(i2c: SharedI2cDevice) {
     let interface = I2CDisplayInterface::new_custom_address(i2c, board::OLED_I2C_ADDRESS);
-    let mut display: Display = Ssd1306Async::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+    let mut display: Display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
 
-    if display.init().await.is_err() {
+    // Blocking I2C: async esp-hal master hard-resets in Wokwi on first xfer.
+    if display.init().is_err() {
+        log::error!("oled: init failed");
         return;
+    }
+    log::info!("oled: init ok");
+
+    // Splash so the panel shows something before domain publishes UiView.
+    {
+        let mut splash = crate::ui::view::GridView::new();
+        splash.set(0, "LongFred", false);
+        splash.set(1, "boot...", false);
+        crate::ui::UI_VIEW.sender().send(crate::ui::view::UiView::Grid(splash));
     }
 
     let title_style = MonoTextStyleBuilder::new()
@@ -120,10 +370,8 @@ pub async fn task(i2c: I2c<'static, Async>) {
         .build();
 
     let mut blink = false;
-    let mut net_rx = net::STATE.receiver();
-    let mut srv_rx = net::WIT_SERVER.receiver();
-    let mut wit_rx = net::WIT_CONN.receiver();
-    let mut domain_rx = domain::DOMAIN_STATE.receiver();
+    let mut ui_rx = UI_VIEW.receiver();
+
     loop {
         display.clear_buffer();
 
@@ -132,71 +380,22 @@ pub async fn task(i2c: I2c<'static, Async>) {
             .draw(&mut display)
             .ok();
 
-        Text::with_baseline(i18n::APP_NAME, Point::new(4, 2), title_style, Baseline::Top)
-            .draw(&mut display)
-            .ok();
-
-        let domain_snap = domain_rx
+        let view = ui_rx
             .as_mut()
             .and_then(|r| r.try_get())
             .unwrap_or_default();
-        let domain_line = fmt_domain_line(domain_snap);
-        Text::with_baseline(domain_line.as_str(), Point::new(4, 14), text_style, Baseline::Top)
-            .draw(&mut display)
-            .ok();
 
-        let status = net_rx
-            .as_mut()
-            .and_then(|r| r.try_get())
-            .unwrap_or(NetStatus::Disconnected);
-        let status_text = match status {
-            NetStatus::Disconnected => i18n::MSG_WIFI_DISCONNECTED,
-            NetStatus::Connecting => i18n::MSG_WIFI_CONNECTING,
-            NetStatus::WifiConnected => i18n::MSG_WIFI_CONNECTED,
-            NetStatus::Ready => i18n::MSG_NET_READY,
-        };
-        Text::with_baseline(status_text, Point::new(4, 36), text_style, Baseline::Top)
-            .draw(&mut display)
-            .ok();
-
-        let wit_state = wit_rx
-            .as_mut()
-            .and_then(|r| r.try_get())
-            .unwrap_or(WitConnState::Disconnected);
-        let wit_text = match wit_state {
-            WitConnState::Disconnected => i18n::MSG_WIT_DISCONNECTED,
-            WitConnState::Connecting => i18n::MSG_WIT_CONNECTING,
-            WitConnState::Connected => i18n::MSG_WIT_CONNECTED,
-        };
-        Text::with_baseline(wit_text, Point::new(4, 48), text_style, Baseline::Top)
-            .draw(&mut display)
-            .ok();
-
-        if wit_state == WitConnState::Disconnected {
-            if let Some(ep) = srv_rx.as_mut().and_then(|r| r.try_get()).flatten() {
-                let line = fmt_endpoint(ep);
-                Text::with_baseline(line.as_str(), Point::new(4, 58), text_style, Baseline::Top)
-                    .draw(&mut display)
-                    .ok();
-            } else {
-                let msg = if status == NetStatus::Ready {
-                    i18n::MSG_SRV_SEARCHING
-                } else {
-                    i18n::MSG_SRV_NONE
-                };
-                Text::with_baseline(msg, Point::new(4, 58), text_style, Baseline::Top)
-                    .draw(&mut display)
-                    .ok();
-            }
+        match &view {
+            UiView::Grid(g) => draw_grid(&mut display, g, text_style),
+            UiView::Throttle(t) => draw_throttle(&mut display, t, title_style, text_style),
         }
 
-        // Wskaźnik cyklu (miganie) — dowód cyklicznego flush().
         if blink {
             display.set_pixel(124, 4, true);
         }
         blink = !blink;
 
-        display.flush().await.ok();
+        display.flush().ok();
         Timer::after(Duration::from_millis(BLINK_PERIOD_MS)).await;
     }
 }

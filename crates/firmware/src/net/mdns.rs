@@ -1,19 +1,62 @@
-//! Discovery serwerów WiThrottle przez mDNS (I/O; logika pakietów w longfred-proto).
+//! Discovery of WiThrottle and Z21 command stations via mDNS.
 
+use embassy_futures::select::{select, Either};
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
 use embassy_time::{with_timeout, Duration, Instant, Timer};
 use log::{info, warn};
+use longfred_proto::command::Protocol;
 use longfred_proto::mdns::{
-    build_ptr_query, collect_servers, WitServer, MDNS_MULTICAST_V4, MDNS_PORT,
+    build_ptr_query, collect_servers, WitServer, MDNS_MULTICAST_V4, MDNS_PORT, WITHROTTLE_SERVICE,
+    Z21_SERVICE,
 };
 
 use crate::config::{network, sizes};
-use crate::net::{NetStatus, WitEndpoint, STATE, WIT_SERVER};
+use crate::net::{NetStatus, ServerEndpoint, FOUND_SERVERS, MDNS_CTRL, SERVER, STATE};
 
-const MAX_SERVERS: usize = sizes::MAX_FOUND_WIT_SERVERS;
+const MAX_SERVERS: usize = sizes::MAX_FOUND_SERVERS;
 
-/// Wysyła zapytanie mDNS i zbiera serwery przez `MDNS_WAIT_MS`.
+async fn query_service(
+    sock: &mut UdpSocket<'_>,
+    group: IpEndpoint,
+    service: &str,
+    protocol: Protocol,
+    found: &mut heapless::Vec<WitServer, MAX_SERVERS>,
+) {
+    let mut qbuf = [0u8; 64];
+    let qlen = build_ptr_query(service, &mut qbuf);
+    if sock.send_to(&qbuf[..qlen], group).await.is_err() {
+        warn!("mdns query send failed for {}", service);
+        return;
+    }
+
+    let deadline = Instant::now() + Duration::from_millis(network::MDNS_WAIT_MS / 2);
+    let mut rbuf = [0u8; 1536];
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        match with_timeout(deadline - now, sock.recv_from(&mut rbuf)).await {
+            Ok(Ok((n, _))) => {
+                for s in collect_servers::<MAX_SERVERS>(&rbuf[..n], protocol) {
+                    if !found
+                        .iter()
+                        .any(|f| f.ipv4 == s.ipv4 && f.port == s.port && f.protocol == s.protocol)
+                    {
+                        let _ = found.push(s);
+                    }
+                }
+                if found.len() >= MAX_SERVERS {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+}
+
+/// Send mDNS PTR queries and collect servers for `MDNS_WAIT_MS`.
 pub async fn discover(stack: Stack<'static>) -> heapless::Vec<WitServer, MAX_SERVERS> {
     let mut rx_meta = [PacketMetadata::EMPTY; 8];
     let mut rx_buf = [0u8; 1536];
@@ -36,39 +79,17 @@ pub async fn discover(stack: Stack<'static>) -> heapless::Vec<WitServer, MAX_SER
         return heapless::Vec::new();
     }
 
-    let mut qbuf = [0u8; 64];
-    let qlen = build_ptr_query(&mut qbuf);
     let dst = IpEndpoint::new(group, MDNS_PORT);
-    if sock.send_to(&qbuf[..qlen], dst).await.is_err() {
-        warn!("mdns query send failed");
-    }
-
     let mut found: heapless::Vec<WitServer, MAX_SERVERS> = heapless::Vec::new();
-    let deadline = Instant::now() + Duration::from_millis(network::MDNS_WAIT_MS);
-    let mut rbuf = [0u8; 1536];
-
-    loop {
-        let now = Instant::now();
-        if now >= deadline {
-            break;
-        }
-        match with_timeout(deadline - now, sock.recv_from(&mut rbuf)).await {
-            Ok(Ok((n, _))) => {
-                for s in collect_servers::<MAX_SERVERS>(&rbuf[..n]) {
-                    if !found
-                        .iter()
-                        .any(|f| f.ipv4 == s.ipv4 && f.port == s.port)
-                    {
-                        let _ = found.push(s);
-                    }
-                }
-                if found.len() >= MAX_SERVERS {
-                    break;
-                }
-            }
-            _ => break,
-        }
-    }
+    query_service(
+        &mut sock,
+        dst,
+        WITHROTTLE_SERVICE,
+        Protocol::WiThrottle,
+        &mut found,
+    )
+    .await;
+    query_service(&mut sock, dst, Z21_SERVICE, Protocol::Z21, &mut found).await;
 
     let _ = stack.leave_multicast_group(group);
     found
@@ -92,39 +113,71 @@ async fn wait_for_net_ready() {
     }
 }
 
-/// Task: po uzyskaniu IP uruchamia discovery, wybiera serwer i publikuje.
+async fn run_discovery(
+    stack: Stack<'static>,
+    ssid: &'static str,
+) -> heapless::Vec<WitServer, MAX_SERVERS> {
+    let is_dccex = ssid.contains("DCCEX") || ssid.contains("DCC-EX");
+    if is_dccex {
+        info!("mdns bypass: DCC-EX AP guess");
+        let mut v: heapless::Vec<WitServer, MAX_SERVERS> = heapless::Vec::new();
+        let mut label = longfred_proto::model::ShortText::new();
+        let _ = label.push_str("DCC-EX");
+        let _ = v.push(WitServer {
+            label,
+            ipv4: Some(network::DEFAULT_WIT_IP),
+            port: network::DEFAULT_WIT_PORT,
+            protocol: Protocol::WiThrottle,
+        });
+        return v;
+    }
+
+    let servers = discover(stack).await;
+    for s in &servers {
+        info!(
+            "server: {} {:?}:{} {:?}",
+            s.label.as_str(),
+            s.ipv4,
+            s.port,
+            s.protocol
+        );
+    }
+    servers
+}
+
+fn maybe_auto_connect(servers: &heapless::Vec<WitServer, MAX_SERVERS>) {
+    if !network::AUTO_CONNECT_TO_FIRST_WITHROTTLE_SERVER {
+        return;
+    }
+    if let Some(s) = servers.iter().find_map(|s| {
+        s.ipv4.map(|ip| ServerEndpoint {
+            ip,
+            port: s.port,
+            protocol: s.protocol,
+        })
+    }) {
+        info!(
+            "auto-selected server {:?}:{} {:?}",
+            s.ip, s.port, s.protocol
+        );
+        SERVER.sender().send(Some(s));
+    }
+}
+
+/// Task: discovery on demand (`MDNS_CTRL`) after IP is ready.
 #[embassy_executor::task]
 pub async fn task(stack: Stack<'static>, ssid: &'static str) {
     wait_for_net_ready().await;
+    let mdns_rx = MDNS_CTRL.receiver();
 
-    let is_dccex = ssid.contains("DCCEX") || ssid.contains("DCC-EX");
-    let selected = if is_dccex {
-        info!("mdns bypass: DCC-EX AP guess");
-        Some(WitEndpoint {
-            ip: network::DEFAULT_WIT_IP,
-            port: network::DEFAULT_WIT_PORT,
-        })
-    } else {
-        let servers = discover(stack).await;
-        for s in &servers {
-            info!(
-                "wit server: {} {:?}:{}",
-                s.label.as_str(),
-                s.ipv4,
-                s.port
-            );
+    loop {
+        let servers = run_discovery(stack, ssid).await;
+        maybe_auto_connect(&servers);
+        FOUND_SERVERS.signal(servers);
+
+        match select(mdns_rx.receive(), Timer::after(Duration::from_secs(3600))).await {
+            Either::First(()) => {}
+            Either::Second(_) => {}
         }
-        servers
-            .iter()
-            .find_map(|s| s.ipv4.map(|ip| WitEndpoint { ip, port: s.port }))
-            .or(Some(WitEndpoint {
-                ip: network::DEFAULT_WIT_IP,
-                port: network::DEFAULT_WIT_PORT,
-            }))
-    };
-
-    if let Some(ep) = selected {
-        info!("selected WiThrottle server {:?}:{}", ep.ip, ep.port);
     }
-    WIT_SERVER.sender().send(selected);
 }

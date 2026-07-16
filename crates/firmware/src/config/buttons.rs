@@ -1,22 +1,15 @@
-//! Mapowanie klawiszy 0-9 (i przycisku enkodera) na akcje. Odpowiednik
-//! CHOSEN_KEYPAD_*_FUNCTION / ENCODER_BUTTON_ACTION z config_buttons.h.
+//! Function key to DCC function mapping and encoder options.
 
 use crate::domain::actions::Action;
 
-/// Domyślna akcja klawisza numerycznego poza menu (`*` i `#` są sterujące menu).
-pub const fn default_action(key: char) -> Action {
-    match key {
-        '0' => Action::Function(0),
-        '1' => Action::Function(1),
-        '2' => Action::Function(2),
-        '3' => Action::Function(3),
-        '4' => Action::Function(4),
-        '5' => Action::NextThrottle,
-        '6' => Action::SpeedMultiplier,
-        '7' => Action::DirectionReverse,
-        '8' => Action::EStop,
-        '9' => Action::DirectionForward,
-        _ => Action::None,
+/// DCC function number for each Fn key (F0..F10).
+pub const FN_TO_DCC: [u8; 11] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+pub fn fn_action(key: u8) -> Action {
+    if let Some(&dcc) = FN_TO_DCC.get(key as usize) {
+        Action::Function(dcc)
+    } else {
+        Action::None
     }
 }
 
@@ -27,7 +20,7 @@ pub const ENCODER_INVERT_WHEN_REVERSED: bool = false;
 
 pub const HASH_SHOWS_FUNCTIONS_INSTEAD_OF_KEY_DEFS: bool = false;
 
-/// Domyślna liczba aktywnych throttli (max = sizes::MAX_THROTTLES).
+/// Default number of active throttles (max = sizes::MAX_THROTTLES).
 pub const DEFAULT_THROTTLES: usize = 2;
 
 pub const SPEED_STEP: u8 = 4;

@@ -1,1 +1,4 @@
-//! Zasilanie: pomiar baterii i deep sleep / auto-shutdown (Etap 10).
+//! Power: battery measurement and deep sleep.
+
+pub mod battery;
+pub mod sleep;

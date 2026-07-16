@@ -1,59 +1,115 @@
-//! Warstwa sieci: WiFi STA + stos embassy-net (Etap 4), mDNS (Etap 5), TCP (Etap 7).
+//! Network layer: WiFi STA + embassy-net stack, mDNS, protocol session.
 
 pub mod mdns;
+pub mod session;
 pub mod wifi;
-pub mod wit;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
+use heapless::String;
+use longfred_proto::command::{ClientCommand, Protocol};
 use longfred_proto::events::ServerEvent;
-use longfred_proto::protocol::Cmd;
+use longfred_proto::mdns::WitServer;
+use longfred_proto::persist::{DeviceIdentity, StaticIpConfig};
 
-/// Status połączenia sieciowego publikowany do UI/logów.
+use crate::config::sizes;
+
+/// Network connection status published to UI / logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetStatus {
     Disconnected,
     Connecting,
     WifiConnected,
-    /// Stos ma adres IP (DHCP gotowe).
+    /// Stack has an IPv4 address (DHCP complete).
     Ready,
 }
 
-/// Jedno źródło prawdy o statusie sieci. 2 odbiorców: UI + mDNS task.
+/// Single source of truth for network status. Two subscribers: UI + mDNS task.
 pub static STATE: Watch<CriticalSectionRawMutex, NetStatus, 2> =
     Watch::new_with(NetStatus::Disconnected);
 
-/// Wybrany serwer WiThrottle (adres + port) do użycia przez klienta TCP (Etap 7).
+/// Selected command-station endpoint (address + port + protocol).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WitEndpoint {
+pub struct ServerEndpoint {
     pub ip: [u8; 4],
     pub port: u16,
+    pub protocol: Protocol,
 }
 
-/// Publikacja wybranego serwera. 2 odbiorców: UI + klient TCP (Etap 7).
-pub static WIT_SERVER: Watch<CriticalSectionRawMutex, Option<WitEndpoint>, 2> =
+/// Published selected server. Two subscribers: session client + domain task.
+pub static SERVER: Watch<CriticalSectionRawMutex, Option<ServerEndpoint>, 2> =
     Watch::new_with(None);
 
-/// Status połączenia z serwerem WiThrottle.
+/// Command-station session connection status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WitConnState {
+pub enum ConnState {
     Disconnected,
     Connecting,
     Connected,
 }
 
-/// Status klienta WiThrottle. 2 odbiorców: UI + (rezerwa).
-pub static WIT_CONN: Watch<CriticalSectionRawMutex, WitConnState, 2> =
-    Watch::new_with(WitConnState::Disconnected);
+pub static CONN: Watch<CriticalSectionRawMutex, ConnState, 2> =
+    Watch::new_with(ConnState::Disconnected);
 
-pub const WIT_EVENTS_DEPTH: usize = 16;
-pub const WIT_COMMANDS_DEPTH: usize = 16;
+pub const PROTO_EVENTS_DEPTH: usize = 16;
+pub const PROTO_COMMANDS_DEPTH: usize = 16;
+pub const WIFI_CTRL_DEPTH: usize = 4;
 
-/// Zdarzenia z serwera (klient → domena, Etap 8).
-pub static WIT_EVENTS: Channel<CriticalSectionRawMutex, ServerEvent, WIT_EVENTS_DEPTH> =
+/// Events from the server (session → domain).
+pub static PROTO_EVENTS: Channel<CriticalSectionRawMutex, ServerEvent, PROTO_EVENTS_DEPTH> =
     Channel::new();
 
-/// Komendy do serwera (domena → klient, Etap 8).
-pub static WIT_COMMANDS: Channel<CriticalSectionRawMutex, Cmd, WIT_COMMANDS_DEPTH> =
+/// Commands to the server (domain → session).
+pub static PROTO_COMMANDS: Channel<CriticalSectionRawMutex, ClientCommand, PROTO_COMMANDS_DEPTH> =
     Channel::new();
+
+/// WiFi control (scan / connect) from the domain task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WifiCmd {
+    Scan,
+    Connect {
+        ssid: String<32>,
+        password: String<64>,
+    },
+}
+
+pub static WIFI_CTRL: Channel<CriticalSectionRawMutex, WifiCmd, WIFI_CTRL_DEPTH> = Channel::new();
+
+/// WiFi scan results (WiFi task → domain).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SsidInfo {
+    pub ssid: String<32>,
+    pub rssi: i8,
+    pub open: bool,
+}
+
+pub static WIFI_SCAN: Signal<CriticalSectionRawMutex, heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>> =
+    Signal::new();
+
+/// mDNS-discovered command stations.
+pub static FOUND_SERVERS: Signal<
+    CriticalSectionRawMutex,
+    heapless::Vec<WitServer, { sizes::MAX_FOUND_SERVERS }>,
+> = Signal::new();
+
+/// Request another mDNS discovery round.
+pub static MDNS_CTRL: Channel<CriticalSectionRawMutex, (), 2> = Channel::new();
+
+/// Live device identity for WiThrottle handshake (domain/storage → session).
+pub static DEVICE: Watch<CriticalSectionRawMutex, DeviceIdentity, 2> =
+    Watch::new_with(DeviceIdentity::empty());
+
+/// DHCP client hostname (`longred_XXXXXX`), set at boot from NVS or entropy.
+pub static WIFI_HOSTNAME: Watch<CriticalSectionRawMutex, heapless::String<16>, 2> =
+    Watch::new_with(heapless::String::new());
+
+/// Live IPv4 stack configuration (domain → config_task).
+pub static NET_CONFIG_CTRL: Signal<CriticalSectionRawMutex, StaticIpConfig> = Signal::new();
+
+// Legacy type aliases for gradual migration.
+pub type WitEndpoint = ServerEndpoint;
+pub type WitConnState = ConnState;
+pub const WIT_EVENTS_DEPTH: usize = PROTO_EVENTS_DEPTH;
+pub const WIT_COMMANDS_DEPTH: usize = PROTO_COMMANDS_DEPTH;
