@@ -19,3 +19,6 @@ opt-level = "s"
 
 [profile.dev.package.esp-radio]
 opt-level = 3
+
+[profile.dev.package.esp-storage]
+opt-level = 3

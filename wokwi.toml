@@ -1,0 +1,16 @@
+# Wokwi for VS Code — simulate LongFred on ESP32-C6 + SSD1306.
+#
+# Open the `longfred/` folder as the VS Code / Cursor workspace (or multi-root
+# that includes it), then:
+#
+#   ./scripts/wokwi-prep.sh
+#   F1 → "Wokwi: Start Simulator"
+#
+# Firmware is staged under wokwi/ so the extension can see it (Cargo's target/
+# is gitignored and often invisible to Wokwi).
+
+[wokwi]
+version = 1
+firmware = 'wokwi/longfred'
+elf = 'wokwi/longfred'
+gdbServerPort = 3333
