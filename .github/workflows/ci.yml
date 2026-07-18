@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Run tests
+        run: cargo test -p longfred-proto --target x86_64-unknown-linux-gnu
+
+  build:
+    name: Build firmware
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv32imac-unknown-none-elf
+          components: rust-src
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Install espflash
+        uses: taiki-e/install-action@v2
+        with:
+          tool: espflash@4.5.0
+
+      - name: Build firmware
+        run: |
+          set -euo pipefail
+          cargo build -p longfred-firmware --release --bin longfred
+          mkdir -p dist
+
+          ELF="target/riscv32imac-unknown-none-elf/release/longfred"
+          cp "$ELF" dist/longfred-esp32c6.elf
+          espflash save-image --chip esp32c6 --merge "$ELF" dist/longfred-esp32c6.bin
+
+          (
+            cd dist
+            sha256sum longfred-esp32c6.elf longfred-esp32c6.bin > SHA256SUMS
+          )
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
