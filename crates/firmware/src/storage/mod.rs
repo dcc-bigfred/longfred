@@ -5,15 +5,15 @@ use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use esp_bootloader_esp_idf::partitions::{
-    read_partition_table, DataPartitionSubType, PartitionType,
+    DataPartitionSubType, PartitionType, read_partition_table,
 };
 use esp_hal::rng::Rng;
 use esp_storage::FlashStorage;
 use heapless::String;
 use log::{info, warn};
 use longfred_proto::persist::{
-    id_from_entropy, wifi_hostname_from_entropy, DeviceIdentity, Language, PersistRecord, SavedLoco,
-    StaticIpConfig, MAX_SAVED_LOCOS, MAX_WIFI_HOSTNAME_LEN,
+    DeviceIdentity, Language, MAX_SAVED_LOCOS, MAX_WIFI_HOSTNAME_LEN, PersistRecord, SavedLoco,
+    StaticIpConfig, id_from_entropy, wifi_hostname_from_entropy,
 };
 
 pub static PERSIST_LOADED: Signal<CriticalSectionRawMutex, PersistRecord> = Signal::new();

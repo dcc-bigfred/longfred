@@ -5,15 +5,15 @@ mod menu_nav;
 
 use longfred_proto::command::Protocol;
 use longfred_proto::model::TurnoutAction;
-use longfred_proto::persist::{DeviceIdentity, Language, StaticIpConfig, DEVICE_ID_MIN};
+use longfred_proto::persist::{DEVICE_ID_MIN, DeviceIdentity, Language, StaticIpConfig};
 
 use crate::config::{self, buttons, network, power, sizes};
 use crate::domain::actions::Action;
 use crate::domain::state::DomainState;
 use crate::input::InputEvent;
-use crate::ui::keyboard::{KeyboardMode, TextKeyboard};
 use crate::net::SsidInfo;
 use crate::ui::i18n;
+use crate::ui::keyboard::{KeyboardMode, TextKeyboard};
 use crate::ui::view::{GridView, Line, ThrottleView, UiView, ViewCtx};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -179,7 +179,9 @@ impl MenuFsm {
     pub fn tick_splash(&mut self) -> Intent {
         if self.screen == Screen::Splash && !self.splash_done {
             self.splash_done = true;
-            if network::AUTO_CONNECT_TO_FIRST_DEFINED_SERVER && !config::network::NETWORKS.is_empty() {
+            if network::AUTO_CONNECT_TO_FIRST_DEFINED_SERVER
+                && !config::network::NETWORKS.is_empty()
+            {
                 self.screen = Screen::Connecting;
                 Intent::WifiConnect
             } else {
@@ -241,7 +243,7 @@ impl MenuFsm {
         if self.menu_cmd.is_empty() {
             return Intent::None;
         }
-        use longfred_proto::menu::{finish_menu as finish, MenuFinish};
+        use longfred_proto::menu::{MenuFinish, finish_menu as finish};
         let result = finish(self.menu_cmd.as_str());
         self.menu_cmd.clear();
         match result {
@@ -340,10 +342,7 @@ impl MenuFsm {
     }
 
     pub(crate) fn begin_ip_edit(&mut self, domain: &DomainState) {
-        self.net_cfg = domain
-            .persist
-            .network
-            .unwrap_or(StaticIpConfig::default());
+        self.net_cfg = domain.persist.network.unwrap_or(StaticIpConfig::default());
         self.ip_field = 0;
         self.net_digits.clear();
         self.load_net_field_digits();
@@ -365,12 +364,18 @@ impl MenuFsm {
         self.net_digits.clear();
         match self.ip_field {
             0 => {
-                let _ = self.net_digits.push(if self.net_cfg.dhcp { '0' } else { '1' });
+                let _ = self
+                    .net_digits
+                    .push(if self.net_cfg.dhcp { '0' } else { '1' });
             }
             1 => push_ip_digits(&mut self.net_digits, self.net_cfg.ip),
             2 => {
-                let _ = self.net_digits.push((b'0' + self.net_cfg.prefix_len / 10) as char);
-                let _ = self.net_digits.push((b'0' + self.net_cfg.prefix_len % 10) as char);
+                let _ = self
+                    .net_digits
+                    .push((b'0' + self.net_cfg.prefix_len / 10) as char);
+                let _ = self
+                    .net_digits
+                    .push((b'0' + self.net_cfg.prefix_len % 10) as char);
             }
             3 => {
                 if let Some(gw) = self.net_cfg.gateway {
@@ -475,11 +480,13 @@ impl MenuFsm {
             } else {
                 let _ = s.push(self.net_digits.as_bytes()[0] as char);
             }
-            let _ = s.push_str(if self.net_cfg.dhcp || self.net_digits.as_bytes().first() == Some(&b'0') {
-                " DHCP"
-            } else {
-                " Static"
-            });
+            let _ = s.push_str(
+                if self.net_cfg.dhcp || self.net_digits.as_bytes().first() == Some(&b'0') {
+                    " DHCP"
+                } else {
+                    " Static"
+                },
+            );
             return s;
         }
         if self.ip_field == 2 {
@@ -508,9 +515,14 @@ impl MenuFsm {
     pub(crate) fn begin_device_name_edit(&mut self, domain: &DomainState) {
         self.text_kbd.clear();
         self.text_kbd.mode = KeyboardMode::Text;
-        let _ = self.text_kbd.buffer.push_str(domain.persist.device.name.as_str());
+        let _ = self
+            .text_kbd
+            .buffer
+            .push_str(domain.persist.device.name.as_str());
         self.device_name_edit.clear();
-        let _ = self.device_name_edit.push_str(domain.persist.device.name.as_str());
+        let _ = self
+            .device_name_edit
+            .push_str(domain.persist.device.name.as_str());
         self.screen = Screen::DeviceNameEdit;
     }
 
@@ -542,7 +554,10 @@ impl MenuFsm {
             }
             return Intent::None;
         }
-        if matches!(self.screen, Screen::ServerEntry | Screen::IpEdit | Screen::DeviceIdEdit) {
+        if matches!(
+            self.screen,
+            Screen::ServerEntry | Screen::IpEdit | Screen::DeviceIdEdit
+        ) {
             if cw {
                 let _ = match self.screen {
                     Screen::ServerEntry => self.ip_kbd.nav_up(),
@@ -617,7 +632,9 @@ impl MenuFsm {
             } else if !self.selected_ssid.is_empty() {
                 if !self.pw.is_empty() {
                     (self.selected_ssid.as_str(), self.pw.as_str())
-                } else if let Some(stored) = domain.persist.find_password(self.selected_ssid.as_str()) {
+                } else if let Some(stored) =
+                    domain.persist.find_password(self.selected_ssid.as_str())
+                {
                     (self.selected_ssid.as_str(), stored)
                 } else {
                     (self.selected_ssid.as_str(), "")

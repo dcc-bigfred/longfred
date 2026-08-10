@@ -3,11 +3,11 @@
 use embassy_time::Instant;
 use longfred_proto::model::Direction;
 
+use crate::board::ControlSurface;
 use crate::board::chord::{ChordDetector, PROGRAMMING_CHORD_MS};
-use crate::board::descriptor::{VariantDescriptor, LAYOUT_128X32, LAYOUT_128X64};
+use crate::board::descriptor::{LAYOUT_128X32, LAYOUT_128X64, VariantDescriptor};
 use crate::board::raw::{AnalogId, ButtonId, RawEvent, SwitchId};
 use crate::board::shift_layers::map_fn;
-use crate::board::ControlSurface;
 use crate::input::{InputEvent, NavDir};
 
 pub const STANDARD: VariantDescriptor = VariantDescriptor {
@@ -120,9 +120,16 @@ impl LongFredSurface {
             }
             ButtonId::Hash if pressed => out(InputEvent::Digit('#')),
             ButtonId::Star if pressed => out(InputEvent::Digit('*')),
-            ButtonId::JoyUp | ButtonId::JoyDown | ButtonId::JoyLeft | ButtonId::JoyRight
-            | ButtonId::JoyMenu | ButtonId::Menu | ButtonId::Direction
-            | ButtonId::EncoderButton | ButtonId::KeypadDigit(_) | ButtonId::Hash
+            ButtonId::JoyUp
+            | ButtonId::JoyDown
+            | ButtonId::JoyLeft
+            | ButtonId::JoyRight
+            | ButtonId::JoyMenu
+            | ButtonId::Menu
+            | ButtonId::Direction
+            | ButtonId::EncoderButton
+            | ButtonId::KeypadDigit(_)
+            | ButtonId::Hash
             | ButtonId::Star => {}
         }
     }
@@ -158,7 +165,10 @@ impl ControlSurface for LongFredSurface {
                 out(InputEvent::DirectionSet(dir));
             }
             RawEvent::Switch(SwitchId::Loco(slot), v) => {
-                out(InputEvent::LocoSlot(slot, v != 0));
+                // Throttle slots are 1-indexed; ignore stray slot 0 events.
+                if slot >= 1 {
+                    out(InputEvent::LocoSlot(slot, v != 0));
+                }
             }
         }
 

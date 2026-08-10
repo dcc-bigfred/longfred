@@ -3,7 +3,7 @@
 use crate::adapter::WireBuf;
 use crate::command::{ClientCommand, LocoId};
 use crate::events::ServerEvent;
-use crate::model::{throttle_char, Direction, LocoAddr, LongText, TrackPower};
+use crate::model::{Direction, LocoAddr, LongText, TrackPower, throttle_char};
 
 const HDR_XBUS: u16 = 0x0040;
 const MAX_LOCOS: usize = 16;
@@ -61,7 +61,11 @@ fn steps_db0(steps: u8) -> u8 {
 
 /// Domain speed 0..=126 (128-step UI scale) → Z21 DB3 for the given speed-step mode.
 pub fn encode_db3(speed: u8, dir: Direction, steps: u8) -> u8 {
-    let r = if dir == Direction::Forward { 0x80 } else { 0x00 };
+    let r = if dir == Direction::Forward {
+        0x80
+    } else {
+        0x00
+    };
     if speed == 0 {
         return r;
     }
@@ -156,11 +160,7 @@ impl Z21Adapter {
         emit: &mut dyn FnMut(ServerEvent),
     ) {
         match cmd {
-            ClientCommand::AddLoco {
-                throttle,
-                loco,
-                ..
-            } => {
+            ClientCommand::AddLoco { throttle, loco, .. } => {
                 let _ = self.locos.push(Slot {
                     throttle: *throttle,
                     addr: loco.addr,
@@ -208,7 +208,11 @@ impl Z21Adapter {
             ClientCommand::SetSpeed { throttle, speed } => {
                 self.drive(*throttle, None, Some(*speed), None, out);
             }
-            ClientCommand::SetDirection { throttle, loco, dir } => {
+            ClientCommand::SetDirection {
+                throttle,
+                loco,
+                dir,
+            } => {
                 self.drive(*throttle, *loco, None, Some(*dir), out);
             }
             ClientCommand::EStop { throttle } => {
@@ -218,10 +222,7 @@ impl Z21Adapter {
                 }
             }
             ClientCommand::SetFunction {
-                throttle,
-                func,
-                on,
-                ..
+                throttle, func, on, ..
             } => {
                 for s in self.locos.iter_mut().filter(|s| s.throttle == *throttle) {
                     let a = addr_bytes(s.addr, s.long);
@@ -442,8 +443,16 @@ mod tests {
         put_xbus(&mut pkt, &[0x61, 0x01]);
         put_xbus(&mut pkt, &[0xEF, 0x00, 0x1F, 0x13, 0x80 | 40, 0x00]);
         adapter.decode(pkt.as_slice(), &mut emit);
-        assert!(events.iter().any(|e| matches!(e, ServerEvent::TrackPower(TrackPower::On))));
-        assert!(events.iter().any(|e| matches!(e, ServerEvent::Speed { speed: 39, .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, ServerEvent::TrackPower(TrackPower::On)))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, ServerEvent::Speed { speed: 39, .. }))
+        );
     }
 
     #[test]
@@ -467,8 +476,10 @@ mod tests {
             &mut emit,
         );
         assert!(!out.is_empty());
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, ServerEvent::AddressAdded { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, ServerEvent::AddressAdded { .. }))
+        );
     }
 }

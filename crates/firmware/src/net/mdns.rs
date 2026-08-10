@@ -1,18 +1,18 @@
 //! Discovery of WiThrottle and Z21 command stations via mDNS.
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
-use embassy_time::{with_timeout, Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use log::{info, warn};
 use longfred_proto::command::Protocol;
 use longfred_proto::mdns::{
-    build_ptr_query, collect_servers, WitServer, MDNS_MULTICAST_V4, MDNS_PORT, WITHROTTLE_SERVICE,
-    Z21_SERVICE,
+    MDNS_MULTICAST_V4, MDNS_PORT, WITHROTTLE_SERVICE, WitServer, Z21_SERVICE, build_ptr_query,
+    collect_servers,
 };
 
 use crate::config::{network, sizes};
-use crate::net::{NetStatus, ServerEndpoint, FOUND_SERVERS, MDNS_CTRL, SERVER, STATE};
+use crate::net::{FOUND_SERVERS, MDNS_CTRL, NetStatus, SERVER, STATE, ServerEndpoint};
 
 const MAX_SERVERS: usize = sizes::MAX_FOUND_SERVERS;
 

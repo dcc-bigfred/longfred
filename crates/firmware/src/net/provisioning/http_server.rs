@@ -1,7 +1,7 @@
 //! Minimal HTTP/1.1 server for Soft-AP provisioning (manual TcpSocket parser).
 
-use embassy_net::tcp::TcpSocket;
 use embassy_net::Stack;
+use embassy_net::tcp::TcpSocket;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
@@ -12,7 +12,7 @@ use longfred_proto::provisioning::{
 };
 
 use crate::net::provisioning::exit_programming_mode;
-use crate::storage::{StorageCmd, STORAGE_ACK, STORAGE_CTRL};
+use crate::storage::{STORAGE_ACK, STORAGE_CTRL, StorageCmd};
 
 const INDEX_HTML: &str = include_str!("index.html");
 
@@ -81,9 +81,7 @@ async fn handle_client(
     };
 
     match (method, path) {
-        ("GET", "/") => {
-            respond(sock, 200, "text/html; charset=utf-8", INDEX_HTML.as_bytes()).await
-        }
+        ("GET", "/") => respond(sock, 200, "text/html; charset=utf-8", INDEX_HTML.as_bytes()).await,
         ("GET", "/api/v1/settings") => {
             let guard = rec.lock().await;
             let mut json = [0u8; JSON_MAX];
@@ -95,8 +93,24 @@ async fn handle_client(
         ("PUT", "/api/v1/settings") => {
             let put = deserialize_settings_put(body).map_err(|_| "bad json")?;
             let mut guard = rec.lock().await;
-            if !apply_settings_put(&mut *guard, &put) {
-                return respond(sock, 400, "text/plain", b"apply failed").await;
+            let apply_err = apply_settings_put(&mut *guard, &put);
+            let msg: &'static str = match apply_err {
+                Ok(()) => "",
+                Err(longfred_proto::provisioning::ApplyError::HostnameTooLong) => {
+                    "hostname too long"
+                }
+                Err(longfred_proto::provisioning::ApplyError::LoginTooLong) => "login too long",
+                Err(longfred_proto::provisioning::ApplyError::PinTooLong) => "pin too long",
+                Err(longfred_proto::provisioning::ApplyError::RosterAddrTooLong) => {
+                    "roster addr too long"
+                }
+                Err(longfred_proto::provisioning::ApplyError::RosterNameTooLong) => {
+                    "roster name too long"
+                }
+                Err(longfred_proto::provisioning::ApplyError::RosterFull) => "roster full",
+            };
+            if !msg.is_empty() {
+                return respond(sock, 400, "text/plain", msg.as_bytes()).await;
             }
             let snapshot = guard.clone();
             drop(guard);
@@ -136,9 +150,7 @@ async fn read_headers(sock: &mut TcpSocket<'_>, buf: &mut [u8]) -> Result<usize,
 }
 
 fn find_header_end(buf: &[u8]) -> Option<usize> {
-    buf.windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .map(|i| i + 4)
+    buf.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4)
 }
 
 fn parse_request(buf: &[u8]) -> Result<(&str, &str, usize), &'static str> {
@@ -178,13 +190,17 @@ async fn respond(
         _ => "Error",
     };
     let mut hdr = heapless::String::<160>::new();
-    let _ = core::fmt::write(
+    if core::fmt::write(
         &mut hdr,
         format_args!(
             "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             body.len()
         ),
-    );
+    )
+    .is_err()
+    {
+        return Err("header overflow");
+    }
     write_all(sock, hdr.as_bytes()).await?;
     write_all(sock, body).await?;
     sock.flush().await.map_err(|_| "flush")?;

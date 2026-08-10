@@ -26,8 +26,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 
 /// Domain → LED presenter. Two subscribers allowed (presenter + debug).
-pub static LED_MODE: Watch<CriticalSectionRawMutex, LedMode, 2> =
-    Watch::new_with(LedMode::Boot);
+pub static LED_MODE: Watch<CriticalSectionRawMutex, LedMode, 2> = Watch::new_with(LedMode::Boot);
 
 struct Leds {
     stop: Output<'static>,
@@ -58,19 +57,28 @@ impl Leds {
 /// Steal status LED pins (call once from `main` under heiko feature).
 ///
 /// # Safety
-/// Pins must not be used elsewhere.
+///
+/// Caller must guarantee these pins are not used elsewhere. In practice this
+/// is invoked exactly once from `main` before any other task touches the
+/// heiko-wifred GPIOs, so the `steal` is sound by construction.
 pub fn build() -> (Output<'static>, Output<'static>, Output<'static>) {
     let cfg = OutputConfig::default();
+    // SAFETY: `HEIKO_LED_STOP` is reserved for this presenter; `main` calls
+    // `build()` once before spawning the LED task, so no aliasing occurs.
     let stop = Output::new(
         unsafe { AnyPin::steal(board::HEIKO_LED_STOP) },
         Level::Low,
         cfg,
     );
+    // SAFETY: `HEIKO_LED_FORWARD` is reserved for this presenter; single
+    // owner established in `main` before any other task runs.
     let forward = Output::new(
         unsafe { AnyPin::steal(board::HEIKO_LED_FORWARD) },
         Level::Low,
         cfg,
     );
+    // SAFETY: `HEIKO_LED_REVERSE` is reserved for this presenter; single
+    // owner established in `main` before any other task runs.
     let reverse = Output::new(
         unsafe { AnyPin::steal(board::HEIKO_LED_REVERSE) },
         Level::Low,
@@ -80,17 +88,19 @@ pub fn build() -> (Output<'static>, Output<'static>, Output<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn task(
-    stop: Output<'static>,
-    forward: Output<'static>,
-    reverse: Output<'static>,
-) {
+pub async fn task(stop: Output<'static>, forward: Output<'static>, reverse: Output<'static>) {
     let mut leds = Leds {
         stop,
         forward,
         reverse,
     };
-    let mut rx = LED_MODE.receiver().unwrap();
+    let mut rx = match LED_MODE.receiver() {
+        Some(r) => r,
+        None => {
+            log::error!("led_presenter: no receiver slot in LED_MODE");
+            return;
+        }
+    };
     let mut mode = rx.try_get().unwrap_or(LedMode::Boot);
     let mut phase = false;
     let mut last_tick = Instant::now();

@@ -4,9 +4,9 @@
 use embassy_time::{Duration, Timer};
 use embedded_hal::i2c::I2c;
 
-use crate::board::raw::{ButtonId, RawEvent, RawSender, SwitchId};
-use crate::config::board::{LogicalButton, BUTTON_MAP, MCP_ADDRESSES};
 use super::i2c_bus::SharedI2cDevice;
+use crate::board::raw::{ButtonId, RawEvent, RawSender, SwitchId};
+use crate::config::board::{BUTTON_MAP, LogicalButton, MCP_ADDRESSES};
 
 const POLL_MS: u64 = 10;
 const DEBOUNCE_TICKS: u8 = 2;
@@ -143,16 +143,15 @@ fn process_chip(
 
 fn direction_value(stable_a: u8) -> u8 {
     // GPA3 on MCP #1: LOW = Forward (COM to GND), HIGH = Reverse.
-    if pressed_bit(stable_a, 3) {
-        1
-    } else {
-        0
-    }
+    if pressed_bit(stable_a, 3) { 1 } else { 0 }
 }
 
 #[embassy_executor::task]
 pub async fn task(mut i2c: SharedI2cDevice, sender: RawSender) {
-    let mut chips = [McpState::new(MCP_ADDRESSES[0]), McpState::new(MCP_ADDRESSES[1])];
+    let mut chips = [
+        McpState::new(MCP_ADDRESSES[0]),
+        McpState::new(MCP_ADDRESSES[1]),
+    ];
 
     let mut present = 0u8;
     for chip in chips.iter() {
@@ -184,10 +183,18 @@ pub async fn task(mut i2c: SharedI2cDevice, sender: RawSender) {
             mcp.raw_a = raw_a;
             mcp.raw_b = raw_b;
 
-            let (rise_a, fall_a) =
-                update_debounce(raw_a, &mut mcp.stable_a, &mut mcp.debounce_a, &mut mcp.pressed_a);
-            let (rise_b, fall_b) =
-                update_debounce(raw_b, &mut mcp.stable_b, &mut mcp.debounce_b, &mut mcp.pressed_b);
+            let (rise_a, fall_a) = update_debounce(
+                raw_a,
+                &mut mcp.stable_a,
+                &mut mcp.debounce_a,
+                &mut mcp.pressed_a,
+            );
+            let (rise_b, fall_b) = update_debounce(
+                raw_b,
+                &mut mcp.stable_b,
+                &mut mcp.debounce_b,
+                &mut mcp.pressed_b,
+            );
 
             process_chip(mcp, rise_a, fall_a, rise_b, fall_b, &sender);
 

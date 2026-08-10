@@ -18,11 +18,11 @@ use embassy_net::{Config as NetConfig, DhcpConfig, StackResources};
 #[cfg(not(feature = "sim"))]
 use esp_radio::wifi::{Interface, WifiController};
 
-use longfred_firmware::{board, config, domain, input, storage, ui};
-#[cfg(not(feature = "sim"))]
-use longfred_firmware::power;
 #[cfg(not(feature = "sim"))]
 use longfred_firmware::net;
+#[cfg(not(feature = "sim"))]
+use longfred_firmware::power;
+use longfred_firmware::{board, config, domain, input, storage, ui};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -81,8 +81,15 @@ async fn main(spawner: Spawner) -> ! {
                 prog_rec,
             );
         } else {
-            let controller = WifiController::new(peripherals.WIFI, Default::default())
-                .expect("WifiController::new");
+            let controller = match WifiController::new(peripherals.WIFI, Default::default()) {
+                Ok(c) => c,
+                Err(e) => {
+                    log::error!("boot: WifiController::new failed: {:?} — hanging", e);
+                    loop {
+                        Timer::after(Duration::from_secs(60)).await;
+                    }
+                }
+            };
             let sta = Interface::station();
 
             static RESOURCES: StaticCell<StackResources<{ config::sizes::NET_SOCKETS }>> =

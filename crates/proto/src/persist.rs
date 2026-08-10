@@ -228,7 +228,11 @@ impl PersistRecord {
 
     /// Replace existing password or append; evict oldest when full.
     pub fn set_password(&mut self, ssid: &str, pw: &str) {
-        if let Some(c) = self.credentials.iter_mut().find(|c| c.ssid.as_str() == ssid) {
+        if let Some(c) = self
+            .credentials
+            .iter_mut()
+            .find(|c| c.ssid.as_str() == ssid)
+        {
             c.password.clear();
             let _ = c.password.push_str(pw);
             return;
@@ -463,12 +467,8 @@ impl PersistRecord {
                             let addr_bytes = read_slice(buf, &mut off, addr_len)?;
                             let name_bytes = read_slice(buf, &mut off, name_len)?;
                             let mut entry = StaticRosterEntry::default();
-                            let _ = entry
-                                .addr
-                                .push_str(core::str::from_utf8(addr_bytes).ok()?);
-                            let _ = entry
-                                .name
-                                .push_str(core::str::from_utf8(name_bytes).ok()?);
+                            let _ = entry.addr.push_str(core::str::from_utf8(addr_bytes).ok()?);
+                            let _ = entry.name.push_str(core::str::from_utf8(name_bytes).ok()?);
                             let _ = rec.static_roster.push(entry);
                         }
                     }
@@ -701,7 +701,10 @@ mod tests {
     fn wifi_hostname_from_entropy_format() {
         let host = wifi_hostname_from_entropy(0x1234_5678);
         assert!(host.starts_with(WIFI_HOSTNAME_PREFIX));
-        assert_eq!(host.len(), WIFI_HOSTNAME_PREFIX.len() + WIFI_HOSTNAME_SUFFIX_LEN);
+        assert_eq!(
+            host.len(),
+            WIFI_HOSTNAME_PREFIX.len() + WIFI_HOSTNAME_SUFFIX_LEN
+        );
         for c in host[WIFI_HOSTNAME_PREFIX.len()..].chars() {
             assert!(c.is_ascii_digit() || ('a'..='z').contains(&c));
         }

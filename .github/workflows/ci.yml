@@ -24,6 +24,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu
+          components: clippy, rustfmt
 
       - name: Cache cargo registry
         uses: Swatinem/rust-cache@v2
@@ -33,9 +34,62 @@ jobs:
       - name: Run tests
         run: cargo test -p longfred-proto --target x86_64-unknown-linux-gnu
 
+      - name: rustfmt check
+        run: cargo fmt --all -- --check
+
+      - name: clippy (proto, host)
+        run: |
+          # Workspace lints apply `clippy::all = deny` and `pedantic = warn`.
+          # `missing_docs` is warn-by-policy (CODING-GUIDELINES §12.2); pre-existing
+          # gaps are tracked separately and must not block this PR.
+          cargo clippy -p longfred-proto --target x86_64-unknown-linux-gnu -- \
+            -A rustdoc::missing_docs -A missing_docs
+
+  clippy:
+    name: Clippy firmware (${{ matrix.variant }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: longfred-standard
+            features: variant-longfred-standard
+          - variant: longfred-mini
+            features: variant-longfred-mini
+          - variant: markwtech
+            features: variant-markwtech
+          - variant: heiko-wifred
+            features: variant-heiko-wifred
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv32imac-unknown-none-elf
+          components: clippy
+          rust-src: true
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          key: clippy-${{ matrix.variant }}
+
+      - name: Clippy
+        run: |
+          # Workspace lints apply `clippy::all = deny` and `pedantic = warn`.
+          # `missing_docs` is warn-by-policy (CODING-GUIDELINES §12.2); pre-existing
+          # gaps are tracked separately and must not block this PR.
+          cargo clippy -p longfred-firmware --no-default-features \
+            --features "${{ matrix.features }}" -- \
+            -A rustdoc::missing_docs -A missing_docs
+
   build:
     name: Build firmware (${{ matrix.variant }})
-    needs: test
+    needs: clippy
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

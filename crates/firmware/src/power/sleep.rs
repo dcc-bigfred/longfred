@@ -4,13 +4,13 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_hal::gpio::RtcPinWithResistors;
-use esp_hal::rtc_cntl::sleep::{Ext1WakeupSource, WakeupLevel};
 use esp_hal::rtc_cntl::Rtc;
+use esp_hal::rtc_cntl::sleep::{Ext1WakeupSource, WakeupLevel};
 
 use crate::config::power;
+use crate::ui::UI_VIEW;
 use crate::ui::i18n;
 use crate::ui::view::{GridView, UiView};
-use crate::ui::UI_VIEW;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SleepReason {

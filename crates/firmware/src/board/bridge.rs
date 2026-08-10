@@ -1,12 +1,14 @@
 //! Raw → ControlSurface → INPUT_CHANNEL bridge task.
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Instant, Timer};
 
-use crate::board::raw::RAW_CHANNEL;
 use crate::board::ControlSurface;
+use crate::board::raw::RAW_CHANNEL;
 use crate::input::INPUT_CHANNEL;
 
+#[cfg(feature = "variant-heiko-wifred")]
+use crate::board::variants::heiko_wifred::HeikoWifredSurface;
 #[cfg(any(
     feature = "variant-longfred-standard",
     feature = "variant-longfred-mini"
@@ -14,8 +16,6 @@ use crate::input::INPUT_CHANNEL;
 use crate::board::variants::longfred_family::LongFredSurface;
 #[cfg(feature = "variant-markwtech")]
 use crate::board::variants::markwtech::MarkwtechSurface;
-#[cfg(feature = "variant-heiko-wifred")]
-use crate::board::variants::heiko_wifred::HeikoWifredSurface;
 
 const TICK_MS: u64 = 50;
 

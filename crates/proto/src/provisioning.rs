@@ -1,7 +1,8 @@
 //! HTTP provisioning settings DTOs (serde-json-core, no heapless feature).
 
 use crate::persist::{
-    PersistRecord, RosterMode, StaticRosterEntry, MAX_CREDENTIALS, MAX_SAVED_LOCOS,
+    MAX_BIGFRED_LOGIN_LEN, MAX_CREDENTIALS, MAX_SAVED_LOCOS, MAX_WIFI_HOSTNAME_LEN, PersistRecord,
+    RosterMode, StaticRosterEntry,
 };
 
 use serde::{Deserialize, Serialize};
@@ -163,8 +164,8 @@ pub fn serialize_settings_from_record(
 ) -> Result<usize, serde_json_core::ser::Error> {
     let mut ssids: [&str; MAX_CREDENTIALS] = [""; MAX_CREDENTIALS];
     let n = rec.credentials.len().min(MAX_CREDENTIALS);
-    for i in 0..n {
-        ssids[i] = rec.credentials[i].ssid.as_str();
+    for (slot, cred) in ssids.iter_mut().zip(rec.credentials.iter()).take(n) {
+        *slot = cred.ssid.as_str();
     }
     serialize_settings(buf, rec, &ssids[..n])
 }
@@ -260,15 +261,38 @@ where
 }
 
 /// Deserialize a PUT body from JSON bytes.
-pub fn deserialize_settings_put(
-    buf: &[u8],
-) -> Result<SettingsPut<'_>, serde_json_core::de::Error> {
+pub fn deserialize_settings_put(buf: &[u8]) -> Result<SettingsPut<'_>, serde_json_core::de::Error> {
     let (put, _rest) = serde_json_core::from_slice(buf)?;
     Ok(put)
 }
 
-/// Apply a PUT body onto a persist record. Returns `false` if a string was too long.
-pub fn apply_settings_put(rec: &mut PersistRecord, put: &SettingsPut<'_>) -> bool {
+/// Error returned by [`apply_settings_put`] when a field exceeds its
+/// fixed-capacity storage in [`PersistRecord`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApplyError {
+    /// `wifi.hostname` longer than `MAX_WIFI_HOSTNAME_LEN`.
+    HostnameTooLong,
+    /// `bigfred.login` longer than `MAX_BIGFRED_LOGIN_LEN`.
+    LoginTooLong,
+    /// `bigfred.pin` longer than `MAX_BIGFRED_PIN_LEN`.
+    PinTooLong,
+    /// A roster `addr` longer than the entry capacity.
+    RosterAddrTooLong,
+    /// A roster `name` longer than `MAX_STATIC_ROSTER_NAME_LEN`.
+    RosterNameTooLong,
+    /// More roster entries than `MAX_SAVED_LOCOS`.
+    RosterFull,
+}
+
+/// Apply a PUT body onto a persist record.
+///
+/// Returns `Err(ApplyError)` when a string does not fit its fixed-capacity
+/// storage; in that case the record is left in a partially-updated state
+/// (callers should treat the whole PUT as rejected).
+pub fn apply_settings_put(
+    rec: &mut PersistRecord,
+    put: &SettingsPut<'_>,
+) -> Result<(), ApplyError> {
     if let Some(wifi) = &put.wifi {
         if let (Some(ssid), Some(password)) = (wifi.ssid, wifi.password) {
             rec.set_password(ssid, password);
@@ -276,7 +300,7 @@ pub fn apply_settings_put(rec: &mut PersistRecord, put: &SettingsPut<'_>) -> boo
         if let Some(host) = wifi.hostname {
             rec.wifi_hostname.clear();
             if rec.wifi_hostname.push_str(host).is_err() {
-                return false;
+                return Err(ApplyError::HostnameTooLong);
             }
         }
     }
@@ -285,13 +309,13 @@ pub fn apply_settings_put(rec: &mut PersistRecord, put: &SettingsPut<'_>) -> boo
         if let Some(login) = bf.login {
             rec.bigfred_login.clear();
             if rec.bigfred_login.push_str(login).is_err() {
-                return false;
+                return Err(ApplyError::LoginTooLong);
             }
         }
         if let Some(pin) = bf.pin {
             rec.bigfred_pin.clear();
             if rec.bigfred_pin.push_str(pin).is_err() {
-                return false;
+                return Err(ApplyError::PinTooLong);
             }
         }
     }
@@ -313,20 +337,20 @@ pub fn apply_settings_put(rec: &mut PersistRecord, put: &SettingsPut<'_>) -> boo
             let Some(e) = slot else { continue };
             let mut entry = StaticRosterEntry::default();
             if entry.addr.push_str(e.addr).is_err() {
-                return false;
+                return Err(ApplyError::RosterAddrTooLong);
             }
-            if let Some(name) = e.name {
-                if entry.name.push_str(name).is_err() {
-                    return false;
-                }
+            if let Some(name) = e.name
+                && entry.name.push_str(name).is_err()
+            {
+                return Err(ApplyError::RosterNameTooLong);
             }
             if rec.static_roster.push(entry).is_err() {
-                return false;
+                return Err(ApplyError::RosterFull);
             }
         }
     }
 
-    true
+    Ok(())
 }
 
 #[cfg(test)]
@@ -399,7 +423,7 @@ mod tests {
         }"#;
         let put = deserialize_settings_put(json).unwrap();
         let mut rec = PersistRecord::default();
-        assert!(apply_settings_put(&mut rec, &put));
+        assert!(apply_settings_put(&mut rec, &put).is_ok());
         assert_eq!(rec.roster_mode, RosterMode::Static);
         assert_eq!(rec.static_roster.len(), 2);
         assert_eq!(rec.static_roster[0].addr.as_str(), "S42");
@@ -415,7 +439,7 @@ mod tests {
         let json = br#"{"wifi":{"ssid":"Club","password":"x"}}"#;
         let put = deserialize_settings_put(json).unwrap();
         let mut rec = PersistRecord::default();
-        assert!(apply_settings_put(&mut rec, &put));
+        assert!(apply_settings_put(&mut rec, &put).is_ok());
         assert_eq!(rec.find_password("Club"), Some("x"));
     }
 
@@ -425,8 +449,32 @@ mod tests {
         let mut rec = PersistRecord::default();
         let _ = rec.bigfred_login.push_str("keep");
         rec.programming_mode = true;
-        assert!(apply_settings_put(&mut rec, &put));
+        assert!(apply_settings_put(&mut rec, &put).is_ok());
         assert_eq!(rec.bigfred_login.as_str(), "keep");
         assert!(rec.programming_mode);
+    }
+
+    #[test]
+    fn apply_too_long_hostname_returns_typed_error() {
+        let long = "x".repeat(MAX_WIFI_HOSTNAME_LEN + 1);
+        let json = format!(r#"{{"wifi":{{"hostname":"{long}"}}}}"#);
+        let put = deserialize_settings_put(json.as_bytes()).unwrap();
+        let mut rec = PersistRecord::default();
+        assert_eq!(
+            apply_settings_put(&mut rec, &put),
+            Err(ApplyError::HostnameTooLong)
+        );
+    }
+
+    #[test]
+    fn apply_too_long_login_returns_typed_error() {
+        let long = "x".repeat(MAX_BIGFRED_LOGIN_LEN + 1);
+        let json = format!(r#"{{"bigfred":{{"login":"{long}"}}}}"#);
+        let put = deserialize_settings_put(json.as_bytes()).unwrap();
+        let mut rec = PersistRecord::default();
+        assert_eq!(
+            apply_settings_put(&mut rec, &put),
+            Err(ApplyError::LoginTooLong)
+        );
     }
 }

@@ -203,12 +203,7 @@ fn parse_loco_action(throttle: char, s: &str, emit: &mut impl FnMut(ServerEvent)
             }
         }
         'R' => {
-            let dir = Direction::from_wire(
-                act.as_bytes()
-                    .get(1)
-                    .copied()
-                    .unwrap_or(b'1') as char,
-            );
+            let dir = Direction::from_wire(act.as_bytes().get(1).copied().unwrap_or(b'1') as char);
             if addr == "*" {
                 emit(ServerEvent::DirectionLead { throttle, dir });
             } else {
@@ -222,11 +217,7 @@ fn parse_loco_action(throttle: char, s: &str, emit: &mut impl FnMut(ServerEvent)
         'F' => {
             let on = act.as_bytes().get(1) == Some(&b'1');
             if let Ok(func) = act[2..].parse::<u8>() {
-                emit(ServerEvent::FunctionState {
-                    throttle,
-                    func,
-                    on,
-                });
+                emit(ServerEvent::FunctionState { throttle, func, on });
             }
         }
         // 's' speed steps — not surfaced in ServerEvent (domain uses local config).
@@ -325,9 +316,7 @@ fn parse_three_segments(entry: &str) -> Option<(&str, &str, &str)> {
 }
 
 fn find_from(haystack: &str, needle: &str, from: usize) -> Option<usize> {
-    haystack[from..]
-        .find(needle)
-        .map(|pos| from + pos)
+    haystack[from..].find(needle).map(|pos| from + pos)
 }
 
 fn starts(s: &str, prefix: &str) -> bool {

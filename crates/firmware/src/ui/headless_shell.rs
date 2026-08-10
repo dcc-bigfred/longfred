@@ -1,8 +1,5 @@
-//! Headless UiShell for heiko-wifred (no menu / permanent drive mode).
+//! Headless shell for heiko-wifred (no menu / permanent drive mode).
 
-use embassy_time::Instant;
-
-use crate::board::UiShell;
 use crate::domain::actions::Action;
 use crate::domain::state::DomainState;
 use crate::input::InputEvent;
@@ -53,9 +50,7 @@ impl HeadlessShell {
             InputEvent::FnPress(f) => Intent::Function(f, true),
             InputEvent::FnRelease(f) => Intent::Function(f, false),
             InputEvent::EStop | InputEvent::Stop => Intent::Action(Action::EStop),
-            InputEvent::LocoSlot(slot, on) if on && slot >= 1 => {
-                Intent::Action(Action::Throttle(slot))
-            }
+            InputEvent::LocoSlot(slot, on) if on => Intent::Action(Action::Throttle(slot)),
             InputEvent::SpeedAbsolute(_)
             | InputEvent::EnterProgrammingMode
             | InputEvent::LocoSlot(_, _) => Intent::None,
@@ -97,12 +92,4 @@ impl Default for HeadlessShell {
     fn default() -> Self {
         Self::new()
     }
-}
-
-impl UiShell for HeadlessShell {
-    fn on_input(&mut self, _ev: InputEvent, _now: Instant) {
-        // Prefer [`HeadlessShell::handle`], which returns Intent for the domain task.
-    }
-
-    fn tick(&mut self, _now: Instant) {}
 }

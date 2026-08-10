@@ -2,7 +2,7 @@
 
 use longfred_proto::command::Protocol;
 use longfred_proto::model::TurnoutAction;
-use longfred_proto::persist::{Language, DEVICE_ID_MAX, DEVICE_ID_MIN};
+use longfred_proto::persist::{DEVICE_ID_MAX, DEVICE_ID_MIN, Language};
 
 use crate::config::{self, buttons, sizes};
 use crate::domain::actions::Action;
@@ -10,7 +10,7 @@ use crate::domain::state::DomainState;
 use crate::input::{InputEvent, NavDir};
 use crate::net::SsidInfo;
 use crate::ui::keyboard::KeyboardMode;
-use crate::ui::menu::{Intent, ListRef, MenuFsm, MenuItemType, Screen, MENU_KEYS, MENU_TYPES};
+use crate::ui::menu::{Intent, ListRef, MENU_KEYS, MENU_TYPES, MenuFsm, MenuItemType, Screen};
 use crate::ui::nav_profile::{self, NavAction, NavProfile};
 
 impl MenuFsm {
@@ -21,8 +21,9 @@ impl MenuFsm {
         scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
     ) -> Intent {
         let text_entry = self.is_text_entry_screen();
+        let on_throttle = self.screen == Screen::Throttle;
         let profile = nav_profile::active();
-        let Some(action) = profile.map(ev, text_entry) else {
+        let Some(action) = profile.map(ev, text_entry, on_throttle) else {
             return Intent::None;
         };
         match action {
@@ -80,10 +81,13 @@ impl MenuFsm {
         if self.screen == Screen::Throttle {
             return self.on_menu_key(domain);
         }
-        if self.is_text_entry_screen() || self.is_list_screen() || matches!(
-            self.screen,
-            Screen::IpConfig | Screen::IpEdit | Screen::ServerEntry
-        ) {
+        if self.is_text_entry_screen()
+            || self.is_list_screen()
+            || matches!(
+                self.screen,
+                Screen::IpConfig | Screen::IpEdit | Screen::ServerEntry
+            )
+        {
             return self.on_ok(domain, scanned);
         }
         self.on_menu_key(domain)
@@ -224,14 +228,18 @@ impl MenuFsm {
             InputEvent::Stop if self.screen == Screen::Throttle => {
                 Some(Intent::Action(Action::EStop))
             }
-            InputEvent::DirectionSet(dir) if self.screen == Screen::Throttle && domain.current_slot_has_loco() => {
+            InputEvent::DirectionSet(dir)
+                if self.screen == Screen::Throttle && domain.current_slot_has_loco() =>
+            {
                 Some(if dir == longfred_proto::model::Direction::Forward {
                     Intent::Action(Action::DirectionForward)
                 } else {
                     Intent::Action(Action::DirectionReverse)
                 })
             }
-            InputEvent::DirectionToggle if self.screen == Screen::Throttle && domain.current_slot_has_loco() => {
+            InputEvent::DirectionToggle
+                if self.screen == Screen::Throttle && domain.current_slot_has_loco() =>
+            {
                 Some(Intent::Action(Action::DirectionToggle))
             }
             InputEvent::Menu if self.screen == Screen::Throttle => {
@@ -245,12 +253,18 @@ impl MenuFsm {
                     && domain.current_slot_has_loco()
                     && !self.is_text_entry_screen() =>
             {
-                Some(Intent::Function(buttons::FN_TO_DCC[k.min(10) as usize], true))
+                Some(Intent::Function(
+                    buttons::FN_TO_DCC[k.min(10) as usize],
+                    true,
+                ))
             }
             InputEvent::FnRelease(k)
                 if self.screen == Screen::Throttle && domain.current_slot_has_loco() =>
             {
-                Some(Intent::Function(buttons::FN_TO_DCC[k.min(10) as usize], false))
+                Some(Intent::Function(
+                    buttons::FN_TO_DCC[k.min(10) as usize],
+                    false,
+                ))
             }
             InputEvent::EnterProgrammingMode => Some(Intent::EnterProgrammingMode),
             _ => None,
@@ -278,7 +292,12 @@ impl MenuFsm {
         Intent::None
     }
 
-    fn on_nav(&mut self, dir: NavDir, domain: &DomainState, scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>) -> Intent {
+    fn on_nav(
+        &mut self,
+        dir: NavDir,
+        domain: &DomainState,
+        scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> Intent {
         match self.screen {
             Screen::Password | Screen::DeviceNameEdit => {
                 match dir {
@@ -370,7 +389,11 @@ impl MenuFsm {
         Intent::None
     }
 
-    fn on_ok(&mut self, domain: &DomainState, scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>) -> Intent {
+    fn on_ok(
+        &mut self,
+        domain: &DomainState,
+        scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> Intent {
         match self.screen {
             Screen::Throttle => self.ok_throttle(domain),
             Screen::Menu => self.ok_menu(),
@@ -450,7 +473,12 @@ impl MenuFsm {
         }
     }
 
-    fn on_fn_press(&mut self, k: u8, domain: &DomainState, _scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>) -> Intent {
+    fn on_fn_press(
+        &mut self,
+        k: u8,
+        domain: &DomainState,
+        _scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> Intent {
         if self.screen == Screen::Menu && !self.menu_cmd.is_empty() {
             if k <= 9 {
                 let c = (b'0' + k) as char;
@@ -517,7 +545,11 @@ impl MenuFsm {
         )
     }
 
-    fn list_count(&self, domain: &DomainState, scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>) -> usize {
+    fn list_count(
+        &self,
+        domain: &DomainState,
+        scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> usize {
         match self.screen {
             Screen::SsidList => config::network::NETWORKS.len(),
             Screen::SsidScan => scanned.len().saturating_sub(self.page * 5).min(5),
@@ -536,7 +568,12 @@ impl MenuFsm {
         }
     }
 
-    fn list_nav(&mut self, dir: NavDir, domain: &DomainState, scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>) -> Intent {
+    fn list_nav(
+        &mut self,
+        dir: NavDir,
+        domain: &DomainState,
+        scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> Intent {
         let count = self.list_count(domain, scanned);
         if count == 0 {
             return Intent::None;
@@ -558,7 +595,11 @@ impl MenuFsm {
         Intent::None
     }
 
-    fn list_page_next(&mut self, domain: &DomainState, scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>) -> Intent {
+    fn list_page_next(
+        &mut self,
+        domain: &DomainState,
+        scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> Intent {
         match self.screen {
             Screen::SsidList => {
                 self.screen = Screen::SsidScan;
@@ -714,7 +755,11 @@ impl MenuFsm {
         }
     }
 
-    fn ok_ssid_scan(&mut self, domain: &DomainState, scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>) -> Intent {
+    fn ok_ssid_scan(
+        &mut self,
+        domain: &DomainState,
+        scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> Intent {
         self.selected_ssid_idx = self.page * 5 + self.cursor;
         self.selected_from_scan = true;
         self.selected_ssid.clear();
@@ -816,7 +861,9 @@ impl MenuFsm {
     fn ok_device_name(&mut self, domain: &DomainState) -> Intent {
         let _ = self.text_kbd.ok();
         self.device_name_edit.clear();
-        let _ = self.device_name_edit.push_str(self.text_kbd.buffer.as_str());
+        let _ = self
+            .device_name_edit
+            .push_str(self.text_kbd.buffer.as_str());
         let mut device = domain.persist.device.clone();
         device.name.clear();
         let _ = device.name.push_str(self.device_name_edit.as_str());

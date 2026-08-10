@@ -52,7 +52,8 @@ pub const INPUT_CHANNEL_DEPTH: usize = 16;
 
 pub type InputChannel = Channel<CriticalSectionRawMutex, InputEvent, INPUT_CHANNEL_DEPTH>;
 pub type InputSender = Sender<'static, CriticalSectionRawMutex, InputEvent, INPUT_CHANNEL_DEPTH>;
-pub type InputReceiver = Receiver<'static, CriticalSectionRawMutex, InputEvent, INPUT_CHANNEL_DEPTH>;
+pub type InputReceiver =
+    Receiver<'static, CriticalSectionRawMutex, InputEvent, INPUT_CHANNEL_DEPTH>;
 
 /// Sole input channel: board bridge -> domain.
 pub static INPUT_CHANNEL: InputChannel = Channel::new();

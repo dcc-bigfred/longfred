@@ -26,7 +26,9 @@ pub fn finish_menu(cmd: &str) -> MenuFinish {
         return MenuFinish::None;
     }
     let mut bytes = cmd.as_bytes().iter();
-    let first = *bytes.next().unwrap() as char;
+    // `cmd.is_empty()` is checked above, so indexing [0] is in-bounds.
+    let first = cmd.as_bytes()[0] as char;
+    let _ = bytes.next();
     let mut rest = heapless::String::<8>::new();
     let _ = rest.push_str(cmd.get(1..).unwrap_or(""));
     match first {
@@ -128,10 +130,7 @@ mod tests {
 
     #[test]
     fn menu_turnout_list_throw() {
-        assert_eq!(
-            finish_menu("5"),
-            MenuFinish::TurnoutList { throw: true }
-        );
+        assert_eq!(finish_menu("5"), MenuFinish::TurnoutList { throw: true });
     }
 
     #[test]

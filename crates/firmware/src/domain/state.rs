@@ -4,14 +4,14 @@ use embassy_time::{Duration, Instant};
 use log::warn;
 use longfred_proto::command::{ClientCommand, LocoId};
 use longfred_proto::events::ServerEvent;
-use longfred_proto::model::{Direction, LocoAddr, LongText, ShortText, TurnoutAction, TrackPower};
-use longfred_proto::persist::{PersistRecord, SavedLoco, MAX_SAVED_LOCOS};
+use longfred_proto::model::{Direction, LocoAddr, LongText, ShortText, TrackPower, TurnoutAction};
+use longfred_proto::persist::{MAX_SAVED_LOCOS, PersistRecord, SavedLoco};
 
 use crate::config::{self, buttons, network, sizes};
 use crate::domain::actions::Action;
 use crate::domain::model::{
-    self, throttle_char, throttle_index, FunctionFollow, NamedEntry, RosterEntry, ThrottleSlot,
-    MAX_SPEED, SHORT_DCC_ADDRESS_LIMIT,
+    self, FunctionFollow, MAX_SPEED, NamedEntry, RosterEntry, SHORT_DCC_ADDRESS_LIMIT,
+    ThrottleSlot, throttle_char, throttle_index,
 };
 use crate::ui::i18n;
 
@@ -120,8 +120,12 @@ impl DomainState {
                 let dir = opposite_slot_direction(self.current_slot().direction);
                 self.change_direction(self.current, dir, out)
             }
-            Action::DirectionForward => self.change_direction(self.current, Direction::Forward, out),
-            Action::DirectionReverse => self.change_direction(self.current, Direction::Reverse, out),
+            Action::DirectionForward => {
+                self.change_direction(self.current, Direction::Forward, out)
+            }
+            Action::DirectionReverse => {
+                self.change_direction(self.current, Direction::Reverse, out)
+            }
             Action::MaxThrottleIncrease => {
                 if self.max_throttles < config::sizes::MAX_THROTTLES {
                     self.max_throttles += 1;
@@ -162,7 +166,11 @@ impl DomainState {
         }
     }
 
-    pub fn acquire_addr(&mut self, digits: &str, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
+    pub fn acquire_addr(
+        &mut self,
+        digits: &str,
+        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    ) -> bool {
         if digits.is_empty() {
             return false;
         }
@@ -195,7 +203,11 @@ impl DomainState {
         true
     }
 
-    pub fn acquire_roster(&mut self, index: usize, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
+    pub fn acquire_roster(
+        &mut self,
+        index: usize,
+        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    ) -> bool {
         let Some(entry) = self.roster.get(index) else {
             return false;
         };
@@ -267,7 +279,11 @@ impl DomainState {
         true
     }
 
-    pub fn route_by_addr(&mut self, addr_digits: &str, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
+    pub fn route_by_addr(
+        &mut self,
+        addr_digits: &str,
+        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    ) -> bool {
         let prefix = network_prefix_route();
         let mut sys = heapless::String::<32>::new();
         let _ = sys.push_str(prefix);
@@ -276,7 +292,11 @@ impl DomainState {
         true
     }
 
-    pub fn route_by_index(&mut self, index: usize, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
+    pub fn route_by_index(
+        &mut self,
+        index: usize,
+        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    ) -> bool {
         let Some(entry) = self.routes.get(index) else {
             return false;
         };
@@ -291,10 +311,7 @@ impl DomainState {
 
     pub fn toggle_heartbeat(&mut self, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
         self.heartbeat_on = !self.heartbeat_on;
-        push_cmd(
-            out,
-            ClientCommand::SetHeartbeat(self.heartbeat_on),
-        );
+        push_cmd(out, ClientCommand::SetHeartbeat(self.heartbeat_on));
         true
     }
 
@@ -377,9 +394,11 @@ impl DomainState {
             }
             ServerEvent::Speed { throttle, speed } => self.on_speed_echo(throttle, speed),
             ServerEvent::DirectionLead { throttle, dir } => self.on_direction_lead(throttle, dir),
-            ServerEvent::DirectionLoco { throttle, addr, dir } => {
-                self.on_direction_loco(throttle, addr, dir)
-            }
+            ServerEvent::DirectionLoco {
+                throttle,
+                addr,
+                dir,
+            } => self.on_direction_loco(throttle, addr, dir),
             ServerEvent::FunctionState { throttle, func, on } => {
                 self.on_function_state(throttle, func, on)
             }
@@ -676,7 +695,11 @@ impl DomainState {
             return false;
         }
         let step = self.effective_speed_step(fast);
-        let new_speed = self.current_slot().speed.saturating_add(step).min(MAX_SPEED);
+        let new_speed = self
+            .current_slot()
+            .speed
+            .saturating_add(step)
+            .min(MAX_SPEED);
         self.speed_set(new_speed, out)
     }
 
@@ -696,7 +719,8 @@ impl DomainState {
         } else {
             1
         };
-        base.saturating_mul(mult).saturating_mul(self.speed_multiplier)
+        base.saturating_mul(mult)
+            .saturating_mul(self.speed_multiplier)
     }
 
     fn speed_set(&mut self, speed: u8, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
@@ -759,7 +783,10 @@ impl DomainState {
         }
     }
 
-    fn stop_then_toggle_direction(&mut self, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
+    fn stop_then_toggle_direction(
+        &mut self,
+        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    ) -> bool {
         if self.current_slot().speed != 0 {
             return self.speed_set(0, out);
         }
@@ -832,12 +859,7 @@ impl DomainState {
         self.pending_speed = None;
         for i in 0..self.max_throttles {
             if self.throttles[i].has_loco() {
-                push_cmd(
-                    out,
-                    ClientCommand::EStop {
-                        throttle: i as u8,
-                    },
-                );
+                push_cmd(out, ClientCommand::EStop { throttle: i as u8 });
                 self.throttles[i].speed = 0;
                 changed = true;
             }
@@ -860,13 +882,13 @@ impl DomainState {
         true
     }
 
-    fn set_track_power(&mut self, on: bool, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
+    fn set_track_power(
+        &mut self,
+        on: bool,
+        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    ) -> bool {
         push_cmd(out, ClientCommand::TrackPower(on));
-        self.track_power = if on {
-            TrackPower::On
-        } else {
-            TrackPower::Off
-        };
+        self.track_power = if on { TrackPower::On } else { TrackPower::Off };
         true
     }
 
@@ -903,7 +925,12 @@ fn opposite_slot_direction(dir: Direction) -> Direction {
 }
 
 fn function_loco_selector(slot: &ThrottleSlot, func: u8) -> &'static str {
-    match slot.follow.get(func as usize).copied().unwrap_or(FunctionFollow::Lead) {
+    match slot
+        .follow
+        .get(func as usize)
+        .copied()
+        .unwrap_or(FunctionFollow::Lead)
+    {
         FunctionFollow::All => "*",
         FunctionFollow::Lead => "",
     }
@@ -921,11 +948,7 @@ fn build_loco_addr(digits: &str) -> Option<LocoAddr> {
     Some(s)
 }
 
-fn write_roster_addr(
-    address: i32,
-    length: char,
-    out: &mut heapless::String<8>,
-) -> Result<(), ()> {
+fn write_roster_addr(address: i32, length: char, out: &mut heapless::String<8>) -> Result<(), ()> {
     let mut buf = heapless::String::<8>::new();
     let abs = address.unsigned_abs();
     if abs >= 10000 {

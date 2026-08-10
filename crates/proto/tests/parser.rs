@@ -1,6 +1,6 @@
+use longfred_proto::ServerEvent;
 use longfred_proto::model::{Direction, TrackPower};
 use longfred_proto::parser::parse;
-use longfred_proto::ServerEvent;
 
 fn collect(line: &str) -> Vec<ServerEvent> {
     let mut events = Vec::new();
@@ -24,26 +24,17 @@ fn server_description() {
 #[test]
 fn heartbeat_config() {
     let events = collect("*10");
-    assert_eq!(
-        events[0],
-        ServerEvent::HeartbeatConfig { seconds: 10 }
-    );
+    assert_eq!(events[0], ServerEvent::HeartbeatConfig { seconds: 10 });
 }
 
 #[test]
 fn power_on() {
-    assert_eq!(
-        collect("PPA1")[0],
-        ServerEvent::TrackPower(TrackPower::On)
-    );
+    assert_eq!(collect("PPA1")[0], ServerEvent::TrackPower(TrackPower::On));
 }
 
 #[test]
 fn power_off() {
-    assert_eq!(
-        collect("PPA0")[0],
-        ServerEvent::TrackPower(TrackPower::Off)
-    );
+    assert_eq!(collect("PPA0")[0], ServerEvent::TrackPower(TrackPower::Off));
 }
 
 #[test]
@@ -113,10 +104,22 @@ fn roster_list() {
     let line = "RL2]\\[Big Boy}|{4014}|{L]\\[Shay}|{12}|{S";
     let events = collect(line);
     assert_eq!(events[0], ServerEvent::RosterEntriesCount(2));
-    assert!(matches!(events[1], ServerEvent::RosterEntry { index: 0, .. }));
-    assert!(matches!(events[2], ServerEvent::RosterEntry { index: 1, .. }));
+    assert!(matches!(
+        events[1],
+        ServerEvent::RosterEntry { index: 0, .. }
+    ));
+    assert!(matches!(
+        events[2],
+        ServerEvent::RosterEntry { index: 1, .. }
+    ));
 
-    if let ServerEvent::RosterEntry { name, address, length, .. } = &events[1] {
+    if let ServerEvent::RosterEntry {
+        name,
+        address,
+        length,
+        ..
+    } = &events[1]
+    {
         assert_eq!(name.as_str(), "Big Boy");
         assert_eq!(*address, 4014);
         assert_eq!(*length, 'L');

@@ -5,15 +5,25 @@
 /// - neither shift → `key`
 /// - `shift1` only → `key + 9`
 /// - `shift2` (with or without `shift1`) → `key + 18`
+///
+/// `key` MUST be in `0..=8`. The caller is expected to enforce this invariant
+/// (e.g. via the `ButtonId::F0..=F8` enum); out-of-range input saturates in
+/// release builds and trips a `debug_assert!` in debug builds.
+///
+/// # Panics
+///
+/// Panics in debug builds if `key > 8`. In release builds the result
+/// saturates at `u8::MAX` to avoid silent overflow.
 pub fn map_fn_key(key: u8, shift1: bool, shift2: bool) -> u8 {
-    debug_assert!(key <= 8);
-    if shift2 {
-        key.saturating_add(18)
+    debug_assert!(key <= 8, "function key index out of range 0..=8");
+    let offset = if shift2 {
+        18
     } else if shift1 {
-        key.saturating_add(9)
+        9
     } else {
-        key
-    }
+        0
+    };
+    key.saturating_add(offset)
 }
 
 /// Two-button chord hold detector.

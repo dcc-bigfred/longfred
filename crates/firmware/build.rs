@@ -3,6 +3,10 @@ fn main() {
     println!("cargo:rustc-link-arg=-Tlinkall.x");
 }
 
+// Build script is a host tool, not runtime code; the workspace `unwrap_used`
+// deny policy targets firmware/runtime paths. Allow here for the one-shot
+// linker configuration.
+#[allow(clippy::unwrap_used)]
 fn linker_be_nice() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {

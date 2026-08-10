@@ -1,6 +1,6 @@
 //! Domain task: menu FSM + state + network + UI_VIEW publication.
 
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
@@ -13,19 +13,19 @@ use longfred_proto::persist::PersistRecord;
 
 use crate::config::{self, power, sizes};
 use crate::domain::actions::Action;
-use crate::domain::state::{DomainState, CMD_BUF};
+use crate::domain::state::{CMD_BUF, DomainState};
 use crate::input;
 use crate::net::{
-    self, ConnState, NetStatus, ServerEndpoint, WifiCmd, DEVICE, WIFI_HOSTNAME, FOUND_SERVERS,
-    MDNS_CTRL, NET_CONFIG_CTRL, PROTO_COMMANDS, PROTO_EVENTS, SERVER, STATE,
-    WIFI_CTRL, WIFI_SCAN, CONN,
+    self, CONN, ConnState, DEVICE, FOUND_SERVERS, MDNS_CTRL, NET_CONFIG_CTRL, NetStatus,
+    PROTO_COMMANDS, PROTO_EVENTS, SERVER, STATE, ServerEndpoint, WIFI_CTRL, WIFI_HOSTNAME,
+    WIFI_SCAN, WifiCmd,
 };
 use crate::power::battery::BATTERY;
-use crate::power::sleep::{SleepReason, SLEEP_CTRL};
-use crate::storage::{StorageCmd, PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL};
+use crate::power::sleep::{SLEEP_CTRL, SleepReason};
+use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, StorageCmd};
 use crate::ui::menu::{Intent, ListRef, MenuFsm, Screen};
 use crate::ui::view::ViewCtx;
-use crate::ui::{i18n, UI_VIEW};
+use crate::ui::{UI_VIEW, i18n};
 
 async fn flush_cmds(
     cmd_tx: &embassy_sync::channel::Sender<
@@ -60,7 +60,12 @@ fn publish_view(
     pw_preview: &str,
     ip_formatted: &str,
     battery: Option<u8>,
-    ui_tx: &embassy_sync::watch::Sender<'static, CriticalSectionRawMutex, crate::ui::view::UiView, 2>,
+    ui_tx: &embassy_sync::watch::Sender<
+        'static,
+        CriticalSectionRawMutex,
+        crate::ui::view::UiView,
+        2,
+    >,
 ) {
     let (ssid, _) = fsm.ssid_for_connect(scanned, state);
     let ctx = ViewCtx {
@@ -104,8 +109,18 @@ fn interpret(
     out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
     scanned: &heapless::Vec<net::SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
     servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
-    wifi_tx: &embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, WifiCmd, { net::WIFI_CTRL_DEPTH }>,
-    srv_tx: &embassy_sync::watch::Sender<'static, CriticalSectionRawMutex, Option<ServerEndpoint>, 2>,
+    wifi_tx: &embassy_sync::channel::Sender<
+        'static,
+        CriticalSectionRawMutex,
+        WifiCmd,
+        { net::WIFI_CTRL_DEPTH },
+    >,
+    srv_tx: &embassy_sync::watch::Sender<
+        'static,
+        CriticalSectionRawMutex,
+        Option<ServerEndpoint>,
+        2,
+    >,
     storage_tx: &embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, StorageCmd, 4>,
 ) {
     match intent {
@@ -263,7 +278,8 @@ pub async fn task() {
     let mut net_status = NetStatus::Disconnected;
     let mut conn = ConnState::Disconnected;
     let mut server: Option<ServerEndpoint> = None;
-    let mut scanned: heapless::Vec<net::SsidInfo, { sizes::MAX_FOUND_SSIDS }> = heapless::Vec::new();
+    let mut scanned: heapless::Vec<net::SsidInfo, { sizes::MAX_FOUND_SSIDS }> =
+        heapless::Vec::new();
     let mut servers: heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }> =
         heapless::Vec::new();
     let mut battery: Option<u8> = None;
@@ -378,7 +394,8 @@ pub async fn task() {
                         let _ = MDNS_CTRL.try_send(());
                     }
                     if let Some((ssid, pw)) = fsm.take_pending_password_save() {
-                        let _ = storage_tx.try_send(StorageCmd::SavePassword { ssid, password: pw });
+                        let _ =
+                            storage_tx.try_send(StorageCmd::SavePassword { ssid, password: pw });
                     }
                 }
             }

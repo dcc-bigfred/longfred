@@ -1,6 +1,6 @@
 //! Generic protocol session: TCP (WiThrottle) or UDP (Z21) with shared adapter loop.
 
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{Either3, select3};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
@@ -14,7 +14,7 @@ use longfred_proto::wt::WtAdapter;
 use longfred_proto::z21::Z21Adapter;
 
 use crate::config;
-use crate::net::{ConnState, ServerEndpoint, DEVICE, PROTO_COMMANDS, PROTO_EVENTS, CONN, SERVER};
+use crate::net::{CONN, ConnState, DEVICE, PROTO_COMMANDS, PROTO_EVENTS, SERVER, ServerEndpoint};
 
 const TCP_RX_SIZE: usize = 1024;
 const TCP_TX_SIZE: usize = 1024;

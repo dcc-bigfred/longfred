@@ -17,7 +17,13 @@ pub struct WtAdapter {
 }
 
 impl WtAdapter {
-    pub fn new(name: &str, id: &str, hb_period: u32, send_leading_crlf: bool, heartbeat_enabled: bool) -> Self {
+    pub fn new(
+        name: &str,
+        id: &str,
+        hb_period: u32,
+        send_leading_crlf: bool,
+        heartbeat_enabled: bool,
+    ) -> Self {
         let mut n = heapless::String::new();
         let _ = n.push_str(name);
         let mut i = heapless::String::new();
@@ -36,10 +42,7 @@ impl WtAdapter {
     pub fn on_connect(&mut self, out: &mut WireBuf, _emit: &mut dyn FnMut(ServerEvent)) {
         self.push_line(out, &protocol::handshake_name(self.name.as_str()));
         self.push_line(out, &protocol::handshake_id(self.id.as_str()));
-        self.push_line(
-            out,
-            &protocol::heartbeat_enable(self.heartbeat_enabled),
-        );
+        self.push_line(out, &protocol::heartbeat_enable(self.heartbeat_enabled));
     }
 
     pub fn encode(
@@ -68,7 +71,11 @@ impl WtAdapter {
                 out,
                 &protocol::set_speed(throttle_char_u8(*throttle), *speed),
             ),
-            ClientCommand::SetDirection { throttle, loco, dir } => {
+            ClientCommand::SetDirection {
+                throttle,
+                loco,
+                dir,
+            } => {
                 let owned = loco.map(|l| l.to_wire());
                 let addr = owned.as_ref().map(|s| s.as_str()).unwrap_or("*");
                 self.push_line(
@@ -88,13 +95,7 @@ impl WtAdapter {
                 let sel = if *all { "*" } else { "" };
                 self.push_line(
                     out,
-                    &protocol::set_function(
-                        throttle_char_u8(*throttle),
-                        sel,
-                        *func,
-                        *on,
-                        false,
-                    ),
+                    &protocol::set_function(throttle_char_u8(*throttle), sel, *func, *on, false),
                 );
             }
             ClientCommand::TrackPower(on) => {

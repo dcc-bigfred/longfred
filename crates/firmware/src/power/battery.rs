@@ -6,7 +6,7 @@ use embassy_time::{Duration, Timer};
 use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
 
 use crate::config::power;
-use crate::power::sleep::{SleepReason, SLEEP_CTRL};
+use crate::power::sleep::{SLEEP_CTRL, SleepReason};
 
 pub static BATTERY: Watch<CriticalSectionRawMutex, Option<u8>, 2> = Watch::new();
 

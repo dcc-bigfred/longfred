@@ -56,6 +56,11 @@ Partial JSON body:
 
 All top-level fields optional. Persisted to NVS.
 
+> **Note:** the server requires a `Content-Length` header and does **not**
+> support `Transfer-Encoding: chunked`. Clients must send the whole body in
+> a single request. Maximum body size is 1536 bytes; larger bodies are
+> rejected with `400 body too large`.
+
 ### `POST /api/v1/programming-mode/off`
 
 Clears the programming flag, responds 200, soft-resets after ~500 ms.

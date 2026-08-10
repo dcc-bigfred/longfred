@@ -169,7 +169,8 @@ impl<const N: usize> TextKeyboard<N> {
                     self.last_fn = Some(key);
                     self.multitap_tap = 0;
                 }
-                self.pending = kbd_cfg::multitap_char(key, self.multitap_tap).map(|c| self.apply_case(c));
+                self.pending =
+                    kbd_cfg::multitap_char(key, self.multitap_tap).map(|c| self.apply_case(c));
                 KeyboardAction::Changed
             }
         }

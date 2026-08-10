@@ -2,14 +2,16 @@
 
 mod http_server;
 
-use embassy_net::{Config as NetConfig, Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
+use embassy_net::{
+    Config as NetConfig, Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4,
+};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_hal::system::software_reset;
 use esp_radio::wifi::{
-    ap::AccessPointConfig, Config as WifiConfig, ControllerConfig, Interface, WifiController,
+    Config as WifiConfig, ControllerConfig, Interface, WifiController, ap::AccessPointConfig,
 };
 use heapless::String;
 use log::{info, warn};
@@ -18,10 +20,10 @@ use static_cell::StaticCell;
 
 use crate::board;
 use crate::config::sizes;
-use crate::input::{InputEvent, INPUT_CHANNEL};
-use crate::storage::{StorageCmd, PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL};
-use crate::ui::view::{GridView, UiView};
+use crate::input::{INPUT_CHANNEL, InputEvent};
+use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, StorageCmd};
 use crate::ui::UI_VIEW;
+use crate::ui::view::{GridView, UiView};
 
 const AP_IP: Ipv4Address = Ipv4Address::new(192, 168, 0, 1);
 const AP_PREFIX: u8 = 24;
@@ -62,13 +64,15 @@ pub fn start_ap(
     info!("programming: Soft-AP SSID={}", ssid.as_str());
 
     let ap_cfg = AccessPointConfig::default().with_ssid(ssid.as_str());
-    let ctrl_cfg =
-        ControllerConfig::default().with_initial_config(WifiConfig::AccessPoint(ap_cfg));
+    let ctrl_cfg = ControllerConfig::default().with_initial_config(WifiConfig::AccessPoint(ap_cfg));
 
     match WifiController::new(wifi, ctrl_cfg) {
         Ok(controller) => {
             let iface = Interface::access_point();
-            info!("programming: Soft-AP started, static IP {}/{}", AP_IP, AP_PREFIX);
+            info!(
+                "programming: Soft-AP started, static IP {}/{}",
+                AP_IP, AP_PREFIX
+            );
             Some((controller, iface))
         }
         Err(e) => {

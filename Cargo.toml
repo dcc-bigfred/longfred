@@ -8,6 +8,24 @@ edition = "2024"
 rust-version = "1.95"
 license = "Apache-2.0"
 
+[workspace.lints.rust]
+# esp-hal peripheral ownership transfer requires `unsafe` blocks; the policy
+# is `warn` so HAL integration compiles while new `unsafe` outside HAL modules
+# stays visible in review. New `unsafe` must include a `SAFETY:` justification.
+unsafe_code = "warn"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+
 [profile.dev]
 opt-level = "s"
 

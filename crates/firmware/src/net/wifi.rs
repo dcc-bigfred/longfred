@@ -3,15 +3,16 @@
 use embassy_net::{ConfigV4, DhcpConfig, Ipv4Address, Ipv4Cidr, Runner, Stack, StaticConfigV4};
 use embassy_time::{Duration, Timer};
 use esp_radio::wifi::{
-    ap::AccessPointInfo, scan::ScanConfig, sta::StationConfig, AuthenticationMethod,
-    Config as WifiConfig, Interface, PowerSaveMode, Protocol, Protocols, WifiController,
-    WifiError,
+    AuthenticationMethod, Config as WifiConfig, Interface, PowerSaveMode, Protocol, Protocols,
+    WifiController, WifiError, ap::AccessPointInfo, scan::ScanConfig, sta::StationConfig,
 };
 use log::{info, warn};
 
 use crate::config;
 use crate::config::sizes;
-use crate::net::{NetStatus, SsidInfo, WifiCmd, NET_CONFIG_CTRL, STATE, WIFI_CTRL, WIFI_HOSTNAME, WIFI_SCAN};
+use crate::net::{
+    NET_CONFIG_CTRL, NetStatus, STATE, SsidInfo, WIFI_CTRL, WIFI_HOSTNAME, WIFI_SCAN, WifiCmd,
+};
 
 /// embassy-net driver type provided by esp-radio (STA).
 pub type NetDriver = Interface;

@@ -1,6 +1,8 @@
 //! Domain value types (throttle, roster, UI snapshot).
 
-use longfred_proto::model::{Direction, LocoAddr, ShortText, TrackPower, MAX_FUNCTIONS, MAX_THROTTLES};
+use longfred_proto::model::{
+    Direction, LocoAddr, MAX_FUNCTIONS, MAX_THROTTLES, ShortText, TrackPower,
+};
 
 pub const MAX_LOCOS: usize = 10;
 pub const MAX_SPEED: u8 = 126;

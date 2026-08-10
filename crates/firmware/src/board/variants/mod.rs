@@ -1,10 +1,16 @@
 //! Hardware variant selection (compile-time features).
 
-#[cfg(all(feature = "variant-longfred-standard", feature = "variant-longfred-mini"))]
+#[cfg(all(
+    feature = "variant-longfred-standard",
+    feature = "variant-longfred-mini"
+))]
 compile_error!("enable only one hardware variant feature");
 #[cfg(all(feature = "variant-longfred-standard", feature = "variant-markwtech"))]
 compile_error!("enable only one hardware variant feature");
-#[cfg(all(feature = "variant-longfred-standard", feature = "variant-heiko-wifred"))]
+#[cfg(all(
+    feature = "variant-longfred-standard",
+    feature = "variant-heiko-wifred"
+))]
 compile_error!("enable only one hardware variant feature");
 #[cfg(all(feature = "variant-longfred-mini", feature = "variant-markwtech"))]
 compile_error!("enable only one hardware variant feature");

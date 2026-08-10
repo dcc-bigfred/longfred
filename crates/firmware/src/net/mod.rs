@@ -87,8 +87,10 @@ pub struct SsidInfo {
     pub open: bool,
 }
 
-pub static WIFI_SCAN: Signal<CriticalSectionRawMutex, heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>> =
-    Signal::new();
+pub static WIFI_SCAN: Signal<
+    CriticalSectionRawMutex,
+    heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+> = Signal::new();
 
 /// mDNS-discovered command stations.
 pub static FOUND_SERVERS: Signal<

@@ -19,7 +19,11 @@ pub enum NavAction {
 }
 
 pub trait NavProfile {
-    fn map(&self, ev: InputEvent, text_entry: bool) -> Option<NavAction>;
+    /// Map an input event to a canonical navigation action.
+    ///
+    /// `text_entry` is true on password / address / IP edit screens.
+    /// `on_throttle` is true on the drive screen (no menu open).
+    fn map(&self, ev: InputEvent, text_entry: bool, on_throttle: bool) -> Option<NavAction>;
 }
 
 /// LongFred standard / mini: 5-way joystick + Stop + Menu center.
@@ -27,7 +31,7 @@ pub trait NavProfile {
 pub struct LongFredNav;
 
 impl NavProfile for LongFredNav {
-    fn map(&self, ev: InputEvent, text_entry: bool) -> Option<NavAction> {
+    fn map(&self, ev: InputEvent, text_entry: bool, _on_throttle: bool) -> Option<NavAction> {
         match ev {
             InputEvent::Nav(NavDir::Up) => Some(if text_entry {
                 NavAction::CharCycle(-1)
@@ -72,7 +76,7 @@ impl NavProfile for LongFredNav {
 pub struct MarkwtechNav;
 
 impl NavProfile for MarkwtechNav {
-    fn map(&self, ev: InputEvent, text_entry: bool) -> Option<NavAction> {
+    fn map(&self, ev: InputEvent, text_entry: bool, on_throttle: bool) -> Option<NavAction> {
         match ev {
             InputEvent::EncoderCounterClockwise => Some(if text_entry {
                 NavAction::CharCycle(-1)
@@ -87,9 +91,12 @@ impl NavProfile for MarkwtechNav {
             InputEvent::Digit('#') => Some(NavAction::Select),
             InputEvent::Digit('*') => Some(if text_entry {
                 NavAction::Cancel
-            } else {
-                // Throttle: MenuEnter; menus: Cancel (caller may refine by screen).
+            } else if on_throttle {
+                // On the drive screen, `*` opens the menu.
                 NavAction::MenuEnter
+            } else {
+                // Inside a menu, `*` acts as Cancel / back.
+                NavAction::Cancel
             }),
             InputEvent::Digit(c) => Some(NavAction::Digit(c)),
             InputEvent::Menu => Some(NavAction::MenuEnter),
@@ -115,6 +122,9 @@ pub fn active() -> MarkwtechNav {
 
 #[cfg(feature = "variant-heiko-wifred")]
 pub fn active() -> LongFredNav {
-    // Headless: profile unused; stub for shared call sites.
+    // Heiko-wifred is headless: its ControlSurface never emits Nav/Ok/Menu
+    // events, so the profile is effectively dead code. We still return a
+    // LongFredNav so `domain::task` (which always constructs a MenuFsm)
+    // compiles uniformly across variants.
     LongFredNav
 }

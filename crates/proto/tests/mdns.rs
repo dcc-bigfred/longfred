@@ -1,5 +1,5 @@
 use longfred_proto::command::Protocol;
-use longfred_proto::mdns::{build_ptr_query, collect_servers, WITHROTTLE_SERVICE};
+use longfred_proto::mdns::{WITHROTTLE_SERVICE, build_ptr_query, collect_servers};
 
 fn push_label(pkt: &mut Vec<u8>, label: &str) {
     pkt.push(label.len() as u8);

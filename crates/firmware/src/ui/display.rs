@@ -8,17 +8,13 @@ use embedded_graphics::{
     primitives::{PrimitiveStyleBuilder, Rectangle},
     text::{Baseline, Text},
 };
-use ssd1306::{
-    mode::BufferedGraphicsMode,
-    prelude::*,
-    I2CDisplayInterface, Ssd1306,
-};
+use ssd1306::{I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 
 use crate::board::descriptor::{DisplayGeometry, LAYOUT_128X64};
 use crate::config::board;
 use crate::input::i2c_bus::SharedI2cDevice;
-use crate::ui::view::{GridView, ThrottleView, UiView, LINE_LEN};
-use crate::ui::{fonts, UI_VIEW};
+use crate::ui::view::{GridView, LINE_LEN, ThrottleView, UiView};
+use crate::ui::{UI_VIEW, fonts};
 
 const BLINK_PERIOD_MS: u64 = 200;
 const GRID_LEFT_X: i32 = 0;
@@ -33,11 +29,8 @@ type PanelSize = DisplaySize128x32;
 #[cfg(not(feature = "variant-longfred-mini"))]
 type PanelSize = DisplaySize128x64;
 
-pub type Display = Ssd1306<
-    I2CInterface<SharedI2cDevice>,
-    PanelSize,
-    BufferedGraphicsMode<PanelSize>,
->;
+pub type Display =
+    Ssd1306<I2CInterface<SharedI2cDevice>, PanelSize, BufferedGraphicsMode<PanelSize>>;
 
 fn geometry() -> DisplayGeometry {
     crate::board::variants::active()
@@ -46,10 +39,7 @@ fn geometry() -> DisplayGeometry {
 }
 
 fn line_text(grid: &GridView, idx: usize) -> &str {
-    grid.lines
-        .get(idx)
-        .map(|l| l.as_str())
-        .unwrap_or("")
+    grid.lines.get(idx).map(|l| l.as_str()).unwrap_or("")
 }
 
 fn line_invert(grid: &GridView, idx: usize) -> bool {
@@ -93,11 +83,7 @@ fn draw_grid(display: &mut Display, grid: &GridView, text_style: MonoTextStyle<'
     let geom = geometry();
     let is_mini = geom.height <= 32;
     let rows = geom.grid_lines / 2;
-    let grid_y: &[i32] = if is_mini {
-        &GRID_Y_32
-    } else {
-        &GRID_Y_64
-    };
+    let grid_y: &[i32] = if is_mini { &GRID_Y_32 } else { &GRID_Y_64 };
 
     if grid.top_line && !is_mini {
         Rectangle::new(Point::new(0, 11), Size::new(127, 1))
@@ -158,7 +144,13 @@ fn draw_grid(display: &mut Display, grid: &GridView, text_style: MonoTextStyle<'
 }
 
 /// Compact row of currently-ON function numbers (F0–F28).
-fn draw_fn_active(display: &mut Display, functions: u32, y: i32, char_w: i32, font: &embedded_graphics::mono_font::MonoFont<'_>) {
+fn draw_fn_active(
+    display: &mut Display,
+    functions: u32,
+    y: i32,
+    char_w: i32,
+    font: &embedded_graphics::mono_font::MonoFont<'_>,
+) {
     const X0: i32 = 4;
     const MAX_X: i32 = 124;
 
@@ -346,15 +338,25 @@ fn draw_throttle_standard(
         draw_battery_icon(display, pct, t.battery_show_percent, text_style);
     }
 
-    Text::with_baseline(t.loco.as_str(), Point::new(4, 18), text_style, Baseline::Top)
-        .draw(display)
-        .ok();
+    Text::with_baseline(
+        t.loco.as_str(),
+        Point::new(4, 18),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)
+    .ok();
 
     draw_fn_active(display, t.functions, 44, 6, &fonts::TEXT);
 
-    Text::with_baseline(t.footer.as_str(), Point::new(4, 54), text_style, Baseline::Top)
-        .draw(display)
-        .ok();
+    Text::with_baseline(
+        t.footer.as_str(),
+        Point::new(4, 54),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)
+    .ok();
 }
 
 /// Compact throttle for 128×32: speed + dir + loco / footer / function strip.
@@ -385,13 +387,23 @@ fn draw_throttle_mini(
         .draw(display)
         .ok();
 
-    Text::with_baseline(t.loco.as_str(), Point::new(54, 2), text_style, Baseline::Top)
-        .draw(display)
-        .ok();
+    Text::with_baseline(
+        t.loco.as_str(),
+        Point::new(54, 2),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)
+    .ok();
 
-    Text::with_baseline(t.footer.as_str(), Point::new(0, 13), text_style, Baseline::Top)
-        .draw(display)
-        .ok();
+    Text::with_baseline(
+        t.footer.as_str(),
+        Point::new(0, 13),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)
+    .ok();
 
     draw_fn_active(display, t.functions, 25, 4, &fonts::FONT_4X6);
 }
@@ -431,7 +443,9 @@ pub async fn task(i2c: SharedI2cDevice) {
         let mut splash = crate::ui::view::GridView::new();
         splash.set(0, "LongFred", false);
         splash.set(1, "boot...", false);
-        crate::ui::UI_VIEW.sender().send(crate::ui::view::UiView::Grid(splash));
+        crate::ui::UI_VIEW
+            .sender()
+            .send(crate::ui::view::UiView::Grid(splash));
     }
 
     let title_style = MonoTextStyleBuilder::new()
@@ -460,10 +474,7 @@ pub async fn task(i2c: SharedI2cDevice) {
                 .ok();
         }
 
-        let view = ui_rx
-            .as_mut()
-            .and_then(|r| r.try_get())
-            .unwrap_or_default();
+        let view = ui_rx.as_mut().and_then(|r| r.try_get()).unwrap_or_default();
 
         match &view {
             UiView::Grid(g) => draw_grid(&mut display, g, text_style),

@@ -8,11 +8,11 @@
 use embassy_time::Instant;
 use longfred_proto::model::Direction;
 
+use crate::board::ControlSurface;
 use crate::board::chord::{ChordDetector, PROGRAMMING_CHORD_MS};
 use crate::board::descriptor::VariantDescriptor;
 use crate::board::raw::{AnalogId, ButtonId, RawEvent, SwitchId};
 use crate::board::shift_layers::map_fn;
-use crate::board::ControlSurface;
 use crate::input::InputEvent;
 
 pub const DESCRIPTOR: VariantDescriptor = VariantDescriptor {
@@ -115,7 +115,10 @@ impl ControlSurface for HeikoWifredSurface {
                 out(InputEvent::DirectionSet(dir));
             }
             RawEvent::Switch(SwitchId::Loco(slot), v) => {
-                out(InputEvent::LocoSlot(slot, v != 0));
+                // Throttle slots are 1-indexed; ignore stray slot 0 events.
+                if slot >= 1 {
+                    out(InputEvent::LocoSlot(slot, v != 0));
+                }
             }
         }
         self.maybe_chord(now, out);

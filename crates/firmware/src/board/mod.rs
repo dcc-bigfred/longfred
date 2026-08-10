@@ -7,8 +7,8 @@ pub mod raw;
 pub mod shift_layers;
 pub mod variants;
 
-pub use descriptor::{DisplayGeometry, VariantDescriptor, LAYOUT_128X32, LAYOUT_128X64};
-pub use raw::{AnalogId, ButtonId, RawEvent, SwitchId, RAW_CHANNEL};
+pub use descriptor::{DisplayGeometry, LAYOUT_128X32, LAYOUT_128X64, VariantDescriptor};
+pub use raw::{AnalogId, ButtonId, RAW_CHANNEL, RawEvent, SwitchId};
 pub use variants::{active, active_variant};
 
 use embassy_time::Instant;
