@@ -1,3 +1,5 @@
+//! Integration tests for WiThrottle mDNS discovery helpers.
+
 use longfred_proto::command::Protocol;
 use longfred_proto::mdns::{WITHROTTLE_SERVICE, build_ptr_query, collect_servers};
 

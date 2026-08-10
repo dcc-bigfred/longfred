@@ -23,7 +23,11 @@ pub type SharedI2cDevice = I2cDevice<'static, CriticalSectionRawMutex, I2c<'stat
 static I2C_BUS: StaticCell<SharedI2cBus> = StaticCell::new();
 
 /// Builds blocking I2C on `I2C0`, stores it in a static mutex, returns two device handles.
-#[allow(clippy::unwrap_used)]
+///
+/// # Safety
+///
+/// Steals `I2C_SDA` / `I2C_SCL`. Call once from `main` before OLED/MCP tasks start.
+#[allow(clippy::unwrap_used, unsafe_code)]
 pub fn init(i2c: impl Instance + 'static) -> (SharedI2cDevice, SharedI2cDevice) {
     let freq_khz = if cfg!(feature = "sim") {
         100
@@ -35,6 +39,7 @@ pub fn init(i2c: impl Instance + 'static) -> (SharedI2cDevice, SharedI2cDevice) 
         .with_software_timeout(SoftwareTimeout::Transaction(Duration::from_millis(50)));
     let bus = I2c::new(i2c, cfg)
         .unwrap()
+        // SAFETY: I2C pins are reserved for this shared bus; single init from `main`.
         .with_sda(unsafe { AnyPin::steal(board::I2C_SDA) })
         .with_scl(unsafe { AnyPin::steal(board::I2C_SCL) });
 

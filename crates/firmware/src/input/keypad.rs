@@ -21,11 +21,14 @@ pub struct Pins {
 /// Build keypad GPIO from markwtech pin constants.
 ///
 /// # Safety
-/// Call once; pins must not overlap other drivers.
+///
+/// Call once from `main`; pins must not overlap other drivers.
 #[cfg(feature = "variant-markwtech")]
+#[allow(unsafe_code)]
 pub fn build() -> Pins {
     let out_cfg = OutputConfig::default();
     let in_cfg = InputConfig::default().with_pull(Pull::Up);
+    // SAFETY: keypad row/col pins are reserved for this driver; single owner from `main`.
     let rows = [
         Output::new(
             unsafe { AnyPin::steal(KEYPAD_ROW_PINS[0]) },

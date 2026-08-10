@@ -61,6 +61,7 @@ impl Leds {
 /// Caller must guarantee these pins are not used elsewhere. In practice this
 /// is invoked exactly once from `main` before any other task touches the
 /// heiko-wifred GPIOs, so the `steal` is sound by construction.
+#[allow(unsafe_code)]
 pub fn build() -> (Output<'static>, Output<'static>, Output<'static>) {
     let cfg = OutputConfig::default();
     // SAFETY: `HEIKO_LED_STOP` is reserved for this presenter; `main` calls

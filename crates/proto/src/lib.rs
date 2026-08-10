@@ -1,5 +1,9 @@
 #![cfg_attr(not(test), no_std)]
 //! LongFred WiThrottle protocol: wire parser + command builder (pure, host-testable).
+//!
+//! Public item docs are filled incrementally; CI clippy allows `missing_docs` for the
+//! same reason. Prefer documenting new public API when adding it.
+#![allow(missing_docs)]
 
 pub mod adapter;
 pub mod command;

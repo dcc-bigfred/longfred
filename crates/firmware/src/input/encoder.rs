@@ -15,14 +15,21 @@ pub struct Pins {
     pub button: Input<'static>,
 }
 
+/// Steal encoder GPIO pins (call once from `main`).
+///
 /// # Safety
 ///
-/// Call once from `main`.
+/// Caller must guarantee these pins are not used elsewhere. Invoked exactly
+/// once from `main` before encoder tasks run, so `steal` is sound by construction.
+#[allow(unsafe_code)]
 pub fn build() -> Pins {
     let cfg = InputConfig::default().with_pull(Pull::Up);
     Pins {
+        // SAFETY: `ENCODER_A` is reserved for this driver; single owner from `main`.
         a: Input::new(unsafe { AnyPin::steal(board::ENCODER_A) }, cfg),
+        // SAFETY: `ENCODER_B` is reserved for this driver; single owner from `main`.
         b: Input::new(unsafe { AnyPin::steal(board::ENCODER_B) }, cfg),
+        // SAFETY: `ENCODER_BUTTON` is reserved for this driver; single owner from `main`.
         button: Input::new(unsafe { AnyPin::steal(board::ENCODER_BUTTON) }, cfg),
     }
 }

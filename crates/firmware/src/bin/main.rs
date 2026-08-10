@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+//! LongFred firmware entry point: HAL init, task spawn, and Soft-AP programming mode.
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};

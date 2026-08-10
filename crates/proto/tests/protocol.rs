@@ -1,3 +1,5 @@
+//! Integration tests for WiThrottle protocol framing helpers.
+
 use longfred_proto::model::{Direction, TurnoutAction};
 use longfred_proto::protocol as p;
 

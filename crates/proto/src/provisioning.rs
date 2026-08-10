@@ -1,9 +1,10 @@
 //! HTTP provisioning settings DTOs (serde-json-core, no heapless feature).
 
 use crate::persist::{
-    MAX_BIGFRED_LOGIN_LEN, MAX_CREDENTIALS, MAX_SAVED_LOCOS, MAX_WIFI_HOSTNAME_LEN, PersistRecord,
-    RosterMode, StaticRosterEntry,
+    MAX_CREDENTIALS, MAX_SAVED_LOCOS, PersistRecord, RosterMode, StaticRosterEntry,
 };
+#[cfg(test)]
+use crate::persist::{MAX_BIGFRED_LOGIN_LEN, MAX_WIFI_HOSTNAME_LEN};
 
 use serde::{Deserialize, Serialize};
 

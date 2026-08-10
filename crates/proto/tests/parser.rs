@@ -1,3 +1,5 @@
+//! Integration tests for WiThrottle line parsing.
+
 use longfred_proto::ServerEvent;
 use longfred_proto::model::{Direction, TrackPower};
 use longfred_proto::parser::parse;

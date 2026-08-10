@@ -1,3 +1,5 @@
+//! Build script for LongFred firmware (linker args and friendly link errors).
+
 fn main() {
     linker_be_nice();
     println!("cargo:rustc-link-arg=-Tlinkall.x");
