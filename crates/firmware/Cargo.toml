@@ -9,7 +9,12 @@ name = "longfred"
 path = "src/bin/main.rs"
 
 [features]
-default = []
+default = ["variant-longfred-standard"]
+# Hardware variants (mutually exclusive — see board/variants).
+variant-longfred-standard = []
+variant-longfred-mini = []
+variant-markwtech = []
+variant-heiko-wifred = []
 # Wokwi/host-friendly: skip WiFi/radio; spawn OLED + nav + encoder + MCP + domain.
 sim = []
 # Diagnostic: sim + spawn no tasks at all.

@@ -18,7 +18,7 @@ use embassy_net::{Config as NetConfig, DhcpConfig, StackResources};
 #[cfg(not(feature = "sim"))]
 use esp_radio::wifi::{Interface, WifiController};
 
-use longfred_firmware::{config, domain, input, storage, ui};
+use longfred_firmware::{board, config, domain, input, storage, ui};
 #[cfg(not(feature = "sim"))]
 use longfred_firmware::power;
 #[cfg(not(feature = "sim"))]
@@ -50,49 +50,76 @@ async fn main(spawner: Spawner) -> ! {
     let boot_entropy = rng.random();
 
     let flash = FLASH.init(FlashStorage::new(peripherals.FLASH));
-    let wifi_hostname = storage::ensure_boot_hostname(flash, boot_entropy);
-    info!("wifi hostname: {}", wifi_hostname.as_str());
+    let boot = storage::ensure_boot(flash, boot_entropy);
+    info!("wifi hostname: {}", boot.wifi_hostname.as_str());
+
+    let enter_programming = boot.programming_mode
+        || (board::active_variant().auto_pair_when_unconfigured && !boot.has_wifi_credentials);
 
     #[cfg(not(feature = "sim"))]
     {
         let seed = ((rng.random() as u64) << 32) | rng.random() as u64;
-        net::WIFI_HOSTNAME.sender().send(wifi_hostname.clone());
+        net::WIFI_HOSTNAME.sender().send(boot.wifi_hostname.clone());
 
-        let controller = WifiController::new(peripherals.WIFI, Default::default())
-            .expect("WifiController::new");
-        let sta = Interface::station();
+        if enter_programming {
+            info!(
+                "boot: programming mode (flag={} auto_pair={} creds={})",
+                boot.programming_mode,
+                board::active_variant().auto_pair_when_unconfigured,
+                boot.has_wifi_credentials
+            );
+            let mut prog_rec = boot.record.clone();
+            prog_rec.programming_mode = true;
+            if !boot.programming_mode {
+                storage::write_record(flash, &prog_rec);
+            }
 
-        static RESOURCES: StaticCell<StackResources<{ config::sizes::NET_SOCKETS }>> =
-            StaticCell::new();
-        let resources = RESOURCES.init(StackResources::new());
-        let mut dhcp = DhcpConfig::default();
-        let mut host = heapless::String::<32>::new();
-        let _ = host.push_str(wifi_hostname.as_str());
-        dhcp.hostname = Some(host);
-        let (stack, runner) = embassy_net::new(sta, NetConfig::dhcpv4(dhcp), resources, seed);
+            let _ = net::provisioning::spawn_programming_net(
+                &spawner,
+                peripherals.WIFI,
+                seed,
+                prog_rec,
+            );
+        } else {
+            let controller = WifiController::new(peripherals.WIFI, Default::default())
+                .expect("WifiController::new");
+            let sta = Interface::station();
 
-        if let Ok(token) = net::wifi::connection(controller) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::wifi::net_task(runner) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::wifi::status_task(stack) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::wifi::config_task(stack) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::mdns::task(stack, config::network::NETWORKS[0].ssid) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::session::task(stack) {
-            spawner.spawn(token);
+            static RESOURCES: StaticCell<StackResources<{ config::sizes::NET_SOCKETS }>> =
+                StaticCell::new();
+            let resources = RESOURCES.init(StackResources::new());
+            let mut dhcp = DhcpConfig::default();
+            let mut host = heapless::String::<32>::new();
+            let _ = host.push_str(boot.wifi_hostname.as_str());
+            dhcp.hostname = Some(host);
+            let (stack, runner) = embassy_net::new(sta, NetConfig::dhcpv4(dhcp), resources, seed);
+
+            if let Ok(token) = net::wifi::connection(controller) {
+                spawner.spawn(token);
+            }
+            if let Ok(token) = net::wifi::net_task(runner) {
+                spawner.spawn(token);
+            }
+            if let Ok(token) = net::wifi::status_task(stack) {
+                spawner.spawn(token);
+            }
+            if let Ok(token) = net::wifi::config_task(stack) {
+                spawner.spawn(token);
+            }
+            if let Ok(token) = net::mdns::task(stack, config::network::NETWORKS[0].ssid) {
+                spawner.spawn(token);
+            }
+            if let Ok(token) = net::session::task(stack) {
+                spawner.spawn(token);
+            }
         }
     }
 
     #[cfg(feature = "sim")]
-    info!("sim: WiFi/net bring-up skipped");
+    {
+        let _ = enter_programming;
+        info!("sim: WiFi/net bring-up skipped");
+    }
 
     info!(
         "LongFred boot: {} | throttles={} | networks={}",
@@ -126,42 +153,97 @@ async fn main(spawner: Spawner) -> ! {
 
     #[cfg(not(feature = "sim_bare"))]
     {
-        let sender = input::INPUT_CHANNEL.sender();
+        let raw_sender = board::RAW_CHANNEL.sender();
+        info!("board variant: {}", board::active().id);
 
         info!("main: i2c init");
         let (oled_i2c, expander_i2c) = input::i2c_bus::init(peripherals.I2C0);
-        let enc = input::encoder::build();
-        let nav = input::gpio_nav::build(
-            peripherals.GPIO18,
-            peripherals.GPIO19,
-            peripherals.GPIO20,
-            peripherals.GPIO21,
-            peripherals.GPIO22,
-            peripherals.GPIO23,
-            peripherals.GPIO10,
-        );
 
-        // OLED before expander: shared I2C — init display before MCP probe NACKs.
+        // OLED for variants with a display; heiko uses LED presenter instead.
+        #[cfg(not(feature = "variant-heiko-wifred"))]
         if let Ok(token) = ui::display::task(oled_i2c) {
             spawner.spawn(token);
         }
-        if let Ok(token) = input::gpio_nav::task(nav, sender) {
+        #[cfg(feature = "variant-heiko-wifred")]
+        {
+            let _ = oled_i2c;
+            let (led_stop, led_fwd, led_rev) = ui::led_presenter::build();
+            if let Ok(token) = ui::led_presenter::task(led_stop, led_fwd, led_rev) {
+                spawner.spawn(token);
+            }
+        }
+
+        // LongFred family: GPIO nav cluster.
+        #[cfg(any(
+            feature = "variant-longfred-standard",
+            feature = "variant-longfred-mini"
+        ))]
+        {
+            let nav = input::gpio_nav::build(
+                peripherals.GPIO18,
+                peripherals.GPIO19,
+                peripherals.GPIO20,
+                peripherals.GPIO21,
+                peripherals.GPIO22,
+                peripherals.GPIO23,
+                peripherals.GPIO10,
+            );
+            if let Ok(token) = input::gpio_nav::task(nav, raw_sender) {
+                spawner.spawn(token);
+            }
+        }
+
+        // MarkWTech: 3×4 keypad matrix (pins from markwtech constants).
+        #[cfg(feature = "variant-markwtech")]
+        {
+            let keypad = input::keypad::build();
+            if let Ok(token) = input::keypad::task(keypad, raw_sender) {
+                spawner.spawn(token);
+            }
+        }
+
+        // Expanders: LongFred family + heiko-wifred.
+        #[cfg(any(
+            feature = "variant-longfred-standard",
+            feature = "variant-longfred-mini",
+            feature = "variant-heiko-wifred"
+        ))]
+        if let Ok(token) = input::expander::task(expander_i2c, raw_sender) {
             spawner.spawn(token);
         }
-        if let Ok(token) = input::expander::task(expander_i2c, sender) {
-            spawner.spawn(token);
+        #[cfg(feature = "variant-markwtech")]
+        {
+            let _ = expander_i2c;
         }
-        if let Ok(token) = input::encoder::task(enc.a, enc.b, sender) {
-            spawner.spawn(token);
+
+        // Encoder: LongFred family + markwtech (heiko uses pot).
+        #[cfg(not(feature = "variant-heiko-wifred"))]
+        {
+            let enc = input::encoder::build();
+            if let Ok(token) = input::encoder::task(enc.a, enc.b, raw_sender) {
+                spawner.spawn(token);
+            }
+            if let Ok(token) = input::encoder::button_task(enc.button, raw_sender) {
+                spawner.spawn(token);
+            }
         }
-        if let Ok(token) = input::encoder::button_task(enc.button, sender) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = domain::task::task() {
+
+        if let Ok(token) = board::bridge::task() {
             spawner.spawn(token);
         }
 
-        let _ = sender;
+        // Normal throttle domain only when not in Soft-AP programming path.
+        #[cfg(feature = "sim")]
+        let spawn_domain = true;
+        #[cfg(not(feature = "sim"))]
+        let spawn_domain = !enter_programming;
+        if spawn_domain {
+            if let Ok(token) = domain::task::task() {
+                spawner.spawn(token);
+            }
+        }
+
+        let _ = raw_sender;
     }
 
     loop {

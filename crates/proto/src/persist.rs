@@ -1,11 +1,14 @@
 //! NVS persistence record serialization (host-testable).
 
 pub const MAGIC: u32 = 0x4C46_5031; // "LFP1"
-pub const VERSION: u16 = 3;
+pub const VERSION: u16 = 4;
 pub const MAX_CREDENTIALS: usize = 8;
 pub const MAX_SAVED_LOCOS: usize = 12;
 pub const MAX_DEVICE_NAME_LEN: usize = 32;
 pub const MAX_WIFI_HOSTNAME_LEN: usize = 16;
+pub const MAX_BIGFRED_LOGIN_LEN: usize = 32;
+pub const MAX_BIGFRED_PIN_LEN: usize = 16;
+pub const MAX_STATIC_ROSTER_NAME_LEN: usize = 32;
 pub const WIFI_HOSTNAME_PREFIX: &str = "longred_";
 pub const WIFI_HOSTNAME_SUFFIX_LEN: usize = 6;
 pub const DEVICE_ID_MIN: u16 = 1000;
@@ -17,6 +20,9 @@ const TAG_NET: u8 = 3;
 const TAG_DEV: u8 = 4;
 const TAG_HOST: u8 = 5;
 const TAG_LANG: u8 = 6;
+const TAG_PROG: u8 = 7;
+const TAG_BIGFRED: u8 = 8;
+const TAG_ROSTER: u8 = 9;
 
 /// UI language (stored in NVS).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -53,6 +59,35 @@ pub struct SavedLoco {
     pub throttle: u8,
     pub slot: u8,
     pub addr: heapless::String<8>,
+}
+
+/// How the device obtains its loco roster.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum RosterMode {
+    #[default]
+    Auto = 0,
+    Static = 1,
+}
+
+impl RosterMode {
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Auto),
+            1 => Some(Self::Static),
+            _ => None,
+        }
+    }
+}
+
+/// Static roster entry (address + optional display name).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct StaticRosterEntry {
+    pub addr: heapless::String<8>,
+    pub name: heapless::String<MAX_STATIC_ROSTER_NAME_LEN>,
 }
 
 /// Client IPv4 configuration (DHCP or static).
@@ -158,6 +193,11 @@ pub struct PersistRecord {
     pub device: DeviceIdentity,
     pub wifi_hostname: heapless::String<MAX_WIFI_HOSTNAME_LEN>,
     pub language: Language,
+    pub programming_mode: bool,
+    pub bigfred_login: heapless::String<MAX_BIGFRED_LOGIN_LEN>,
+    pub bigfred_pin: heapless::String<MAX_BIGFRED_PIN_LEN>,
+    pub static_roster: heapless::Vec<StaticRosterEntry, MAX_SAVED_LOCOS>,
+    pub roster_mode: RosterMode,
 }
 
 impl Default for PersistRecord {
@@ -169,6 +209,11 @@ impl Default for PersistRecord {
             device: DeviceIdentity::default(),
             wifi_hostname: heapless::String::new(),
             language: Language::default(),
+            programming_mode: false,
+            bigfred_login: heapless::String::new(),
+            bigfred_pin: heapless::String::new(),
+            static_roster: heapless::Vec::new(),
+            roster_mode: RosterMode::default(),
         }
     }
 }
@@ -260,6 +305,31 @@ impl PersistRecord {
         off = write_u8(buf, off, TAG_LANG)?;
         off = write_u8(buf, off, self.language.as_u8())?;
 
+        off = write_u8(buf, off, TAG_PROG)?;
+        off = write_u8(buf, off, self.programming_mode as u8)?;
+
+        if !self.bigfred_login.is_empty() || !self.bigfred_pin.is_empty() {
+            off = write_u8(buf, off, TAG_BIGFRED)?;
+            let login_len = self.bigfred_login.len() as u8;
+            let pin_len = self.bigfred_pin.len() as u8;
+            off = write_u8(buf, off, login_len)?;
+            off = write_u8(buf, off, pin_len)?;
+            off = write_bytes(buf, off, self.bigfred_login.as_bytes())?;
+            off = write_bytes(buf, off, self.bigfred_pin.as_bytes())?;
+        }
+
+        off = write_u8(buf, off, TAG_ROSTER)?;
+        off = write_u8(buf, off, self.roster_mode.as_u8())?;
+        off = write_u8(buf, off, self.static_roster.len() as u8)?;
+        for e in &self.static_roster {
+            let addr_len = e.addr.len() as u8;
+            let name_len = e.name.len() as u8;
+            off = write_u8(buf, off, addr_len)?;
+            off = write_u8(buf, off, name_len)?;
+            off = write_bytes(buf, off, e.addr.as_bytes())?;
+            off = write_bytes(buf, off, e.name.as_bytes())?;
+        }
+
         let crc = crc32(&buf[0..off]);
         off = write_u32(buf, off, crc)?;
         Some(off)
@@ -275,7 +345,7 @@ impl PersistRecord {
             return None;
         }
         let version = read_u16(buf, &mut off)?;
-        if version != 1 && version != 2 && version != 3 {
+        if version != 1 && version != 2 && version != 3 && version != 4 {
             return None;
         }
         let cred_count = read_u16(buf, &mut off)? as usize;
@@ -364,6 +434,43 @@ impl PersistRecord {
                     TAG_LANG => {
                         let lang = read_u8(buf, &mut off)?;
                         rec.language = Language::from_u8(lang)?;
+                    }
+                    TAG_PROG => {
+                        rec.programming_mode = read_u8(buf, &mut off)? != 0;
+                    }
+                    TAG_BIGFRED => {
+                        let login_len = read_u8(buf, &mut off)? as usize;
+                        let pin_len = read_u8(buf, &mut off)? as usize;
+                        let login_bytes = read_slice(buf, &mut off, login_len)?;
+                        let pin_bytes = read_slice(buf, &mut off, pin_len)?;
+                        rec.bigfred_login.clear();
+                        let _ = rec
+                            .bigfred_login
+                            .push_str(core::str::from_utf8(login_bytes).ok()?);
+                        rec.bigfred_pin.clear();
+                        let _ = rec
+                            .bigfred_pin
+                            .push_str(core::str::from_utf8(pin_bytes).ok()?);
+                    }
+                    TAG_ROSTER => {
+                        let mode = read_u8(buf, &mut off)?;
+                        rec.roster_mode = RosterMode::from_u8(mode)?;
+                        let count = read_u8(buf, &mut off)? as usize;
+                        rec.static_roster.clear();
+                        for _ in 0..count {
+                            let addr_len = read_u8(buf, &mut off)? as usize;
+                            let name_len = read_u8(buf, &mut off)? as usize;
+                            let addr_bytes = read_slice(buf, &mut off, addr_len)?;
+                            let name_bytes = read_slice(buf, &mut off, name_len)?;
+                            let mut entry = StaticRosterEntry::default();
+                            let _ = entry
+                                .addr
+                                .push_str(core::str::from_utf8(addr_bytes).ok()?);
+                            let _ = entry
+                                .name
+                                .push_str(core::str::from_utf8(name_bytes).ok()?);
+                            let _ = rec.static_roster.push(entry);
+                        }
                     }
                     _ => return None,
                 }
@@ -638,6 +745,75 @@ mod tests {
         let decoded = PersistRecord::decode(&buf[..off]).unwrap();
         assert_eq!(decoded.language, Language::En);
         assert_eq!(decoded.device.id, 1234);
+        assert!(!decoded.programming_mode);
+        assert!(decoded.bigfred_login.is_empty());
+        assert!(decoded.bigfred_pin.is_empty());
+        assert!(decoded.static_roster.is_empty());
+        assert_eq!(decoded.roster_mode, RosterMode::Auto);
+    }
+
+    #[test]
+    fn roundtrip_programming_mode() {
+        let mut rec = PersistRecord::default();
+        rec.programming_mode = true;
+        let mut buf = [0u8; 512];
+        let n = rec.encode(&mut buf).unwrap();
+        let decoded = PersistRecord::decode(&buf[..n]).unwrap();
+        assert!(decoded.programming_mode);
+    }
+
+    #[test]
+    fn roundtrip_bigfred_creds() {
+        let mut rec = PersistRecord::default();
+        let _ = rec.bigfred_login.push_str("operator");
+        let _ = rec.bigfred_pin.push_str("1234");
+        let mut buf = [0u8; 512];
+        let n = rec.encode(&mut buf).unwrap();
+        let decoded = PersistRecord::decode(&buf[..n]).unwrap();
+        assert_eq!(decoded.bigfred_login.as_str(), "operator");
+        assert_eq!(decoded.bigfred_pin.as_str(), "1234");
+    }
+
+    #[test]
+    fn roundtrip_static_roster() {
+        let mut rec = PersistRecord::default();
+        rec.roster_mode = RosterMode::Static;
+        let mut e = StaticRosterEntry::default();
+        let _ = e.addr.push_str("L1234");
+        let _ = e.name.push_str("Pacific");
+        let _ = rec.static_roster.push(e);
+        let mut e2 = StaticRosterEntry::default();
+        let _ = e2.addr.push_str("S99");
+        let _ = rec.static_roster.push(e2);
+        let mut buf = [0u8; 512];
+        let n = rec.encode(&mut buf).unwrap();
+        let decoded = PersistRecord::decode(&buf[..n]).unwrap();
+        assert_eq!(decoded.roster_mode, RosterMode::Static);
+        assert_eq!(decoded.static_roster.len(), 2);
+        assert_eq!(decoded.static_roster[0].addr.as_str(), "L1234");
+        assert_eq!(decoded.static_roster[0].name.as_str(), "Pacific");
+        assert_eq!(decoded.static_roster[1].addr.as_str(), "S99");
+        assert!(decoded.static_roster[1].name.is_empty());
+    }
+
+    #[test]
+    fn decode_v3_missing_v4_tags_defaults() {
+        let mut buf = [0u8; 512];
+        let mut off = 0;
+        off = write_u32(&mut buf, off, MAGIC).unwrap();
+        off = write_u16(&mut buf, off, 3).unwrap();
+        off = write_u16(&mut buf, off, 0).unwrap();
+        off = write_u16(&mut buf, off, 0).unwrap();
+        off = write_u8(&mut buf, off, TAG_LANG).unwrap();
+        off = write_u8(&mut buf, off, Language::De.as_u8()).unwrap();
+        let crc = crc32(&buf[0..off]);
+        off = write_u32(&mut buf, off, crc).unwrap();
+        let decoded = PersistRecord::decode(&buf[..off]).unwrap();
+        assert_eq!(decoded.language, Language::De);
+        assert!(!decoded.programming_mode);
+        assert!(decoded.bigfred_login.is_empty());
+        assert_eq!(decoded.roster_mode, RosterMode::Auto);
+        assert!(decoded.static_roster.is_empty());
     }
 
     #[test]

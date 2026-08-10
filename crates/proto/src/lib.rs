@@ -4,12 +4,14 @@
 pub mod adapter;
 pub mod command;
 pub mod events;
+pub mod input_map;
 pub mod mdns;
 pub mod menu;
 pub mod model;
 pub mod parser;
 pub mod persist;
 pub mod protocol;
+pub mod provisioning;
 pub mod wt;
 pub mod z21;
 

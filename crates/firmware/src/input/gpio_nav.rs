@@ -1,9 +1,10 @@
 //! Direct GPIO nav cluster: Up/Down/Left/Right/Ok/Back/Menu (active-low).
+//! Emits [`RawEvent`] for the board ControlSurface bridge.
 
 use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{Input, InputConfig, InputPin, Pull};
 
-use super::{InputEvent, InputSender, NavDir};
+use crate::board::raw::{ButtonId, RawEvent, RawSender};
 
 const POLL_MS: u64 = 20;
 const DEBOUNCE_TICKS: u8 = 2;
@@ -53,25 +54,35 @@ impl Btn {
         }
     }
 
-    /// Returns true on a stable high→low edge (press with pull-up).
-    fn update(&mut self, raw_high: bool) -> bool {
+    /// Returns `Some(true)` on press (high→low), `Some(false)` on release.
+    fn update(&mut self, raw_high: bool) -> Option<bool> {
         if raw_high == self.stable_high {
             self.debounce = 0;
-            return false;
+            return None;
         }
         self.debounce = self.debounce.saturating_add(1);
         if self.debounce < DEBOUNCE_TICKS {
-            return false;
+            return None;
         }
         let was_high = self.stable_high;
         self.stable_high = raw_high;
         self.debounce = 0;
-        was_high && !raw_high
+        if was_high && !raw_high {
+            Some(true)
+        } else if !was_high && raw_high {
+            Some(false)
+        } else {
+            None
+        }
     }
 }
 
+fn emit(sender: &RawSender, id: ButtonId, pressed: bool) {
+    let _ = sender.try_send(RawEvent::Button(id, pressed));
+}
+
 #[embassy_executor::task]
-pub async fn task(pins: Pins, sender: InputSender) {
+pub async fn task(pins: Pins, sender: RawSender) {
     let mut up = Btn::new(pins.up.is_high());
     let mut down = Btn::new(pins.down.is_high());
     let mut left = Btn::new(pins.left.is_high());
@@ -81,26 +92,29 @@ pub async fn task(pins: Pins, sender: InputSender) {
     let mut menu = Btn::new(pins.menu.is_high());
 
     loop {
-        if up.update(pins.up.is_high()) {
-            let _ = sender.try_send(InputEvent::Nav(NavDir::Up));
+        // Transitional GPIO map → ButtonId (ControlSurface → InputEvent).
+        if let Some(p) = up.update(pins.up.is_high()) {
+            emit(&sender, ButtonId::JoyUp, p);
         }
-        if down.update(pins.down.is_high()) {
-            let _ = sender.try_send(InputEvent::Nav(NavDir::Down));
+        if let Some(p) = down.update(pins.down.is_high()) {
+            emit(&sender, ButtonId::JoyDown, p);
         }
-        if left.update(pins.left.is_high()) {
-            let _ = sender.try_send(InputEvent::Nav(NavDir::Left));
+        if let Some(p) = left.update(pins.left.is_high()) {
+            emit(&sender, ButtonId::JoyLeft, p);
         }
-        if right.update(pins.right.is_high()) {
-            let _ = sender.try_send(InputEvent::Nav(NavDir::Right));
+        if let Some(p) = right.update(pins.right.is_high()) {
+            emit(&sender, ButtonId::JoyRight, p);
         }
-        if ok.update(pins.ok.is_high()) {
-            let _ = sender.try_send(InputEvent::Ok);
+        // Old Ok → JoyMenu (surface emits Ok/select).
+        if let Some(p) = ok.update(pins.ok.is_high()) {
+            emit(&sender, ButtonId::JoyMenu, p);
         }
-        if back.update(pins.back.is_high()) {
-            let _ = sender.try_send(InputEvent::Back);
+        // Old Back → Stop (shell maps Stop → EStop/Cancel).
+        if let Some(p) = back.update(pins.back.is_high()) {
+            emit(&sender, ButtonId::Stop, p);
         }
-        if menu.update(pins.menu.is_high()) {
-            let _ = sender.try_send(InputEvent::Menu);
+        if let Some(p) = menu.update(pins.menu.is_high()) {
+            emit(&sender, ButtonId::Menu, p);
         }
 
         Timer::after(Duration::from_millis(POLL_MS)).await;

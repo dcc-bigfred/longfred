@@ -42,6 +42,11 @@ pub const WAKE_PIN: Gpio = 0;
 // --- Optional MCP23017 INTA (unused; Menu took GPIO10) ---
 pub const MCP_INT: Gpio = 11;
 
+// --- Heiko wiFred status LEDs (active-high; steal in LedPresenter) ---
+pub const HEIKO_LED_STOP: Gpio = 18;
+pub const HEIKO_LED_FORWARD: Gpio = 19;
+pub const HEIKO_LED_REVERSE: Gpio = 20;
+
 // Legacy aliases for display module.
 pub const OLED_SDA: Gpio = I2C_SDA;
 pub const OLED_SCL: Gpio = I2C_SCL;

@@ -9,11 +9,37 @@ use crate::domain::actions::Action;
 use crate::domain::state::DomainState;
 use crate::input::{InputEvent, NavDir};
 use crate::net::SsidInfo;
-use crate::ui::keyboard::{KeyboardMode, TextKeyboard};
+use crate::ui::keyboard::KeyboardMode;
 use crate::ui::menu::{Intent, ListRef, MenuFsm, MenuItemType, Screen, MENU_KEYS, MENU_TYPES};
+use crate::ui::nav_profile::{self, NavAction, NavProfile};
 
 impl MenuFsm {
     pub fn handle_input(
+        &mut self,
+        ev: InputEvent,
+        domain: &DomainState,
+        scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> Intent {
+        let text_entry = self.is_text_entry_screen();
+        let profile = nav_profile::active();
+        let Some(action) = profile.map(ev, text_entry) else {
+            return Intent::None;
+        };
+        match action {
+            NavAction::ListPrev => self.on_list_step(NavDir::Up, domain, scanned),
+            NavAction::ListNext => self.on_list_step(NavDir::Down, domain, scanned),
+            NavAction::Select => self.on_ok(domain, scanned),
+            NavAction::Cancel => self.on_back(domain),
+            NavAction::MenuEnter => self.on_menu_enter(domain, scanned),
+            NavAction::CharCycle(d) => self.on_char_cycle(d, domain),
+            NavAction::CursorMove(d) => self.on_cursor_move(d, domain),
+            NavAction::CaseToggle => self.on_case_toggle(),
+            NavAction::Digit(c) => self.on_digit(c, domain),
+            NavAction::PassThrough(ev) => self.handle_passthrough(ev, domain, scanned),
+        }
+    }
+
+    fn handle_passthrough(
         &mut self,
         ev: InputEvent,
         domain: &DomainState,
@@ -32,19 +58,181 @@ impl MenuFsm {
             InputEvent::EncoderClockwise => self.encoder(true, domain),
             InputEvent::EncoderCounterClockwise => self.encoder(false, domain),
             InputEvent::EncoderButton => self.encoder_button(domain),
-            InputEvent::EStop | InputEvent::DirectionSet(_) => Intent::None,
+            InputEvent::Stop => self.on_back(domain),
+            InputEvent::EnterProgrammingMode => Intent::EnterProgrammingMode,
+            InputEvent::EStop
+            | InputEvent::DirectionSet(_)
+            | InputEvent::DirectionToggle
+            | InputEvent::Digit(_)
+            | InputEvent::SpeedAbsolute(_)
+            | InputEvent::LocoSlot(_, _)
+            | InputEvent::CharCycle(_)
+            | InputEvent::CursorMove(_)
+            | InputEvent::CaseToggle => Intent::None,
         }
+    }
+
+    fn on_menu_enter(
+        &mut self,
+        domain: &DomainState,
+        scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> Intent {
+        if self.screen == Screen::Throttle {
+            return self.on_menu_key(domain);
+        }
+        if self.is_text_entry_screen() || self.is_list_screen() || matches!(
+            self.screen,
+            Screen::IpConfig | Screen::IpEdit | Screen::ServerEntry
+        ) {
+            return self.on_ok(domain, scanned);
+        }
+        self.on_menu_key(domain)
+    }
+
+    fn on_list_step(
+        &mut self,
+        dir: NavDir,
+        domain: &DomainState,
+        scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+    ) -> Intent {
+        if self.is_list_screen() {
+            return self.list_nav(dir, domain, scanned);
+        }
+        if self.screen == Screen::Throttle && !domain.current_slot_has_loco() {
+            let delta = if dir == NavDir::Up { -1i8 } else { 1 };
+            let _ = self.addr_kbd.char_cycle(delta);
+            return Intent::None;
+        }
+        Intent::None
+    }
+
+    fn on_char_cycle(&mut self, delta: i8, domain: &DomainState) -> Intent {
+        match self.screen {
+            Screen::Password | Screen::DeviceNameEdit => {
+                let _ = self.text_kbd.char_cycle(delta);
+            }
+            Screen::ServerEntry => {
+                let _ = self.ip_kbd.char_cycle(delta);
+            }
+            Screen::IpEdit => {
+                let _ = self.net_kbd.char_cycle(delta);
+            }
+            Screen::DeviceIdEdit => {
+                let _ = self.id_kbd.char_cycle(delta);
+            }
+            Screen::Throttle if !domain.current_slot_has_loco() => {
+                let _ = self.addr_kbd.char_cycle(delta);
+            }
+            _ => {}
+        }
+        Intent::None
+    }
+
+    fn on_cursor_move(&mut self, delta: i8, domain: &DomainState) -> Intent {
+        // Buffer cursor lives in MenuFsm later; for now Left=backspace, Right=commit.
+        let left = delta < 0;
+        match self.screen {
+            Screen::Password | Screen::DeviceNameEdit => {
+                if left {
+                    let _ = self.text_kbd.nav_left();
+                } else {
+                    let _ = self.text_kbd.nav_right();
+                }
+            }
+            Screen::ServerEntry => {
+                if left {
+                    let _ = self.ip_kbd.nav_left();
+                } else {
+                    let _ = self.ip_kbd.nav_right();
+                }
+            }
+            Screen::IpEdit => {
+                if left {
+                    let _ = self.net_kbd.nav_left();
+                } else {
+                    let _ = self.net_kbd.nav_right();
+                }
+            }
+            Screen::DeviceIdEdit => {
+                if left {
+                    let _ = self.id_kbd.nav_left();
+                } else {
+                    let _ = self.id_kbd.nav_right();
+                }
+            }
+            Screen::Throttle if !domain.current_slot_has_loco() => {
+                if left {
+                    let _ = self.addr_kbd.nav_left();
+                } else {
+                    let _ = self.addr_kbd.nav_right();
+                }
+            }
+            _ => {}
+        }
+        Intent::None
+    }
+
+    fn on_case_toggle(&mut self) -> Intent {
+        if matches!(self.screen, Screen::Password | Screen::DeviceNameEdit) {
+            let _ = self.text_kbd.case_toggle();
+        }
+        Intent::None
+    }
+
+    fn on_digit(&mut self, c: char, domain: &DomainState) -> Intent {
+        if self.screen == Screen::Menu {
+            if c.is_ascii_digit() {
+                let _ = self.menu_cmd.push(c);
+            }
+            return Intent::None;
+        }
+        match self.screen {
+            Screen::Throttle if !domain.current_slot_has_loco() && c.is_ascii_digit() => {
+                if self.addr_kbd.buffer.len() < 5 {
+                    let _ = self.addr_kbd.buffer.push(c);
+                }
+            }
+            Screen::Password | Screen::DeviceNameEdit => {
+                if self.text_kbd.buffer.len() < 64 {
+                    let _ = self.text_kbd.buffer.push(c);
+                }
+            }
+            Screen::ServerEntry if c.is_ascii_digit() => {
+                if self.ip_kbd.buffer.len() < 17 {
+                    let _ = self.ip_kbd.buffer.push(c);
+                }
+            }
+            Screen::IpEdit if c.is_ascii_digit() => {
+                if self.net_kbd.buffer.len() < 12 {
+                    let _ = self.net_kbd.buffer.push(c);
+                }
+            }
+            Screen::DeviceIdEdit if c.is_ascii_digit() => {
+                if self.id_kbd.buffer.len() < 4 {
+                    let _ = self.id_kbd.buffer.push(c);
+                }
+            }
+            _ => {}
+        }
+        Intent::None
     }
 
     fn handle_global(&mut self, ev: InputEvent, domain: &DomainState) -> Option<Intent> {
         match ev {
             InputEvent::EStop => Some(Intent::Action(Action::EStop)),
+            // Physical Stop: EStop on throttle, otherwise fall through to Back.
+            InputEvent::Stop if self.screen == Screen::Throttle => {
+                Some(Intent::Action(Action::EStop))
+            }
             InputEvent::DirectionSet(dir) if self.screen == Screen::Throttle && domain.current_slot_has_loco() => {
                 Some(if dir == longfred_proto::model::Direction::Forward {
                     Intent::Action(Action::DirectionForward)
                 } else {
                     Intent::Action(Action::DirectionReverse)
                 })
+            }
+            InputEvent::DirectionToggle if self.screen == Screen::Throttle && domain.current_slot_has_loco() => {
+                Some(Intent::Action(Action::DirectionToggle))
             }
             InputEvent::Menu if self.screen == Screen::Throttle => {
                 self.menu_cmd.clear();
@@ -64,6 +252,7 @@ impl MenuFsm {
             {
                 Some(Intent::Function(buttons::FN_TO_DCC[k.min(10) as usize], false))
             }
+            InputEvent::EnterProgrammingMode => Some(Intent::EnterProgrammingMode),
             _ => None,
         }
     }

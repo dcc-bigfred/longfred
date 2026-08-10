@@ -1,12 +1,12 @@
 //! Joystick, tact switches, SPDT direction — MCP23017 x2 (I2C polling).
+//! Emits [`RawEvent`] for the board ControlSurface bridge.
 
 use embassy_time::{Duration, Timer};
 use embedded_hal::i2c::I2c;
-use longfred_proto::model::Direction;
 
+use crate::board::raw::{ButtonId, RawEvent, RawSender, SwitchId};
 use crate::config::board::{LogicalButton, BUTTON_MAP, MCP_ADDRESSES};
 use super::i2c_bus::SharedI2cDevice;
-use super::{InputEvent, InputSender, NavDir};
 
 const POLL_MS: u64 = 10;
 const DEBOUNCE_TICKS: u8 = 2;
@@ -83,67 +83,41 @@ fn update_debounce(
     (rising, falling)
 }
 
-fn emit_button(btn: LogicalButton, rising: u8, falling: u8, port_a: bool, bit: u8, sender: &InputSender) {
+fn logical_to_button(btn: LogicalButton) -> Option<ButtonId> {
+    Some(match btn {
+        LogicalButton::JoyUp => ButtonId::JoyUp,
+        LogicalButton::JoyDown => ButtonId::JoyDown,
+        LogicalButton::JoyLeft => ButtonId::JoyLeft,
+        LogicalButton::JoyRight => ButtonId::JoyRight,
+        LogicalButton::JoyOk => ButtonId::JoyMenu,
+        LogicalButton::Back | LogicalButton::EStop => ButtonId::Stop,
+        LogicalButton::Menu => ButtonId::Menu,
+        LogicalButton::Direction => return None,
+        LogicalButton::F0 => ButtonId::F0,
+        LogicalButton::F1 => ButtonId::F1,
+        LogicalButton::F2 => ButtonId::F2,
+        LogicalButton::F3 => ButtonId::F3,
+        LogicalButton::F4 => ButtonId::F4,
+        LogicalButton::F5 => ButtonId::F5,
+        LogicalButton::F6 => ButtonId::F6,
+        LogicalButton::F7 => ButtonId::F7,
+        LogicalButton::F8 => ButtonId::F8,
+        LogicalButton::F9 => ButtonId::Extra(9),
+        LogicalButton::F10 => ButtonId::Extra(10),
+    })
+}
+
+fn emit_button(btn: LogicalButton, rising: u8, falling: u8, bit: u8, sender: &RawSender) {
+    let Some(id) = logical_to_button(btn) else {
+        return;
+    };
     let mask = 1u8 << bit;
-    if port_a {
-        if rising & mask != 0 {
-            send_press(btn, sender);
-        }
-        if falling & mask != 0 {
-            send_release(btn, sender);
-        }
-    } else {
-        if rising & mask != 0 {
-            send_press(btn, sender);
-        }
-        if falling & mask != 0 {
-            send_release(btn, sender);
-        }
+    if rising & mask != 0 {
+        let _ = sender.try_send(RawEvent::Button(id, true));
     }
-}
-
-fn send_press(btn: LogicalButton, sender: &InputSender) {
-    let ev = match btn {
-        LogicalButton::JoyUp => InputEvent::Nav(NavDir::Up),
-        LogicalButton::JoyDown => InputEvent::Nav(NavDir::Down),
-        LogicalButton::JoyLeft => InputEvent::Nav(NavDir::Left),
-        LogicalButton::JoyRight => InputEvent::Nav(NavDir::Right),
-        LogicalButton::JoyOk => InputEvent::Ok,
-        LogicalButton::Back => InputEvent::Back,
-        LogicalButton::Menu => InputEvent::Menu,
-        LogicalButton::EStop => InputEvent::EStop,
-        LogicalButton::Direction => return,
-        LogicalButton::F0 => InputEvent::FnPress(0),
-        LogicalButton::F1 => InputEvent::FnPress(1),
-        LogicalButton::F2 => InputEvent::FnPress(2),
-        LogicalButton::F3 => InputEvent::FnPress(3),
-        LogicalButton::F4 => InputEvent::FnPress(4),
-        LogicalButton::F5 => InputEvent::FnPress(5),
-        LogicalButton::F6 => InputEvent::FnPress(6),
-        LogicalButton::F7 => InputEvent::FnPress(7),
-        LogicalButton::F8 => InputEvent::FnPress(8),
-        LogicalButton::F9 => InputEvent::FnPress(9),
-        LogicalButton::F10 => InputEvent::FnPress(10),
-    };
-    let _ = sender.try_send(ev);
-}
-
-fn send_release(btn: LogicalButton, sender: &InputSender) {
-    let ev = match btn {
-        LogicalButton::F0 => InputEvent::FnRelease(0),
-        LogicalButton::F1 => InputEvent::FnRelease(1),
-        LogicalButton::F2 => InputEvent::FnRelease(2),
-        LogicalButton::F3 => InputEvent::FnRelease(3),
-        LogicalButton::F4 => InputEvent::FnRelease(4),
-        LogicalButton::F5 => InputEvent::FnRelease(5),
-        LogicalButton::F6 => InputEvent::FnRelease(6),
-        LogicalButton::F7 => InputEvent::FnRelease(7),
-        LogicalButton::F8 => InputEvent::FnRelease(8),
-        LogicalButton::F9 => InputEvent::FnRelease(9),
-        LogicalButton::F10 => InputEvent::FnRelease(10),
-        _ => return,
-    };
-    let _ = sender.try_send(ev);
+    if falling & mask != 0 {
+        let _ = sender.try_send(RawEvent::Button(id, false));
+    }
 }
 
 fn process_chip(
@@ -152,7 +126,7 @@ fn process_chip(
     falling_a: u8,
     rising_b: u8,
     falling_b: u8,
-    sender: &InputSender,
+    sender: &RawSender,
 ) {
     for &(addr, port_a, bit, btn) in BUTTON_MAP.iter() {
         if addr != mcp.addr {
@@ -160,24 +134,24 @@ fn process_chip(
         }
         let Some(btn) = btn else { continue };
         if port_a {
-            emit_button(btn, rising_a, falling_a, true, bit, sender);
+            emit_button(btn, rising_a, falling_a, bit, sender);
         } else {
-            emit_button(btn, rising_b, falling_b, false, bit, sender);
+            emit_button(btn, rising_b, falling_b, bit, sender);
         }
     }
 }
 
-fn read_direction(stable_a: u8) -> Direction {
+fn direction_value(stable_a: u8) -> u8 {
     // GPA3 on MCP #1: LOW = Forward (COM to GND), HIGH = Reverse.
     if pressed_bit(stable_a, 3) {
-        Direction::Forward
+        1
     } else {
-        Direction::Reverse
+        0
     }
 }
 
 #[embassy_executor::task]
-pub async fn task(mut i2c: SharedI2cDevice, sender: InputSender) {
+pub async fn task(mut i2c: SharedI2cDevice, sender: RawSender) {
     let mut chips = [McpState::new(MCP_ADDRESSES[0]), McpState::new(MCP_ADDRESSES[1])];
 
     let mut present = 0u8;
@@ -197,7 +171,7 @@ pub async fn task(mut i2c: SharedI2cDevice, sender: InputSender) {
     // Initial direction sync.
     if let Ok((a, _)) = mcp_read(&mut i2c, MCP_ADDRESSES[1]) {
         chips[1].stable_a = a;
-        let _ = sender.try_send(InputEvent::DirectionSet(read_direction(a)));
+        let _ = sender.try_send(RawEvent::Switch(SwitchId::Direction, direction_value(a)));
     }
 
     let mut dir_stable = chips[1].stable_a;
@@ -219,7 +193,10 @@ pub async fn task(mut i2c: SharedI2cDevice, sender: InputSender) {
 
             if mcp.addr == MCP_ADDRESSES[1] && mcp.stable_a != dir_stable {
                 dir_stable = mcp.stable_a;
-                let _ = sender.try_send(InputEvent::DirectionSet(read_direction(dir_stable)));
+                let _ = sender.try_send(RawEvent::Switch(
+                    SwitchId::Direction,
+                    direction_value(dir_stable),
+                ));
             }
         }
         Timer::after(Duration::from_millis(POLL_MS)).await;

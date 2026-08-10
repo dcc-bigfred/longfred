@@ -4,6 +4,9 @@ use embassy_futures::select::{select3, Either3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
+use log::info;
+#[cfg(feature = "sim")]
+use log::warn;
 use longfred_proto::command::ClientCommand;
 use longfred_proto::model::Direction;
 use longfred_proto::persist::PersistRecord;
@@ -19,7 +22,7 @@ use crate::net::{
 };
 use crate::power::battery::BATTERY;
 use crate::power::sleep::{SleepReason, SLEEP_CTRL};
-use crate::storage::{StorageCmd, PERSIST_LOADED, STORAGE_CTRL};
+use crate::storage::{StorageCmd, PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL};
 use crate::ui::menu::{Intent, ListRef, MenuFsm, Screen};
 use crate::ui::view::ViewCtx;
 use crate::ui::{i18n, UI_VIEW};
@@ -234,6 +237,10 @@ fn interpret(
             state.persist.language = lang;
             state.show_message(i18n::tr().saved_language);
         }
+        Intent::EnterProgrammingMode => {
+            // Handled eagerly in the input loop (persist + software_reset).
+            log::info!("domain: EnterProgrammingMode intent (already applied)");
+        }
     }
 }
 
@@ -317,6 +324,19 @@ pub async fn task() {
         {
             Either3::First(ev) => {
                 last_activity = Instant::now();
+                if matches!(ev, input::InputEvent::EnterProgrammingMode) {
+                    info!("domain: enter programming mode — saving flag and resetting");
+                    let _ = storage_tx.try_send(StorageCmd::SetProgrammingMode(true));
+                    STORAGE_ACK.wait().await;
+                    Timer::after(Duration::from_millis(50)).await;
+                    #[cfg(not(feature = "sim"))]
+                    esp_hal::system::software_reset();
+                    #[cfg(feature = "sim")]
+                    {
+                        warn!("sim: software_reset skipped");
+                        continue;
+                    }
+                }
                 if let input::InputEvent::DirectionSet(dir) = ev {
                     spdt_direction = dir;
                 }

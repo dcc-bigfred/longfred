@@ -18,6 +18,10 @@ use longfred_proto::persist::{
 
 pub static PERSIST_LOADED: Signal<CriticalSectionRawMutex, PersistRecord> = Signal::new();
 
+/// Signalled after a storage write that requested acknowledgement
+/// ([`StorageCmd::SetProgrammingMode`], [`StorageCmd::ReplaceRecord`]).
+pub static STORAGE_ACK: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
 pub enum StorageCmd {
     SavePassword {
         ssid: String<32>,
@@ -28,10 +32,21 @@ pub enum StorageCmd {
     SaveDevice(DeviceIdentity),
     RegenerateDeviceId,
     SaveLanguage(Language),
+    SetProgrammingMode(bool),
+    ReplaceRecord(PersistRecord),
     Clear,
 }
 
 pub static STORAGE_CTRL: Channel<CriticalSectionRawMutex, StorageCmd, 4> = Channel::new();
+
+/// Boot-time NVS snapshot used to choose STA vs programming path.
+#[derive(Clone)]
+pub struct BootState {
+    pub wifi_hostname: heapless::String<MAX_WIFI_HOSTNAME_LEN>,
+    pub programming_mode: bool,
+    pub has_wifi_credentials: bool,
+    pub record: PersistRecord,
+}
 
 const SECTOR: usize = 4096;
 const PT_BUF_LEN: usize = 4096;
@@ -73,6 +88,11 @@ fn persist(flash: &mut FlashStorage<'_>, rec: &PersistRecord) {
     }
 }
 
+/// Synchronous NVS write (boot path before the storage task runs).
+pub fn write_record(flash: &mut FlashStorage<'_>, rec: &PersistRecord) {
+    persist(flash, rec);
+}
+
 fn ensure_device_id(rec: &mut PersistRecord, entropy: u32) {
     if rec.device.id == 0 {
         rec.device.id = id_from_entropy(entropy);
@@ -95,10 +115,7 @@ fn regenerate_device_id(rec: &mut PersistRecord) {
 }
 
 /// Load NVS and ensure device id + DHCP hostname exist (called before embassy-net init).
-pub fn ensure_boot_hostname(
-    flash: &mut FlashStorage<'_>,
-    boot_entropy: u32,
-) -> heapless::String<MAX_WIFI_HOSTNAME_LEN> {
+pub fn ensure_boot(flash: &mut FlashStorage<'_>, boot_entropy: u32) -> BootState {
     let mut rec = load(flash).unwrap_or_default();
     let mut dirty = false;
     if rec.wifi_hostname.is_empty() {
@@ -112,7 +129,20 @@ pub fn ensure_boot_hostname(
     if dirty {
         persist(flash, &rec);
     }
-    rec.wifi_hostname
+    BootState {
+        wifi_hostname: rec.wifi_hostname.clone(),
+        programming_mode: rec.programming_mode,
+        has_wifi_credentials: !rec.credentials.is_empty(),
+        record: rec,
+    }
+}
+
+/// Load NVS and ensure device id + DHCP hostname exist (called before embassy-net init).
+pub fn ensure_boot_hostname(
+    flash: &mut FlashStorage<'_>,
+    boot_entropy: u32,
+) -> heapless::String<MAX_WIFI_HOSTNAME_LEN> {
+    ensure_boot(flash, boot_entropy).wifi_hostname
 }
 
 #[embassy_executor::task]
@@ -165,6 +195,24 @@ pub async fn task(flash: &'static mut FlashStorage<'static>, boot_entropy: u32) 
                 rec.language = lang;
                 persist(flash, &rec);
                 PERSIST_LOADED.signal(rec.clone());
+            }
+            StorageCmd::SetProgrammingMode(on) => {
+                rec.programming_mode = on;
+                persist(flash, &rec);
+                PERSIST_LOADED.signal(rec.clone());
+                STORAGE_ACK.signal(());
+            }
+            StorageCmd::ReplaceRecord(new_rec) => {
+                rec = new_rec;
+                if rec.device.id == 0 {
+                    ensure_device_id(&mut rec, boot_entropy);
+                }
+                if rec.wifi_hostname.is_empty() {
+                    ensure_wifi_hostname(&mut rec, boot_entropy);
+                }
+                persist(flash, &rec);
+                PERSIST_LOADED.signal(rec.clone());
+                STORAGE_ACK.signal(());
             }
             StorageCmd::Clear => {
                 rec = PersistRecord::default();

@@ -74,6 +74,7 @@ pub enum Intent {
     SaveDevice(DeviceIdentity),
     RegenerateDeviceId,
     SetLanguage(Language),
+    EnterProgrammingMode,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

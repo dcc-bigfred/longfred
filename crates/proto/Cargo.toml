@@ -6,3 +6,5 @@ rust-version.workspace = true
 
 [dependencies]
 heapless = "0.9"
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde-json-core = { version = "0.6", default-features = false }

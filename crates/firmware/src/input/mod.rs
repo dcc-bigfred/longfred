@@ -1,10 +1,13 @@
-//! Input: GPIO nav cluster, MCP23017 tact/F-keys, encoder.
-//! Input channel contract -> domain: `InputEvent` + `INPUT_CHANNEL`.
+//! Input: GPIO nav cluster, MCP23017 tact/F-keys, encoder, keypad.
+//! Drivers emit [`crate::board::raw::RawEvent`] to `RAW_CHANNEL`;
+//! the board bridge maps them to [`InputEvent`] on `INPUT_CHANNEL`.
 
 pub mod encoder;
 pub mod expander;
 pub mod gpio_nav;
 pub mod i2c_bus;
+#[cfg(feature = "variant-markwtech")]
+pub mod keypad;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
@@ -19,7 +22,7 @@ pub enum NavDir {
     Right,
 }
 
-/// Input event emitted to the domain layer.
+/// Input event emitted to the domain / UI layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputEvent {
     Nav(NavDir),
@@ -27,12 +30,22 @@ pub enum InputEvent {
     Back,
     Menu,
     EStop,
+    /// Physical Stop — UiShell maps to EStop or Cancel/Back by screen.
+    Stop,
     FnPress(u8),
     FnRelease(u8),
     DirectionSet(Direction),
+    DirectionToggle,
     EncoderClockwise,
     EncoderCounterClockwise,
     EncoderButton,
+    Digit(char),
+    SpeedAbsolute(u8),
+    LocoSlot(u8, bool),
+    CharCycle(i8),
+    CursorMove(i8),
+    CaseToggle,
+    EnterProgrammingMode,
 }
 
 pub const INPUT_CHANNEL_DEPTH: usize = 16;
@@ -41,5 +54,5 @@ pub type InputChannel = Channel<CriticalSectionRawMutex, InputEvent, INPUT_CHANN
 pub type InputSender = Sender<'static, CriticalSectionRawMutex, InputEvent, INPUT_CHANNEL_DEPTH>;
 pub type InputReceiver = Receiver<'static, CriticalSectionRawMutex, InputEvent, INPUT_CHANNEL_DEPTH>;
 
-/// Sole input channel: drivers -> domain.
+/// Sole input channel: board bridge -> domain.
 pub static INPUT_CHANNEL: InputChannel = Channel::new();

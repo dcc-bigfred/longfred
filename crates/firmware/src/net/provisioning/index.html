@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LongFred Pairing</title>
+<style>
+*{box-sizing:border-box}body{font:14px/1.4 system-ui,sans-serif;margin:0;padding:12px;background:#1a1a1a;color:#eee;max-width:480px}
+h1{font-size:1.2rem;margin:0 0 12px}label{display:block;margin:10px 0 4px;color:#bbb;font-size:12px}
+input,select,textarea{width:100%;padding:8px;border:1px solid #444;border-radius:4px;background:#111;color:#eee}
+textarea{min-height:72px;font:12px/1.3 ui-monospace,monospace}row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+button{flex:1;min-width:90px;padding:10px;border:0;border-radius:4px;background:#2d6cdf;color:#fff;font-weight:600}
+button.sec{background:#444}button.danger{background:#a33}#status{margin-top:12px;min-height:1.2em;color:#8f8}
+.err{color:#f88!important}.ok{color:#8f8}
+fieldset{border:1px solid #333;border-radius:6px;margin:0 0 12px;padding:8px 10px 12px}
+legend{padding:0 4px;color:#9cf;font-size:12px}
+</style>
+</head>
+<body>
+<h1>LongFred pairing</h1>
+<form id="f" onsubmit="return false">
+<fieldset>
+<legend>BigFred</legend>
+<label>Login</label><input id="login" autocomplete="username">
+<label>PIN</label><input id="pin" type="password" autocomplete="current-password">
+</fieldset>
+<fieldset>
+<legend>Wi‑Fi</legend>
+<label>SSID</label><input id="ssid" autocomplete="off">
+<label>Password</label><input id="wifi_pw" type="password" autocomplete="new-password">
+</fieldset>
+<fieldset>
+<legend>Roster</legend>
+<label>Mode</label>
+<select id="roster_mode"><option value="auto">auto</option><option value="static">static</option></select>
+<label>Entries (addr[,name] per line)</label>
+<textarea id="roster" placeholder="L1234,Pacific&#10;S99"></textarea>
+</fieldset>
+<row>
+<button type="button" class="sec" onclick="load()">Load</button>
+<button type="button" onclick="save()">Save</button>
+<button type="button" class="danger" onclick="exitMode()">Exit</button>
+</row>
+</form>
+<p id="status"></p>
+<script>
+const $=id=>document.getElementById(id);
+function status(m,ok){const e=$('status');e.textContent=m;e.className=ok===false?'err':ok?'ok':'';}
+function rosterText(entries){
+  return (entries||[]).map(e=>e.name?e.addr+','+e.name:e.addr).join('\n');
+}
+function parseRoster(t){
+  return t.split(/\n/).map(l=>l.trim()).filter(Boolean).map(l=>{
+    const i=l.indexOf(',');
+    if(i<0)return{addr:l};
+    return{addr:l.slice(0,i).trim(),name:l.slice(i+1).trim()||undefined};
+  });
+}
+async function load(){
+  status('Loading…');
+  try{
+    const r=await fetch('/api/v1/settings');
+    if(!r.ok)throw new Error(r.status);
+    const j=await r.json();
+    $('login').value=(j.bigfred&&j.bigfred.login)||'';
+    $('pin').value='';
+    $('ssid').value='';
+    $('wifi_pw').value='';
+    if(j.wifi&&j.wifi.networks&&j.wifi.networks[0])$('ssid').value=j.wifi.networks[0];
+    $('roster_mode').value=(j.roster&&j.roster.mode)||'auto';
+    $('roster').value=rosterText(j.roster&&j.roster.entries);
+    status('Loaded',true);
+  }catch(e){status('Load failed: '+e,false)}
+}
+async function save(){
+  status('Saving…');
+  const body={
+    bigfred:{login:$('login').value,pin:$('pin').value||undefined},
+    wifi:{ssid:$('ssid').value||undefined,password:$('wifi_pw').value||undefined},
+    roster_mode:$('roster_mode').value,
+    roster:parseRoster($('roster').value)
+  };
+  if(!body.wifi.ssid)delete body.wifi;
+  else if(body.wifi.password===undefined)body.wifi.password='';
+  if(!body.bigfred.login&&!body.bigfred.pin)delete body.bigfred;
+  try{
+    const r=await fetch('/api/v1/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok)throw new Error(r.status);
+    status('Saved',true);
+  }catch(e){status('Save failed: '+e,false)}
+}
+async function exitMode(){
+  status('Exiting…');
+  try{
+    const r=await fetch('/api/v1/programming-mode/off',{method:'POST'});
+    if(!r.ok)throw new Error(r.status);
+    status('Done — device rebooting',true);
+  }catch(e){status('Exit failed: '+e,false)}
+}
+load();
+</script>
+</body>
+</html>

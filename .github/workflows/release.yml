@@ -55,14 +55,17 @@ jobs:
           echo "Timed out after 15 minutes waiting for CI workflow on commit ${SHA}"
           exit 1
 
-      - name: Download CI firmware
+      - name: Download CI firmware artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh run download "${{ steps.ci.outputs.run_id }}" \
-            --name firmware \
-            --dir release-assets
+          mkdir -p release-assets
+          for variant in longfred-standard longfred-mini markwtech heiko-wifred; do
+            gh run download "${{ steps.ci.outputs.run_id }}" \
+              --name "firmware-${variant}" \
+              --dir "release-assets/${variant}"
+          done
 
       - name: Create release if missing
         env:
@@ -84,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          mapfile -d '' FILES < <(find release-assets -type f -print0)
+          mapfile -d '' FILES < <(find release-assets -type f \( -name '*.elf' -o -name '*.bin' -o -name 'SHA256SUMS' \) -print0)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No release assets found"
             exit 1

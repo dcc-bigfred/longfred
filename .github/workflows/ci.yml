@@ -34,9 +34,21 @@ jobs:
         run: cargo test -p longfred-proto --target x86_64-unknown-linux-gnu
 
   build:
-    name: Build firmware
+    name: Build firmware (${{ matrix.variant }})
     needs: test
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: longfred-standard
+            features: variant-longfred-standard
+          - variant: longfred-mini
+            features: variant-longfred-mini
+          - variant: markwtech
+            features: variant-markwtech
+          - variant: heiko-wifred
+            features: variant-heiko-wifred
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,6 +63,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: .
+          key: ${{ matrix.variant }}
 
       - name: Install espflash
         uses: taiki-e/install-action@v2
@@ -60,22 +73,26 @@ jobs:
       - name: Build firmware
         run: |
           set -euo pipefail
-          cargo build -p longfred-firmware --release --bin longfred
+          VARIANT="${{ matrix.variant }}"
+          FEATURES="${{ matrix.features }}"
+          cargo build -p longfred-firmware --release --bin longfred \
+            --no-default-features --features "${FEATURES}"
           mkdir -p dist
 
           ELF="target/riscv32imac-unknown-none-elf/release/longfred"
-          cp "$ELF" dist/longfred-esp32c6.elf
-          espflash save-image --chip esp32c6 --merge "$ELF" dist/longfred-esp32c6.bin
+          cp "$ELF" "dist/longfred-${VARIANT}-esp32c6.elf"
+          espflash save-image --chip esp32c6 --merge "$ELF" \
+            "dist/longfred-${VARIANT}-esp32c6.bin"
 
           (
             cd dist
-            sha256sum longfred-esp32c6.elf longfred-esp32c6.bin > SHA256SUMS
+            sha256sum "longfred-${VARIANT}-esp32c6.elf" "longfred-${VARIANT}-esp32c6.bin" > SHA256SUMS
           )
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: firmware
+          name: firmware-${{ matrix.variant }}
           path: dist/
           if-no-files-found: error
           retention-days: 90

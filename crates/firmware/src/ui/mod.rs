@@ -2,9 +2,13 @@
 
 pub mod display;
 pub mod fonts;
+pub mod headless_shell;
 pub mod i18n;
 pub mod keyboard;
+#[cfg(feature = "variant-heiko-wifred")]
+pub mod led_presenter;
 pub mod menu;
+pub mod nav_profile;
 pub mod view;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

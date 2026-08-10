@@ -1,6 +1,8 @@
 //! Network layer: WiFi STA + embassy-net stack, mDNS, protocol session.
 
 pub mod mdns;
+#[cfg(not(feature = "sim"))]
+pub mod provisioning;
 pub mod session;
 pub mod wifi;
 
