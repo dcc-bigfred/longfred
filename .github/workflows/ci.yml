@@ -150,3 +150,41 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 90
+
+  size-check:
+    name: Check ESP32-C6 size
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install espflash
+        uses: taiki-e/install-action@v2
+        with:
+          tool: espflash@4.5.0
+
+      - name: Download firmware artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: artifact-download
+
+      - name: Stage ELFs into dist/
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for variant in longfred-standard longfred-mini markwtech heiko-wifred; do
+            src="artifact-download/firmware-${variant}/longfred-${variant}-esp32c6.elf"
+            dst="dist/longfred-${variant}-esp32c6.elf"
+            if [[ ! -f "$src" ]]; then
+              echo "error: missing artifact ELF: $src" >&2
+              ls -laR artifact-download >&2 || true
+              exit 1
+            fi
+            cp -f "$src" "$dst"
+            echo "staged $dst"
+          done
+
+      - name: Check flash/RAM budget
+        run: ./scripts/check-esp32c6-size.sh --check-only
