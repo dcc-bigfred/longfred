@@ -144,7 +144,7 @@ for variant in "${VARIANTS[@]}"; do
   fi
 
   # e.g. "App/part. size:    764,320/4,128,768 bytes, 18.51%"
-  flash_line="$(rg -N 'App/part\. size:' "$log" | tail -n1 || true)"
+  flash_line="$(grep -E 'App/part\. size:' "$log" | tail -n1 || true)"
   if [[ -z "$flash_line" ]]; then
     printf "%-18s %12s %12s %8s  %12s %12s %12s %8s  %s\n" \
       "$variant" "-" "-" "-" "-" "-" "-" "-" "FAIL (no size line)"
