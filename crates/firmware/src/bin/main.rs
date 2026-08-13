@@ -201,11 +201,15 @@ async fn main(spawner: Spawner) -> ! {
             }
         }
 
-        // MarkWTech: 3×4 keypad matrix (pins from markwtech constants).
+        // MarkWTech: 3×4 keypad matrix + extra tact cluster (pins from markwtech constants).
         #[cfg(feature = "variant-markwtech")]
         {
             let keypad = input::keypad::build();
             if let Ok(token) = input::keypad::task(keypad, raw_sender) {
+                spawner.spawn(token);
+            }
+            let extras = input::extra_buttons::build();
+            if let Ok(token) = input::extra_buttons::task(extras, raw_sender) {
                 spawner.spawn(token);
             }
         }

@@ -1,4 +1,4 @@
-//! Input: GPIO nav cluster, MCP23017 tact/F-keys, encoder, keypad.
+//! Input: GPIO nav cluster, MCP23017 tact/F-keys, encoder, keypad, extra buttons.
 //! Drivers emit [`crate::board::raw::RawEvent`] to `RAW_CHANNEL`;
 //! the board bridge maps them to [`InputEvent`] on `INPUT_CHANNEL`.
 
@@ -6,6 +6,8 @@ pub mod encoder;
 pub mod expander;
 pub mod gpio_nav;
 pub mod i2c_bus;
+#[cfg(feature = "variant-markwtech")]
+pub mod extra_buttons;
 #[cfg(feature = "variant-markwtech")]
 pub mod keypad;
 

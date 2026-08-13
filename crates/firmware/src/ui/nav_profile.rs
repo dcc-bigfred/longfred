@@ -66,12 +66,15 @@ impl NavProfile for LongFredNav {
     }
 }
 
-/// MarkWTech: encoder + keypad (`*` / `#`).
+/// MarkWTech: encoder + keypad (`*` / `#`) + extra tact cluster.
 ///
 /// - Encoder → ListPrev/ListNext (or CharCycle in text entry)
 /// - `#` → Select
 /// - `*` → MenuEnter on throttle; Cancel / backspace in menus & text
 /// - Digits 0–9 → Digit
+/// - Extra Back → Cancel
+/// - Extra Menu → MenuEnter
+/// - Extra Left/Right → CursorMove in text entry; otherwise list paging
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MarkwtechNav;
 
@@ -88,6 +91,16 @@ impl NavProfile for MarkwtechNav {
             } else {
                 NavAction::ListNext
             }),
+            InputEvent::Nav(NavDir::Left) => Some(if text_entry {
+                NavAction::CursorMove(-1)
+            } else {
+                NavAction::PassThrough(InputEvent::Nav(NavDir::Left))
+            }),
+            InputEvent::Nav(NavDir::Right) => Some(if text_entry {
+                NavAction::CursorMove(1)
+            } else {
+                NavAction::PassThrough(InputEvent::Nav(NavDir::Right))
+            }),
             InputEvent::Digit('#') => Some(NavAction::Select),
             InputEvent::Digit('*') => Some(if text_entry {
                 NavAction::Cancel
@@ -100,7 +113,8 @@ impl NavProfile for MarkwtechNav {
             }),
             InputEvent::Digit(c) => Some(NavAction::Digit(c)),
             InputEvent::Menu => Some(NavAction::MenuEnter),
-            InputEvent::Back | InputEvent::Ok => Some(NavAction::Select),
+            InputEvent::Back => Some(NavAction::Cancel),
+            InputEvent::Ok => Some(NavAction::Select),
             other => Some(NavAction::PassThrough(other)),
         }
     }

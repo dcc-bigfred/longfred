@@ -126,6 +126,7 @@ impl LongFredSurface {
             | ButtonId::JoyRight
             | ButtonId::JoyMenu
             | ButtonId::Menu
+            | ButtonId::Back
             | ButtonId::Direction
             | ButtonId::EncoderButton
             | ButtonId::KeypadDigit(_)

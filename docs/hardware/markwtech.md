@@ -12,28 +12,51 @@ ESP32-C6-DevKitC-1 with 3×4 keypad, extra buttons, KY-040 encoder, and 2.42" SS
 ## Controls
 
 - 3×4 keypad: digits, `*` (menu/cancel), `#` (select)
-- Extra GPIO buttons (mapped as function keys)
+- Five extra GPIO tact switches (left / Stop / right / Back / Menu)
 - KY-040 encoder for speed / list scroll
 - Dedicated Stop for EStop / programming chord
 
-## Pin map (keypad)
+## Pin map
 
 | Role | GPIOs |
 |------|-------|
 | Keypad rows | 18, 19, 20, 21 |
 | Keypad columns | 22, 23, 10 |
-| I2C OLED | SDA 6, SCL 7 |
-| Encoder | A 2, B 3 (shared family defaults) |
+| I2C OLED | SDA 6, SCL 7, address 0x3C |
+| Encoder | A 2, B 3, SW 0 |
+| Extra left / Stop / right / Back / Menu | 11, 12, 13, 14, 16 |
+
+Keypad layout (`KEYPAD_MAP`):
+
+```text
+     C0   C1   C2
+R0    1    2    3
+R1    4    5    6
+R2    7    8    9
+R3    *    0    #
+```
+
+Extra buttons: tact switch to **GND**, firmware pull-up, active-low.
+
+| # | Function | GPIO | Notes |
+|---|----------|------|-------|
+| 1 | Menu left | 11 | `Nav(Left)` — list page prev / cursor |
+| 2 | Stop | 12 | EStop on throttle; chord with `*` |
+| 3 | Menu right | 13 | `Nav(Right)` — list page next / cursor |
+| 4 | Back | 14 | Cancel / back |
+| 5 | Menu | 16 | Open menu / select-in-menu |
+
+GPIO 12/13 are USB D−/D+ (fine when flashing via the USB-UART bridge). GPIO 16 is U0TXD — holding Menu can interrupt the UART0 console.
 
 ```mermaid
 flowchart LR
   ESP[ESP32-C6] --- KP[Keypad 3x4]
   ESP --- OLED[OLED 2.42in I2C]
   ESP --- ENC[KY-040]
-  ESP --- STOP[Stop + extras]
+  ESP --- EXTRA[Left Stop Right Back Menu]
 ```
 
-Key layout constants: `board/variants/markwtech.rs` (`KEYPAD_MAP`).
+Constants: `board/variants/markwtech.rs` (`KEYPAD_MAP`, `EXTRA_BUTTON_MAP`).
 
 ## BOM
 
@@ -41,7 +64,7 @@ Key layout constants: `board/variants/markwtech.rs` (`KEYPAD_MAP`).
 - 2.42" OLED 128×64 SSD1309 (I2C)
 - 3×4 membrane keypad
 - KY-040 encoder
-- Extra tact switches (Stop + up to 5 optional)
+- 5 tact switches (left, Stop, right, Back, Menu)
 - Case: Thingiverse 7029069 (adapted)
 
 ## Programming mode
