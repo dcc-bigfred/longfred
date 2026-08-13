@@ -45,8 +45,11 @@ pub const KEYPAD_MAP: [[ButtonId; 3]; 4] = [
 ];
 
 /// Extra tact switches (active-low, internal pull-up): left, Stop, right, Back, Menu.
-/// Menu is GPIO 15 (not 16/U0TXD) so UART0 console stays free.
-pub const EXTRA_BUTTON_PINS: [Gpio; 5] = [11, 12, 13, 14, 15];
+///
+/// ESP32-C6-WROOM-1 does not expose GPIO 14, and GPIO 1 is the battery ADC, so the
+/// cluster uses 4/5 (strapping, harmless with default eFuses) and 12 (USB_D-).
+/// UART0 (16/17) stays free for the serial console.
+pub const EXTRA_BUTTON_PINS: [Gpio; 5] = [11, 12, 4, 5, 15];
 pub const EXTRA_BUTTON_MAP: [ButtonId; 5] = [
     ButtonId::JoyLeft,
     ButtonId::Stop,
