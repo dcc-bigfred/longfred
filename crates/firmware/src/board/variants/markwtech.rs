@@ -45,7 +45,8 @@ pub const KEYPAD_MAP: [[ButtonId; 3]; 4] = [
 ];
 
 /// Extra tact switches (active-low, internal pull-up): left, Stop, right, Back, Menu.
-pub const EXTRA_BUTTON_PINS: [Gpio; 5] = [11, 12, 13, 14, 16];
+/// Menu is GPIO 15 (not 16/U0TXD) so UART0 console stays free.
+pub const EXTRA_BUTTON_PINS: [Gpio; 5] = [11, 12, 13, 14, 15];
 pub const EXTRA_BUTTON_MAP: [ButtonId; 5] = [
     ButtonId::JoyLeft,
     ButtonId::Stop,

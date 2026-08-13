@@ -24,7 +24,7 @@ ESP32-C6-DevKitC-1 with 3×4 keypad, extra buttons, KY-040 encoder, and 2.42" SS
 | Keypad columns | 22, 23, 10 |
 | I2C OLED | SDA 6, SCL 7, address 0x3C |
 | Encoder | A 2, B 3, SW 0 |
-| Extra left / Stop / right / Back / Menu | 11, 12, 13, 14, 16 |
+| Extra left / Stop / right / Back / Menu | 11, 12, 13, 14, 15 |
 
 Keypad layout (`KEYPAD_MAP`):
 
@@ -44,9 +44,9 @@ Extra buttons: tact switch to **GND**, firmware pull-up, active-low.
 | 2 | Stop | 12 | EStop on throttle; chord with `*` |
 | 3 | Menu right | 13 | `Nav(Right)` — list page next / cursor |
 | 4 | Back | 14 | Cancel / back |
-| 5 | Menu | 16 | Open menu / select-in-menu |
+| 5 | Menu | 15 | Open menu / select-in-menu |
 
-GPIO 12/13 are USB D−/D+ (fine when flashing via the USB-UART bridge). GPIO 16 is U0TXD — holding Menu can interrupt the UART0 console.
+GPIO 12/13 are USB D−/D+ (fine when flashing via the USB-UART bridge). GPIO 15 is a strapping pin — do not hold Menu during reset/boot (idle HIGH via pull-up is the safe default). UART0 TX/RX stay on GPIO 16/17.
 
 ```mermaid
 flowchart LR
