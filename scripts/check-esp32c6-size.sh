@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Report flash + static RAM usage for each LongFred variant against ESP32-C6 limits.
 #
-# Flash budget: default espflash factory app partition (reported by save-image).
+# Flash budget: dual-slot OTA app partition in partitions.csv (ota_0 / ota_1 = 0x3C0000).
 # RAM budget:   esp-hal esp32c6 memory.x RAM LENGTH (0x6E610) — linker already enforces
 #               this; we re-check sections and fail if anything looks over.
 #
@@ -20,6 +20,8 @@ BIN="${BIN:-longfred}"
 DIST_DIR="${DIST_DIR:-dist}"
 # From esp-hal ld/esp32c6/memory.x: RAM LENGTH = 0x6E610
 RAM_LIMIT_BYTES="${RAM_LIMIT_BYTES:-$((0x6E610))}"
+OTA_SLOT_BYTES="${OTA_SLOT_BYTES:-$((0x3C0000))}"
+PARTITION_TABLE="${PARTITION_TABLE:-$ROOT/partitions.csv}"
 VARIANTS=(${VARIANTS:-longfred-standard longfred-mini markwtech heiko-wifred})
 
 CHECK_ONLY=0
@@ -135,7 +137,7 @@ for variant in "${VARIANTS[@]}"; do
   img="${tmpdir}/${variant}.bin"
   log="${tmpdir}/${variant}.espflash.log"
   if ! ESPFLASH_SKIP_UPDATE_CHECK=true espflash save-image \
-      --chip "$CHIP" --merge "$elf" "$img" >"$log" 2>&1; then
+      --chip "$CHIP" --partition-table "$PARTITION_TABLE" --merge "$elf" "$img" >"$log" 2>&1; then
     printf "%-18s %12s %12s %8s  %12s %12s %12s %8s  %s\n" \
       "$variant" "-" "-" "-" "-" "-" "-" "-" "FAIL (espflash)"
     sed -n '1,20p' "$log" >&2
@@ -169,6 +171,10 @@ for variant in "${VARIANTS[@]}"; do
     status="FAIL (flash)"
     failed=1
   fi
+  if (( flash_used > OTA_SLOT_BYTES )); then
+    status="FAIL (ota slot)"
+    failed=1
+  fi
   if (( ram_total > RAM_LIMIT_BYTES )); then
     status="FAIL (ram)"
     failed=1
@@ -182,7 +188,7 @@ for variant in "${VARIANTS[@]}"; do
 done
 
 echo
-echo "Limits: ESP32-C6 app partition (espflash default) + on-chip RAM 0x6E610 from esp-hal memory.x"
+echo "Limits: ESP32-C6 OTA app slot 0x3C0000 (partitions.csv) + on-chip RAM 0x6E610 from esp-hal memory.x"
 echo "Note: RAM_STATIC includes .bss (with 72 KiB esp_alloc heap); linker fills leftover with .stack."
 
 if (( failed != 0 )); then

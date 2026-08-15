@@ -49,11 +49,12 @@ embassy-time = { version = "0.5.0", features = ["log"] }
 ssd1306 = { version = "0.10", default-features = false, features = ["graphics"] }
 embedded-graphics = "0.8"
 embedded-hal = "1.0"
+embassy-embedded-hal = "0.6"
 
 log = "0.4"
 heapless = "0.9"
 nb = "1.1"
 static_cell = "2.1"
-embassy-embedded-hal = "0.6"
+esp-hal-dhcp-server = { version = "0.4.0", default-features = false, features = ["log"] }
 embedded-hal-async = "1.0"
 critical-section = "1.2"

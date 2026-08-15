@@ -12,7 +12,10 @@ use longfred_proto::mdns::{
 };
 
 use crate::config::{network, sizes};
-use crate::net::{FOUND_SERVERS, MDNS_CTRL, NetStatus, SERVER, STATE, ServerEndpoint};
+use crate::net::{
+    FOUND_SERVERS, HTTP_OTA_ENABLE, MDNS_CTRL, NetStatus, SERVER, STATE, ServerEndpoint,
+    WIFI_HOSTNAME,
+};
 
 const MAX_SERVERS: usize = sizes::MAX_FOUND_SERVERS;
 
@@ -171,6 +174,10 @@ pub async fn task(stack: Stack<'static>, ssid: &'static str) {
     let mdns_rx = MDNS_CTRL.receiver();
 
     loop {
+        if HTTP_OTA_ENABLE.try_get() == Some(true) {
+            Timer::after(Duration::from_millis(500)).await;
+            continue;
+        }
         let servers = run_discovery(stack, ssid).await;
         maybe_auto_connect(&servers);
         FOUND_SERVERS.signal(servers);
@@ -178,6 +185,71 @@ pub async fn task(stack: Stack<'static>, ssid: &'static str) {
         match select(mdns_rx.receive(), Timer::after(Duration::from_secs(3600))).await {
             Either::First(()) => {}
             Either::Second(_) => {}
+        }
+    }
+}
+
+/// Advertise `_longfred-ota._tcp.local` while STA HTTP OTA is enabled.
+#[embassy_executor::task]
+pub async fn ota_announce_task(stack: Stack<'static>) {
+    loop {
+        wait_ota_enabled().await;
+        let Some(ip) = crate::net::sta_ipv4() else {
+            Timer::after(Duration::from_millis(200)).await;
+            continue;
+        };
+        let hostname = WIFI_HOSTNAME.try_get().filter(|h| !h.is_empty()).unwrap_or_else(|| {
+            let mut s = heapless::String::new();
+            let _ = s.push_str("longfred");
+            s
+        });
+
+        let mut rx_meta = [PacketMetadata::EMPTY; 4];
+        let mut rx_buf = [0u8; 512];
+        let mut tx_meta = [PacketMetadata::EMPTY; 4];
+        let mut tx_buf = [0u8; 512];
+        let mut sock = UdpSocket::new(stack, &mut rx_meta, &mut rx_buf, &mut tx_meta, &mut tx_buf);
+        let group = IpAddress::v4(
+            MDNS_MULTICAST_V4[0],
+            MDNS_MULTICAST_V4[1],
+            MDNS_MULTICAST_V4[2],
+            MDNS_MULTICAST_V4[3],
+        );
+        let _ = stack.join_multicast_group(group);
+        if sock.bind(MDNS_PORT).is_err() {
+            warn!("ota-mdns: bind 5353 failed");
+            Timer::after(Duration::from_secs(1)).await;
+            continue;
+        }
+        let dst = IpEndpoint::new(group, MDNS_PORT);
+        info!("ota-mdns: announcing {} at {:?}:80", hostname.as_str(), ip);
+        while crate::net::http_ota_enabled() {
+            let mut pkt = [0u8; 512];
+            let n = longfred_proto::mdns::build_ota_announce(hostname.as_str(), ip, 80, &mut pkt);
+            let _ = sock.send_to(&pkt[..n], dst).await;
+            Timer::after(Duration::from_secs(2)).await;
+        }
+        let _ = stack.leave_multicast_group(group);
+        info!("ota-mdns: stopped");
+    }
+}
+
+async fn wait_ota_enabled() {
+    if HTTP_OTA_ENABLE.try_get() == Some(true) {
+        return;
+    }
+    if let Some(mut rx) = HTTP_OTA_ENABLE.receiver() {
+        loop {
+            if rx.try_get() == Some(true) {
+                return;
+            }
+            rx.changed().await;
+        }
+    }
+    loop {
+        Timer::after(Duration::from_millis(200)).await;
+        if HTTP_OTA_ENABLE.try_get() == Some(true) {
+            return;
         }
     }
 }

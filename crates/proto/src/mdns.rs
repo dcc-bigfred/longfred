@@ -5,6 +5,8 @@ use crate::command::Protocol;
 
 pub const WITHROTTLE_SERVICE: &str = "_withrottle._tcp.local";
 pub const Z21_SERVICE: &str = "_z21._udp.local";
+/// Advertised while STA HTTP OTA is enabled.
+pub const OTA_HTTP_SERVICE: &str = "_longfred-ota._tcp.local";
 pub const MDNS_MULTICAST_V4: [u8; 4] = [224, 0, 0, 251];
 pub const MDNS_PORT: u16 = 5353;
 
@@ -168,6 +170,137 @@ pub fn collect_servers<const N: usize>(
     servers
 }
 
+fn mdns_put_byte(buf: &mut [u8], n: &mut usize, b: u8) {
+    if *n < buf.len() {
+        buf[*n] = b;
+    }
+    *n += 1;
+}
+
+fn mdns_put_slice(buf: &mut [u8], n: &mut usize, s: &[u8]) {
+    for &b in s {
+        mdns_put_byte(buf, n, b);
+    }
+}
+
+fn mdns_put_name(buf: &mut [u8], n: &mut usize, labels: &[&str]) {
+    for lab in labels {
+        mdns_put_byte(buf, n, lab.len() as u8);
+        mdns_put_slice(buf, n, lab.as_bytes());
+    }
+    mdns_put_byte(buf, n, 0);
+}
+
+/// Unsolicited mDNS announcement for `_longfred-ota._tcp` (PTR + SRV + A).
+pub fn build_ota_announce(hostname: &str, ipv4: [u8; 4], port: u16, buf: &mut [u8]) -> usize {
+    let mut n = 0usize;
+
+    // Header: response, authoritative, 0 questions, 3 answers.
+    mdns_put_slice(buf, &mut n, &[0, 0, 0x84, 0, 0, 0, 0, 3, 0, 0, 0, 0]);
+
+    // PTR _longfred-ota._tcp.local -> {hostname}._longfred-ota._tcp.local
+    mdns_put_name(buf, &mut n, &["_longfred-ota", "_tcp", "local"]);
+    mdns_put_slice(buf, &mut n, &[0, 12, 0, 1, 0, 0, 0, 120]);
+    let instance_len =
+        1 + hostname.len() + 1 + "_longfred-ota".len() + 1 + "_tcp".len() + 1 + "local".len() + 1;
+    mdns_put_slice(
+        buf,
+        &mut n,
+        &u16::try_from(instance_len).unwrap_or(0).to_be_bytes(),
+    );
+    mdns_put_name(
+        buf,
+        &mut n,
+        &[hostname, "_longfred-ota", "_tcp", "local"],
+    );
+
+    // SRV {hostname}._longfred-ota._tcp.local -> {hostname}.local:port
+    mdns_put_name(
+        buf,
+        &mut n,
+        &[hostname, "_longfred-ota", "_tcp", "local"],
+    );
+    mdns_put_slice(buf, &mut n, &[0, 33, 0, 1, 0, 0, 0, 120]);
+    let target_len = 6 + 1 + hostname.len() + 1 + "local".len() + 1;
+    mdns_put_slice(
+        buf,
+        &mut n,
+        &u16::try_from(target_len).unwrap_or(0).to_be_bytes(),
+    );
+    mdns_put_slice(buf, &mut n, &[0, 0, 0, 0]);
+    mdns_put_slice(buf, &mut n, &port.to_be_bytes());
+    mdns_put_name(buf, &mut n, &[hostname, "local"]);
+
+    // A {hostname}.local
+    mdns_put_name(buf, &mut n, &[hostname, "local"]);
+    mdns_put_slice(buf, &mut n, &[0, 1, 0, 1, 0, 0, 0, 120, 0, 4]);
+    mdns_put_slice(buf, &mut n, &ipv4);
+
+    n.min(buf.len())
+}
+
+/// Hosts advertising `_longfred-ota._tcp` (A records in a response).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OtaHost {
+    pub hostname: heapless::String<32>,
+    pub ipv4: [u8; 4],
+    pub port: u16,
+}
+
+/// Collect A records from an mDNS packet (used by LAN firmware discovery).
+pub fn collect_ota_hosts<const N: usize>(pkt: &[u8]) -> heapless::Vec<OtaHost, N> {
+    let mut out: heapless::Vec<OtaHost, N> = heapless::Vec::new();
+    if pkt.len() < 12 {
+        return out;
+    }
+    let an = be16(pkt, 6).unwrap_or(0);
+    let ns = be16(pkt, 8).unwrap_or(0);
+    let ar = be16(pkt, 10).unwrap_or(0);
+    let mut off = 12usize;
+    let mut port = 80u16;
+    for _ in 0..an.saturating_add(ns).saturating_add(ar) {
+        let Some((name, nend)) = read_name(pkt, off) else {
+            break;
+        };
+        off = nend;
+        let Some(typ) = be16(pkt, off) else { break };
+        off += 8;
+        let Some(rdlen) = be16(pkt, off) else { break };
+        off += 2;
+        let rdata = off;
+        off = off.saturating_add(rdlen as usize);
+        if typ == TYPE_SRV && rdlen >= 6 {
+            if let Some(p) = be16(pkt, rdata + 4) {
+                port = p;
+            }
+        }
+        if typ == TYPE_A && rdlen == 4 {
+            if let (Some(a), Some(b), Some(c), Some(d)) = (
+                pkt.get(rdata),
+                pkt.get(rdata + 1),
+                pkt.get(rdata + 2),
+                pkt.get(rdata + 3),
+            ) {
+                let host = name
+                    .split('.')
+                    .next()
+                    .unwrap_or("longfred");
+                let mut hostname = heapless::String::new();
+                let _ = hostname.push_str(host);
+                let _ = out.push(OtaHost {
+                    hostname,
+                    ipv4: [*a, *b, *c, *d],
+                    port,
+                });
+            }
+        }
+        if out.is_full() {
+            break;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +313,17 @@ mod tests {
         assert!(w > 12);
         assert!(z > 12);
         assert_ne!(w, z);
+    }
+
+    #[test]
+    fn ota_announce_roundtrip_a_record() {
+        let mut buf = [0u8; 512];
+        let n = build_ota_announce("longred_ab12cd", [192, 168, 1, 40], 80, &mut buf);
+        assert!(n > 40);
+        let hosts = collect_ota_hosts::<4>(&buf[..n]);
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].ipv4, [192, 168, 1, 40]);
+        assert_eq!(hosts[0].port, 80);
+        assert_eq!(hosts[0].hostname.as_str(), "longred_ab12cd");
     }
 }

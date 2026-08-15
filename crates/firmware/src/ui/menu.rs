@@ -40,6 +40,7 @@ pub enum Screen {
     DeviceNameEdit,
     DeviceIdEdit,
     Language,
+    FirmwareUpdate,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -75,6 +76,7 @@ pub enum Intent {
     RegenerateDeviceId,
     SetLanguage(Language),
     EnterProgrammingMode,
+    SetHttpOta(bool),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -225,6 +227,7 @@ impl MenuFsm {
                 | Screen::DeviceNameEdit
                 | Screen::DeviceIdEdit
                 | Screen::Language
+                | Screen::FirmwareUpdate
         ) {
             self.screen = Screen::Throttle;
         }
@@ -899,17 +902,40 @@ impl MenuFsm {
                 g.set(5, i18n::tr().hint_menu, false);
             }
             Screen::Extras => {
-                g.set(0, i18n::tr().extras_net_config, false);
-                g.set(1, i18n::tr().extras_device, false);
-                g.set(2, i18n::tr().extras_fnc_key_tgl, false);
-                g.set(3, i18n::tr().extras_heartbt_tgl, false);
-                g.set(4, i18n::tr().extras_throttles_plus, false);
-                g.set(6, i18n::tr().extras_throttles_minus, false);
-                g.set(7, i18n::tr().extras_off_sleep, false);
-                g.set(8, i18n::tr().extras_one_loco_tgl, false);
-                g.set(9, i18n::tr().extras_save_locos, false);
-                g.set(10, i18n::tr().extras_language, false);
-                g.set(5, i18n::tr().hint_extras_cmd, false);
+                g.set(0, i18n::tr().extras_net_config, self.cursor == 0);
+                g.set(1, i18n::tr().extras_device, self.cursor == 1);
+                g.set(2, i18n::tr().extras_fnc_key_tgl, self.cursor == 2);
+                g.set(3, i18n::tr().extras_heartbt_tgl, self.cursor == 3);
+                g.set(4, i18n::tr().extras_throttles_plus, self.cursor == 4);
+                g.set(6, i18n::tr().extras_throttles_minus, self.cursor == 5);
+                g.set(7, i18n::tr().extras_off_sleep, self.cursor == 6);
+                g.set(8, i18n::tr().extras_one_loco_tgl, self.cursor == 7);
+                g.set(9, i18n::tr().extras_save_locos, self.cursor == 8);
+                g.set(10, i18n::tr().extras_language, self.cursor == 9);
+                g.set(5, i18n::tr().extras_firmware, self.cursor == 10);
+            }
+            Screen::FirmwareUpdate => {
+                g.set(0, i18n::tr().msg_fw_update, false);
+                if let Some(ip) = ctx.sta_ipv4 {
+                    let mut line = Line::new();
+                    write_ip_line(&mut line, ip);
+                    g.set(1, line.as_str(), false);
+                } else {
+                    g.set(1, i18n::tr().msg_fw_no_ip, false);
+                }
+                g.set(
+                    2,
+                    if ctx.http_ota {
+                        i18n::tr().msg_fw_http_on
+                    } else {
+                        i18n::tr().msg_fw_http_off
+                    },
+                    false,
+                );
+                if ctx.http_ota_busy {
+                    g.set(3, i18n::tr().msg_fw_updating, false);
+                }
+                g.set(5, i18n::tr().hint_fw_update, false);
             }
             Screen::IpConfig => {
                 g.set(0, i18n::tr().msg_net_config, false);

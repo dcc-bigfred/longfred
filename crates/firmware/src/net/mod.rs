@@ -112,6 +112,31 @@ pub static WIFI_HOSTNAME: Watch<CriticalSectionRawMutex, heapless::String<16>, 2
 /// Live IPv4 stack configuration (domain → config_task).
 pub static NET_CONFIG_CTRL: Signal<CriticalSectionRawMutex, StaticIpConfig> = Signal::new();
 
+/// STA IPv4 once DHCP/static config is up (UI + mDNS OTA announce).
+pub static STA_IPV4: Watch<CriticalSectionRawMutex, Option<[u8; 4]>, 2> = Watch::new_with(None);
+
+/// User-enabled STA HTTP OTA server (menu screen).
+pub static HTTP_OTA_ENABLE: Watch<CriticalSectionRawMutex, bool, 4> = Watch::new_with(false);
+
+/// Firmware POST in progress (OLED "Updating").
+pub static HTTP_OTA_BUSY: Watch<CriticalSectionRawMutex, bool, 2> = Watch::new_with(false);
+
+pub fn http_ota_enabled() -> bool {
+    HTTP_OTA_ENABLE.try_get().unwrap_or(false)
+}
+
+pub fn http_ota_busy() -> bool {
+    HTTP_OTA_BUSY.try_get().unwrap_or(false)
+}
+
+pub fn sta_ipv4() -> Option<[u8; 4]> {
+    STA_IPV4.try_get().flatten()
+}
+
+pub fn set_http_ota_enabled(on: bool) {
+    HTTP_OTA_ENABLE.sender().send(on);
+}
+
 // Legacy type aliases for gradual migration.
 pub type WitEndpoint = ServerEndpoint;
 pub type WitConnState = ConnState;

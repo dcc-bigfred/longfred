@@ -227,4 +227,4 @@ Battery (optional, see [Battery](#battery)):
 
 ## Programming mode
 
-Hold **\* + Stop** for 8 seconds. See [provisioning.md](../provisioning.md).
+Hold **\* + Stop** for 8 seconds. Soft-AP gets DHCP; firmware OTA from the pairing page or Extras → Firmware update on layout Wi‑Fi. See [provisioning.md](../provisioning.md).

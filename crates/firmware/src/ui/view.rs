@@ -112,4 +112,7 @@ pub struct ViewCtx<'a> {
     pub ip_formatted: &'a str,
     pub broadcast: Option<&'a str>,
     pub battery: Option<u8>,
+    pub sta_ipv4: Option<[u8; 4]>,
+    pub http_ota: bool,
+    pub http_ota_busy: bool,
 }

@@ -3,6 +3,8 @@
 //! LongFred firmware entry point: HAL init, task spawn, and Soft-AP programming mode.
 
 use embassy_executor::Spawner;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 #[cfg(not(feature = "sim"))]
@@ -27,7 +29,7 @@ use longfred_firmware::{board, config, domain, input, storage, ui};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-static FLASH: StaticCell<FlashStorage> = StaticCell::new();
+static FLASH: StaticCell<Mutex<CriticalSectionRawMutex, FlashStorage<'static>>> = StaticCell::new();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
@@ -50,12 +52,23 @@ async fn main(spawner: Spawner) -> ! {
     let rng = Rng::new();
     let boot_entropy = rng.random();
 
-    let flash = FLASH.init(FlashStorage::new(peripherals.FLASH));
-    let boot = storage::ensure_boot(flash, boot_entropy);
+    let mut flash_dev = FlashStorage::new(peripherals.FLASH);
+    let boot = storage::ensure_boot(&mut flash_dev, boot_entropy);
     info!("wifi hostname: {}", boot.wifi_hostname.as_str());
+    #[cfg(not(feature = "sim"))]
+    net::provisioning::ota::mark_running_slot_valid(&mut flash_dev);
 
     let enter_programming = boot.programming_mode
         || (board::active_variant().auto_pair_when_unconfigured && !boot.has_wifi_credentials);
+
+    let mut prog_rec = boot.record.clone();
+    if enter_programming {
+        prog_rec.programming_mode = true;
+        if !boot.programming_mode {
+            storage::write_record(&mut flash_dev, &prog_rec);
+        }
+    }
+    let flash = FLASH.init(Mutex::new(flash_dev));
 
     #[cfg(not(feature = "sim"))]
     {
@@ -71,15 +84,12 @@ async fn main(spawner: Spawner) -> ! {
             );
             let mut prog_rec = boot.record.clone();
             prog_rec.programming_mode = true;
-            if !boot.programming_mode {
-                storage::write_record(flash, &prog_rec);
-            }
-
             let _ = net::provisioning::spawn_programming_net(
                 &spawner,
                 peripherals.WIFI,
                 seed,
                 prog_rec,
+                flash,
             );
         } else {
             let controller = match WifiController::new(peripherals.WIFI, Default::default()) {
@@ -120,6 +130,7 @@ async fn main(spawner: Spawner) -> ! {
             if let Ok(token) = net::session::task(stack) {
                 spawner.spawn(token);
             }
+            net::provisioning::spawn_sta_http(&spawner, stack, boot.record.clone(), flash);
         }
     }
 

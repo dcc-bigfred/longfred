@@ -130,9 +130,13 @@ pub async fn status_task(stack: Stack<'static>) {
         if let Some(cfg) = stack.config_v4() {
             info!("net ready: ip={}", cfg.address);
             sender.send(NetStatus::Ready);
+            let oct = cfg.address.address().octets();
+            crate::net::STA_IPV4.sender().send(Some(oct));
         }
         stack.wait_link_down().await;
         warn!("net link down");
+        crate::net::STA_IPV4.sender().send(None);
+        crate::net::HTTP_OTA_ENABLE.sender().send(false);
     }
 }
 

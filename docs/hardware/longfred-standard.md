@@ -61,4 +61,4 @@ Exact MCP bit map: [`config/board.rs`](../../crates/firmware/src/config/board.rs
 
 ## Programming mode
 
-Hold **Shift1 + Stop** for 8 seconds. Soft-AP `longfred_prog_XXXXXX` at `192.168.0.1`. See [provisioning.md](../provisioning.md).
+Hold **Shift1 + Stop** for 8 seconds. Soft-AP `longfred_prog_XXXXXX` at `192.168.0.1` (DHCP). Firmware OTA: pairing page, or Extras → Firmware update on layout Wi‑Fi. See [provisioning.md](../provisioning.md).

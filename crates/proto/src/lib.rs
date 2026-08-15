@@ -8,6 +8,7 @@
 pub mod adapter;
 pub mod command;
 pub mod events;
+pub mod image;
 pub mod input_map;
 pub mod mdns;
 pub mod menu;

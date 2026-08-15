@@ -122,6 +122,13 @@ pub struct SettingsGet<'a> {
     pub bigfred: BigfredView<'a>,
     pub roster: RosterView<'a>,
     pub programming_mode: bool,
+    pub firmware: FirmwareView<'a>,
+}
+
+/// Firmware identity in a GET settings response.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct FirmwareView<'a> {
+    pub version: &'a str,
 }
 
 /// Serialize current settings into `buf`. Returns bytes written.
@@ -131,6 +138,7 @@ pub fn serialize_settings(
     buf: &mut [u8],
     rec: &PersistRecord,
     network_ssids: &[&str],
+    firmware_version: &str,
 ) -> Result<usize, serde_json_core::ser::Error> {
     let view = SettingsGet {
         device: DeviceView {
@@ -154,6 +162,9 @@ pub fn serialize_settings(
             },
         },
         programming_mode: rec.programming_mode,
+        firmware: FirmwareView {
+            version: firmware_version,
+        },
     };
     serde_json_core::to_slice(&view, buf)
 }
@@ -162,13 +173,14 @@ pub fn serialize_settings(
 pub fn serialize_settings_from_record(
     buf: &mut [u8],
     rec: &PersistRecord,
+    firmware_version: &str,
 ) -> Result<usize, serde_json_core::ser::Error> {
     let mut ssids: [&str; MAX_CREDENTIALS] = [""; MAX_CREDENTIALS];
     let n = rec.credentials.len().min(MAX_CREDENTIALS);
     for (slot, cred) in ssids.iter_mut().zip(rec.credentials.iter()).take(n) {
         *slot = cred.ssid.as_str();
     }
-    serialize_settings(buf, rec, &ssids[..n])
+    serialize_settings(buf, rec, &ssids[..n], firmware_version)
 }
 
 /// Optional Wi-Fi fields in a PUT body.
@@ -362,9 +374,10 @@ mod tests {
     fn serialize_empty_settings() {
         let rec = PersistRecord::default();
         let mut buf = [0u8; 512];
-        let n = serialize_settings_from_record(&mut buf, &rec).unwrap();
+        let n = serialize_settings_from_record(&mut buf, &rec, "0.1.0").unwrap();
         let s = core::str::from_utf8(&buf[..n]).unwrap();
         assert!(s.contains("\"programming_mode\":false"));
+        assert!(s.contains("\"version\":\"0.1.0\""));
         assert!(s.contains("\"mode\":\"auto\""));
         assert!(s.contains("\"pin_set\":false"));
         assert!(s.contains("\"networks\":[]"));
@@ -389,7 +402,7 @@ mod tests {
         let _ = rec.static_roster.push(e);
 
         let mut buf = [0u8; 1024];
-        let n = serialize_settings_from_record(&mut buf, &rec).unwrap();
+        let n = serialize_settings_from_record(&mut buf, &rec, "0.1.0").unwrap();
         let s = core::str::from_utf8(&buf[..n]).unwrap();
         assert!(s.contains("\"name\":\"Pilot\""));
         assert!(s.contains("\"id\":4242"));

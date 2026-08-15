@@ -81,6 +81,9 @@ fn publish_view(
         ip_formatted,
         broadcast: state.active_broadcast(),
         battery,
+        sta_ipv4: net::sta_ipv4(),
+        http_ota: net::http_ota_enabled(),
+        http_ota_busy: net::http_ota_busy(),
     };
     ui_tx.send(fsm.view(&ctx));
 }
@@ -127,6 +130,7 @@ fn interpret(
         Intent::None => {}
         Intent::Action(Action::ShowHideBattery) => fsm.cycle_battery_mode(),
         Intent::Action(Action::Sleep) => {
+            net::set_http_ota_enabled(false);
             SLEEP_CTRL.signal(SleepReason::Command);
         }
         Intent::Action(a) => {
@@ -219,7 +223,10 @@ fn interpret(
         }
         Intent::DropBeforeAcquireToggle => state.toggle_drop_before_acquire(),
         Intent::HashFunctionsToggle => fsm.toggle_hash_functions(),
-        Intent::Sleep => SLEEP_CTRL.signal(SleepReason::Command),
+        Intent::Sleep => {
+            net::set_http_ota_enabled(false);
+            SLEEP_CTRL.signal(SleepReason::Command);
+        }
         Intent::SaveLocos => {
             let locos = state.collect_saved_locos();
             let _ = storage_tx.try_send(StorageCmd::SaveLocos(locos));
@@ -255,6 +262,9 @@ fn interpret(
         Intent::EnterProgrammingMode => {
             // Handled eagerly in the input loop (persist + software_reset).
             log::info!("domain: EnterProgrammingMode intent (already applied)");
+        }
+        Intent::SetHttpOta(on) => {
+            net::set_http_ota_enabled(on);
         }
     }
 }
@@ -357,29 +367,35 @@ pub async fn task() {
                     spdt_direction = dir;
                 }
                 out.clear();
-                let intent = fsm.handle(ev, &state, &scanned);
-                interpret(
-                    &mut fsm,
-                    &mut state,
-                    intent,
-                    spdt_direction,
-                    &mut out,
-                    &scanned,
-                    &servers,
-                    &wifi_tx,
-                    &srv_tx,
-                    &storage_tx,
-                );
+                if net::http_ota_busy() {
+                    // Ignore navigation while an image is streaming to flash.
+                } else {
+                    let intent = fsm.handle(ev, &state, &scanned);
+                    interpret(
+                        &mut fsm,
+                        &mut state,
+                        intent,
+                        spdt_direction,
+                        &mut out,
+                        &scanned,
+                        &servers,
+                        &wifi_tx,
+                        &srv_tx,
+                        &storage_tx,
+                    );
+                }
             }
             Either3::Second(sev) => {
                 out.clear();
                 let _ = state.apply_event(sev, &mut out);
             }
             Either3::Third(_) => {
-                if power::AUTO_SLEEP_INACTIVITY_MS > 0
+                if !net::http_ota_busy()
+                    && power::AUTO_SLEEP_INACTIVITY_MS > 0
                     && conn != ConnState::Connected
                     && last_activity.elapsed().as_millis() > power::AUTO_SLEEP_INACTIVITY_MS
                 {
+                    net::set_http_ota_enabled(false);
                     SLEEP_CTRL.signal(SleepReason::Inactivity);
                 }
             }

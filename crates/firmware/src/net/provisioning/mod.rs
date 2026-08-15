@@ -1,6 +1,7 @@
 //! Soft-AP programming / pairing mode (HTTP provisioning).
 
 mod http_server;
+pub mod ota;
 
 use embassy_net::{
     Config as NetConfig, Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4,
@@ -21,7 +22,7 @@ use static_cell::StaticCell;
 use crate::board;
 use crate::config::sizes;
 use crate::input::{INPUT_CHANNEL, InputEvent};
-use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, StorageCmd};
+use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, SharedFlash, StorageCmd};
 use crate::ui::UI_VIEW;
 use crate::ui::view::{GridView, UiView};
 
@@ -30,6 +31,7 @@ const AP_PREFIX: u8 = 24;
 const SSID_PREFIX: &str = "longfred_prog_";
 
 static PROG_REC: StaticCell<Mutex<CriticalSectionRawMutex, PersistRecord>> = StaticCell::new();
+static STA_REC: StaticCell<Mutex<CriticalSectionRawMutex, PersistRecord>> = StaticCell::new();
 
 /// Build Soft-AP SSID `longfred_prog_XXXXXX` from the last 3 MAC octets (hex).
 pub fn ap_ssid_from_mac(mac: &[u8; 6]) -> String<32> {
@@ -46,7 +48,7 @@ pub fn ap_ssid_from_mac(mac: &[u8; 6]) -> String<32> {
 fn static_ap_config() -> NetConfig {
     NetConfig::ipv4_static(StaticConfigV4 {
         address: Ipv4Cidr::new(AP_IP, AP_PREFIX),
-        gateway: None,
+        gateway: Some(AP_IP),
         dns_servers: Default::default(),
     })
 }
@@ -95,12 +97,14 @@ pub async fn ap_hold_task(controller: WifiController<'static>) {
 #[embassy_executor::task]
 pub async fn pairing_ui_task(ssid: String<32>) {
     let desc = board::active_variant();
+    let mut pairing_grid = None;
     if desc.display.is_some() {
         let mut grid = GridView::new();
         grid.set(0, "Pairing mode", false);
         grid.set(1, ssid.as_str(), false);
         grid.set(2, "192.168.0.1", false);
-        UI_VIEW.sender().send(UiView::Grid(grid));
+        UI_VIEW.sender().send(UiView::Grid(grid.clone()));
+        pairing_grid = Some(grid);
         info!("programming: display shows Pairing mode");
     }
     #[cfg(feature = "variant-heiko-wifred")]
@@ -114,8 +118,16 @@ pub async fn pairing_ui_task(ssid: String<32>) {
     if desc.display.is_none() {
         info!("programming: pairing active (no display/LEDs)");
     }
+    let mut was_busy = false;
     loop {
-        Timer::after(Duration::from_secs(30)).await;
+        Timer::after(Duration::from_millis(250)).await;
+        let busy = crate::net::http_ota_busy();
+        if was_busy && !busy {
+            if let Some(ref g) = pairing_grid {
+                UI_VIEW.sender().send(UiView::Grid(g.clone()));
+            }
+        }
+        was_busy = busy;
     }
 }
 
@@ -145,6 +157,7 @@ pub fn spawn_programming_net(
     wifi: esp_hal::peripherals::WIFI<'static>,
     seed: u64,
     initial: PersistRecord,
+    flash: &'static SharedFlash,
 ) -> bool {
     let mac = efuse::interface_mac_address(InterfaceMacAddress::AccessPoint);
     let mut mac_bytes = [0u8; 6];
@@ -162,7 +175,7 @@ pub fn spawn_programming_net(
         return false;
     };
 
-    static RESOURCES: StaticCell<StackResources<{ sizes::NET_SOCKETS }>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<{ sizes::PROG_NET_SOCKETS }>> = StaticCell::new();
     let resources = RESOURCES.init(StackResources::new());
     let (stack, runner) = embassy_net::new(iface, static_ap_config(), resources, seed);
 
@@ -174,7 +187,10 @@ pub fn spawn_programming_net(
     if let Ok(token) = crate::net::wifi::net_task(runner) {
         spawner.spawn(token);
     }
-    if let Ok(token) = http_server::task(stack, rec) {
+    if let Ok(token) = http_server::task_ap(stack, rec, flash) {
+        spawner.spawn(token);
+    }
+    if let Ok(token) = dhcp_task(stack) {
         spawner.spawn(token);
     }
     if let Ok(token) = pairing_ui_task(ssid) {
@@ -212,3 +228,53 @@ pub async fn exit_programming_mode(delay_ms: u64) -> ! {
 
 /// Used by HTTP server / tests: re-export stack type.
 pub type ProgStack = Stack<'static>;
+
+/// STA HTTP OTA + mDNS announce (gated by [`crate::net::HTTP_OTA_ENABLE`]).
+pub fn spawn_sta_http(
+    spawner: &embassy_executor::Spawner,
+    stack: Stack<'static>,
+    initial: PersistRecord,
+    flash: &'static SharedFlash,
+) {
+    let rec = STA_REC.init(Mutex::new(initial));
+    if let Ok(token) = http_server::task_sta(stack, rec, flash) {
+        spawner.spawn(token);
+    }
+    if let Ok(token) = sync_persist_task(rec) {
+        spawner.spawn(token);
+    }
+    if let Ok(token) = crate::net::mdns::ota_announce_task(stack) {
+        spawner.spawn(token);
+    }
+}
+
+#[embassy_executor::task]
+async fn dhcp_task(stack: Stack<'static>) {
+    use esp_hal_dhcp_server::simple_leaser::SimpleDhcpLeaser;
+    use esp_hal_dhcp_server::structs::DhcpServerConfig;
+    use esp_hal_dhcp_server::{Ipv4Addr, run_dhcp_server};
+
+    let ip = Ipv4Addr::new(192, 168, 0, 1);
+    let gw = [ip];
+    let dns = [ip];
+    let config = DhcpServerConfig {
+        ip,
+        lease_time: Duration::from_secs(3600),
+        gateways: &gw,
+        subnet: Some(Ipv4Addr::new(255, 255, 255, 0)),
+        dns: &dns,
+        use_captive_portal: false,
+    };
+    let mut leaser = SimpleDhcpLeaser {
+        start: Ipv4Addr::new(192, 168, 0, 50),
+        end: Ipv4Addr::new(192, 168, 0, 200),
+        leases: Default::default(),
+    };
+    info!("programming: DHCP pool 192.168.0.50-200");
+    if let Err(e) = run_dhcp_server(stack, config, &mut leaser).await {
+        warn!("programming: DHCP server failed: {:?}", e);
+        loop {
+            Timer::after(Duration::from_secs(60)).await;
+        }
+    }
+}

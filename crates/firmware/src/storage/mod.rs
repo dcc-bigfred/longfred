@@ -2,6 +2,7 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use esp_bootloader_esp_idf::partitions::{
@@ -38,6 +39,9 @@ pub enum StorageCmd {
 }
 
 pub static STORAGE_CTRL: Channel<CriticalSectionRawMutex, StorageCmd, 4> = Channel::new();
+
+/// Flash mutex shared by NVS persistence and HTTP OTA.
+pub type SharedFlash = Mutex<CriticalSectionRawMutex, FlashStorage<'static>>;
 
 /// Boot-time NVS snapshot used to choose STA vs programming path.
 #[derive(Clone)]
@@ -86,6 +90,11 @@ fn persist(flash: &mut FlashStorage<'_>, rec: &PersistRecord) {
     if region.write(0, &sector[..n]).is_err() {
         warn!("storage: write failed");
     }
+}
+
+async fn persist_shared(flash: &SharedFlash, rec: &PersistRecord) {
+    let mut g = flash.lock().await;
+    persist(&mut g, rec);
 }
 
 /// Synchronous NVS write (boot path before the storage task runs).
@@ -146,8 +155,11 @@ pub fn ensure_boot_hostname(
 }
 
 #[embassy_executor::task]
-pub async fn task(flash: &'static mut FlashStorage<'static>, boot_entropy: u32) {
-    let mut rec = load(flash).unwrap_or_default();
+pub async fn task(flash: &'static SharedFlash, boot_entropy: u32) {
+    let mut rec = {
+        let mut g = flash.lock().await;
+        load(&mut g).unwrap_or_default()
+    };
     let mut dirty = false;
     if rec.device.id == 0 {
         ensure_device_id(&mut rec, boot_entropy);
@@ -158,7 +170,7 @@ pub async fn task(flash: &'static mut FlashStorage<'static>, boot_entropy: u32) 
         dirty = true;
     }
     if dirty {
-        persist(flash, &rec);
+        persist_shared(flash, &rec).await;
     }
     info!("wifi hostname: {}", rec.wifi_hostname.as_str());
     PERSIST_LOADED.signal(rec.clone());
@@ -168,37 +180,37 @@ pub async fn task(flash: &'static mut FlashStorage<'static>, boot_entropy: u32) 
         match rx.receive().await {
             StorageCmd::SavePassword { ssid, password } => {
                 rec.set_password(ssid.as_str(), password.as_str());
-                persist(flash, &rec);
+                persist_shared(flash, &rec).await;
                 PERSIST_LOADED.signal(rec.clone());
             }
             StorageCmd::SaveLocos(locos) => {
                 rec.locos = locos;
-                persist(flash, &rec);
+                persist_shared(flash, &rec).await;
                 PERSIST_LOADED.signal(rec.clone());
             }
             StorageCmd::SaveNetwork(cfg) => {
                 rec.network = Some(cfg);
-                persist(flash, &rec);
+                persist_shared(flash, &rec).await;
                 PERSIST_LOADED.signal(rec.clone());
             }
             StorageCmd::SaveDevice(device) => {
                 rec.device = device;
-                persist(flash, &rec);
+                persist_shared(flash, &rec).await;
                 PERSIST_LOADED.signal(rec.clone());
             }
             StorageCmd::RegenerateDeviceId => {
                 regenerate_device_id(&mut rec);
-                persist(flash, &rec);
+                persist_shared(flash, &rec).await;
                 PERSIST_LOADED.signal(rec.clone());
             }
             StorageCmd::SaveLanguage(lang) => {
                 rec.language = lang;
-                persist(flash, &rec);
+                persist_shared(flash, &rec).await;
                 PERSIST_LOADED.signal(rec.clone());
             }
             StorageCmd::SetProgrammingMode(on) => {
                 rec.programming_mode = on;
-                persist(flash, &rec);
+                persist_shared(flash, &rec).await;
                 PERSIST_LOADED.signal(rec.clone());
                 STORAGE_ACK.signal(());
             }
@@ -210,7 +222,7 @@ pub async fn task(flash: &'static mut FlashStorage<'static>, boot_entropy: u32) 
                 if rec.wifi_hostname.is_empty() {
                     ensure_wifi_hostname(&mut rec, boot_entropy);
                 }
-                persist(flash, &rec);
+                persist_shared(flash, &rec).await;
                 PERSIST_LOADED.signal(rec.clone());
                 STORAGE_ACK.signal(());
             }
@@ -218,7 +230,7 @@ pub async fn task(flash: &'static mut FlashStorage<'static>, boot_entropy: u32) 
                 rec = PersistRecord::default();
                 ensure_device_id(&mut rec, boot_entropy);
                 ensure_wifi_hostname(&mut rec, boot_entropy);
-                persist(flash, &rec);
+                persist_shared(flash, &rec).await;
                 PERSIST_LOADED.signal(rec.clone());
             }
         }

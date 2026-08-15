@@ -85,7 +85,7 @@ impl MenuFsm {
             || self.is_list_screen()
             || matches!(
                 self.screen,
-                Screen::IpConfig | Screen::IpEdit | Screen::ServerEntry
+                Screen::IpConfig | Screen::IpEdit | Screen::ServerEntry | Screen::FirmwareUpdate
             )
         {
             return self.on_ok(domain, scanned);
@@ -283,13 +283,18 @@ impl MenuFsm {
     }
 
     fn on_menu_key(&mut self, domain: &DomainState) -> Intent {
+        let leave_fw = self.screen == Screen::FirmwareUpdate;
         if self.screen == Screen::Throttle && !domain.current_slot_has_loco() {
             return Intent::None;
         }
         self.menu_cmd.clear();
         self.screen = Screen::Menu;
         self.cursor = 0;
-        Intent::None
+        if leave_fw {
+            Intent::SetHttpOta(false)
+        } else {
+            Intent::None
+        }
     }
 
     fn on_nav(
@@ -417,6 +422,7 @@ impl MenuFsm {
             Screen::DeviceNameEdit => self.ok_device_name(domain),
             Screen::DeviceIdEdit => self.ok_device_id(domain),
             Screen::Language => self.ok_language(),
+            Screen::FirmwareUpdate => Intent::SetHttpOta(!crate::net::http_ota_enabled()),
             Screen::DirectCommands => self.ok_direct(self.cursor),
             _ => Intent::None,
         }
@@ -457,6 +463,10 @@ impl MenuFsm {
             Screen::Device | Screen::DeviceNameEdit | Screen::DeviceIdEdit | Screen::Language => {
                 self.screen = Screen::Extras;
                 Intent::None
+            }
+            Screen::FirmwareUpdate => {
+                self.screen = Screen::Extras;
+                Intent::SetHttpOta(false)
             }
             Screen::RosterList
             | Screen::FunctionList
@@ -556,7 +566,7 @@ impl MenuFsm {
             Screen::ServerList => 5,
             Screen::ServerProto => 2,
             Screen::Menu => 10,
-            Screen::Extras => 10,
+            Screen::Extras => 11,
             Screen::RosterList => domain.roster.len().saturating_sub(self.page * 5).min(5),
             Screen::FunctionList => 10,
             Screen::TurnoutList => domain.turnouts.len().saturating_sub(self.page * 10).min(10),
@@ -738,6 +748,10 @@ impl MenuFsm {
             9 => {
                 self.screen = Screen::Language;
                 self.cursor = 0;
+                Intent::None
+            }
+            10 => {
+                self.screen = Screen::FirmwareUpdate;
                 Intent::None
             }
             _ => Intent::None,
