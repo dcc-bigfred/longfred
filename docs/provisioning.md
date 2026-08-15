@@ -37,7 +37,13 @@ Associates open, assigns `192.168.0.2/24`, talks HTTP to `192.168.0.1:80` (drive
 
 Use the **app image** (`*.app.bin` from CI — `espflash save-image` **without** `--merge`). Merged flash dumps are rejected.
 
-The first install of the dual-slot partition table (`partitions.csv`) must be done over **USB** (`espflash flash`). Later updates can use HTTP OTA.
+The first install of the dual-slot partition table (`partitions.csv`) must be done over **USB** (`espflash flash`, or `wireless-programmer update-firmware --mode usb`). Later updates can use HTTP OTA or USB.
+
+```bash
+# First install (ELF + partition table), or a merged `.bin` from CI:
+wireless-programmer update-firmware --mode usb --port /dev/ttyUSB0 \
+  --file dist/longfred-markwtech-esp32c6.elf --partition-table partitions.csv
+```
 
 ```bash
 curl -T dist/longfred-markwtech-esp32c6.app.bin \
