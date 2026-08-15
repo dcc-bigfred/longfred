@@ -47,6 +47,15 @@ pub async fn task(
             let raw = sum / count;
             let volts = raw as f32 * power::BATTERY_CONVERSION_FACTOR / 1000.0;
             let percent = volts_to_percent(volts);
+            // Full cell = 4.2 V. With the 1:2 divider that is 2.1 V at GPIO 1.
+            // Suggested factor makes `raw * factor / 1000 == 4.2` on a full cell.
+            if raw > 0 {
+                let suggested = 4200.0 / raw as f32;
+                let current = power::BATTERY_CONVERSION_FACTOR;
+                log::info!(
+                    "battery: raw={raw} volts={volts:.3} percent={percent} suggested_factor={suggested:.4} (current={current})"
+                );
+            }
             tx.send(Some(percent));
             if power::USE_BATTERY_SLEEP_AT_PERCENT > 0
                 && percent < power::USE_BATTERY_SLEEP_AT_PERCENT
