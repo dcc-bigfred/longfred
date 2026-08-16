@@ -95,6 +95,7 @@ test:
 
 lint:
 	$(CARGO) fmt --all -- --check
+	$(CARGO) clippy -p longfred-ui --all-targets --target x86_64-unknown-linux-gnu -- --no-deps -D warnings
 
 flash-markwtech:
 	ESPFLASH_PORT=/dev/ttyUSB0 cargo run -p longfred-firmware   --no-default-features --features variant-markwtech   --target-dir target/markwtech
