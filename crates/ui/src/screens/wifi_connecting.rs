@@ -13,7 +13,7 @@ impl Screen for ConnectingScreen {
         ScreenId::Connecting
     }
 
-    /// Status line plus the SSID being joined. Does not emit WifiConnect itself.
+    /// Status line plus the SSID being joined. Does not emit `WifiConnect` itself.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         g.set(1, cx.s.msg_trying_connect, false);
@@ -21,13 +21,13 @@ impl Screen for ConnectingScreen {
         UiView::Grid(g)
     }
 
-    /// WifiReady → servers, WifiFailed → error, ServerConnected → throttle.
+    /// `WifiReady` → servers, `WifiFailed` → error, `ServerConnected` → throttle.
     fn on_app_event(&mut self, e: AppEvent, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match e {
             AppEvent::WifiReady => nav.replace(ScreenId::ServerList),
             AppEvent::WifiFailed => nav.replace(ScreenId::WifiFailed),
             AppEvent::ServerConnected => nav.root(ScreenId::Throttle),
-            _ => {}
+            AppEvent::ScanDone => {}
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use longfred_proto::action::Action;
 
-use super::helpers::page_list;
+use super::helpers::{digit_key, page_list};
 use crate::context::ScreenCtx;
 use crate::i18n::Strings;
 use crate::intent::Intent;
@@ -62,6 +62,7 @@ pub struct MenuScreen {
 
 impl MenuScreen {
     /// Numbered five-item main menu.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: PagedList::new(true),
@@ -123,14 +124,13 @@ impl Screen for MenuScreen {
 
     /// Digit 1–5 jumps to that row and selects it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        if let Some(d) = c.to_digit(10) {
-            let labels = Self::labels(cx);
-            let h = Self::height(cx);
-            if self.list.select_digit(d as u8, &labels, h).is_some() {
-                if let Some(item) = self.current_at(&labels, h) {
-                    item.activate(nav);
-                }
-            }
+        let Some(d) = digit_key(c) else { return };
+        let labels = Self::labels(cx);
+        let h = Self::height(cx);
+        if self.list.select_digit(d, &labels, h).is_some()
+            && let Some(item) = self.current_at(&labels, h)
+        {
+            item.activate(nav);
         }
     }
 

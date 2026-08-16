@@ -1,5 +1,5 @@
 #![cfg_attr(not(test), no_std)]
-//! Host-testable LongFred UI: router, screens, view model (no HAL).
+//! Host-testable `LongFred` UI: router, screens, view model (no HAL).
 //!
 //! Strict heapless: no `alloc`, all storage is fixed-capacity.
 //!

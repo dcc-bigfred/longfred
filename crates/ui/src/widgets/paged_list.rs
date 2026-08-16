@@ -27,6 +27,7 @@ impl Default for PagedList {
 }
 
 impl PagedList {
+    #[must_use]
     pub const fn new(numbered: bool) -> Self {
         Self {
             page: 0,
@@ -41,6 +42,7 @@ impl PagedList {
     }
 
     /// First item index, visible count, and whether another page exists.
+    #[must_use]
     pub fn layout(&self, items: &[&str], height: u16) -> PageLayout {
         let start = page_start(items, self.page, self.numbered, height);
         let count = items_fitting(items, start, self.numbered, height);
@@ -58,6 +60,7 @@ impl PagedList {
         fill_list_page(g, items, self, height);
     }
 
+    #[must_use]
     pub fn global_index(&self, items: &[&str], height: u16) -> usize {
         self.layout(items, height).start + self.cursor
     }

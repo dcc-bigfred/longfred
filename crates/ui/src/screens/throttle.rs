@@ -16,6 +16,7 @@ pub struct ThrottleScreen {
 
 impl ThrottleScreen {
     /// Digit keyboard for DCC address when no loco is acquired.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             addr_kbd: TextKeyboard::new(KeyboardMode::Digits),
@@ -34,7 +35,7 @@ impl Screen for ThrottleScreen {
         ScreenId::Throttle
     }
 
-    /// Always THROTTLE so Menu stays MenuEnter; address entry still uses Digit.
+    /// Always THROTTLE so Menu stays `MenuEnter`; address entry still uses Digit.
     fn key_bindings(&self, _cx: &ScreenCtx<'_>) -> KeyBindings {
         KeyBindings::THROTTLE
     }
@@ -75,13 +76,13 @@ impl Screen for ThrottleScreen {
                 (
                     s.speed,
                     s.direction == longfred_proto::model::Direction::Forward,
-                    s.consist.len() as u8,
+                    s.consist.len().try_into().unwrap_or(u8::MAX),
                 )
             }
             None => (0, true, 0),
         };
         UiView::Throttle(ThrottleView {
-            current: cx.drive.current as u8,
+            current: u8::try_from(cx.drive.current).unwrap_or(0),
             speed,
             forward,
             consist_len,

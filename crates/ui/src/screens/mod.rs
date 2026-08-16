@@ -86,6 +86,7 @@ pub enum ScreenState {
 }
 
 /// Construct the concrete screen object for `id` (fresh local state).
+#[must_use]
 pub fn new_screen(id: ScreenId) -> ScreenState {
     match id {
         ScreenId::Splash => ScreenState::Splash(SplashScreen::new()),

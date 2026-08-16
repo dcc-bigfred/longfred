@@ -9,6 +9,7 @@ pub struct SplashScreen;
 
 impl SplashScreen {
     /// Empty splash (no local state).
+    #[must_use]
     pub fn new() -> Self {
         Self
     }

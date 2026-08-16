@@ -1,4 +1,4 @@
-//! Per-variant navigation profile: InputEvent → canonical NavAction.
+//! Per-variant navigation profile: `InputEvent` → canonical `NavAction`.
 
 use crate::input::{InputEvent, NavDir};
 use crate::screen::InputMode;
@@ -26,7 +26,7 @@ pub trait NavProfile {
     fn map(&self, ev: InputEvent, mode: InputMode) -> NavAction;
 }
 
-/// LongFred standard / mini: 5-way joystick + Stop + Menu center.
+/// `LongFred` standard / mini: 5-way joystick + Stop + Menu center.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LongFredNav;
 
@@ -83,7 +83,7 @@ impl NavProfile for LongFredNav {
     }
 }
 
-/// MarkWTech: encoder + keypad (`*` / `#`) + extra tact cluster.
+/// `MarkWTech`: encoder + keypad (`*` / `#`) + extra tact cluster.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MarkwtechNav;
 
@@ -114,7 +114,7 @@ impl NavProfile for MarkwtechNav {
                     NavAction::PageNext
                 }
             }
-            InputEvent::Digit('#') => NavAction::Select,
+            InputEvent::Digit('#') | InputEvent::Ok => NavAction::Select,
             InputEvent::Digit('*') => match mode {
                 InputMode::Text => NavAction::CaseToggle,
                 InputMode::Throttle => NavAction::PassThrough(InputEvent::DirectionToggle),
@@ -130,7 +130,6 @@ impl NavProfile for MarkwtechNav {
             }
             InputEvent::EncoderButton if mode == InputMode::Text => NavAction::Select,
             InputEvent::Back => NavAction::Cancel,
-            InputEvent::Ok => NavAction::Select,
             other => NavAction::PassThrough(other),
         }
     }

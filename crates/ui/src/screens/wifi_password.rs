@@ -14,6 +14,7 @@ pub struct PasswordScreen {
 
 impl PasswordScreen {
     /// Text keyboard preloaded from NVS / compiled password on enter.
+    #[must_use]
     pub fn new() -> Self {
         let mut kbd = TextKeyboard::new(KeyboardMode::Text);
         kbd.set_max_len(64);

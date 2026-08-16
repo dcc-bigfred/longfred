@@ -32,6 +32,7 @@ impl DeviceRow {
 
 impl DeviceScreen {
     /// Three-row picker: name, id, regenerate.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             cursor: DeviceRow::Name,

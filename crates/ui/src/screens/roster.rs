@@ -2,7 +2,7 @@
 
 use longfred_proto::model::MAX_ROSTER;
 
-use super::helpers::{height, page_list, step_list};
+use super::helpers::{digit_key, height, page_list, step_list};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -16,6 +16,7 @@ pub struct RosterListScreen {
 
 impl RosterListScreen {
     /// Numbered roster picker.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: PagedList::new(true),
@@ -25,13 +26,7 @@ impl RosterListScreen {
     /// Live WIT roster names, or persisted static roster (name, else address).
     fn names<'a>(cx: &'a ScreenCtx<'_>) -> heapless::Vec<&'a str, MAX_ROSTER> {
         let mut v = heapless::Vec::new();
-        if !cx.drive.roster.is_empty() {
-            for e in cx.drive.roster {
-                if v.push(e.name.as_str()).is_err() {
-                    break;
-                }
-            }
-        } else {
+        if cx.drive.roster.is_empty() {
             for e in &cx.drive.persist.static_roster {
                 let s = if e.name.is_empty() {
                     e.addr.as_str()
@@ -42,11 +37,17 @@ impl RosterListScreen {
                     break;
                 }
             }
+        } else {
+            for e in cx.drive.roster {
+                if v.push(e.name.as_str()).is_err() {
+                    break;
+                }
+            }
         }
         v
     }
 
-    fn acquire_at(&self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
+    fn acquire_at(cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
         if !cx.drive.roster.is_empty() {
             nav.emit(Intent::AcquireRoster(
                 idx.min(cx.drive.roster.len().saturating_sub(1)),
@@ -98,18 +99,17 @@ impl Screen for RosterListScreen {
 
     /// Digit jumps to that row and acquires it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        if let Some(d) = c.to_digit(10) {
-            let idx = {
-                let names = Self::names(cx);
-                let h = height(cx);
-                self.list
-                    .select_digit(d as u8, &names, h)
-                    .is_some()
-                    .then(|| self.list.global_index(&names, h))
-            };
-            if let Some(idx) = idx {
-                self.acquire_at(cx, nav, idx);
-            }
+        let Some(d) = digit_key(c) else { return };
+        let idx = {
+            let names = Self::names(cx);
+            let h = height(cx);
+            self.list
+                .select_digit(d, &names, h)
+                .is_some()
+                .then(|| self.list.global_index(&names, h))
+        };
+        if let Some(idx) = idx {
+            Self::acquire_at(cx, nav, idx);
         }
     }
 
@@ -119,7 +119,7 @@ impl Screen for RosterListScreen {
             let names = Self::names(cx);
             self.list.global_index(&names, height(cx))
         };
-        self.acquire_at(cx, nav, idx);
+        Self::acquire_at(cx, nav, idx);
     }
 
     /// Skip Menu and return to throttle.

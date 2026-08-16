@@ -2,7 +2,7 @@
 
 use longfred_proto::persist::Language;
 
-use super::helpers::page_list;
+use super::helpers::{digit_key, page_list};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -18,6 +18,7 @@ impl LanguageScreen {
     const LANGS: [Language; 3] = [Language::En, Language::Pl, Language::De];
 
     /// Unnumbered EN/PL/DE picker.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: PagedList::new(false),
@@ -84,16 +85,15 @@ impl Screen for LanguageScreen {
 
     /// Digit jumps to that row and selects it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        if let Some(d) = c.to_digit(10) {
-            let labels = Self::labels(cx);
-            let h = Self::height(cx);
-            if self.list.select_digit(d as u8, &labels, h).is_some() {
-                nav.emit(Intent::SetLanguage(self.current_at(&labels, h)));
-                if cx.session.boot_language {
-                    cx.session.boot_language = false;
-                } else {
-                    nav.back();
-                }
+        let Some(d) = digit_key(c) else { return };
+        let labels = Self::labels(cx);
+        let h = Self::height(cx);
+        if self.list.select_digit(d, &labels, h).is_some() {
+            nav.emit(Intent::SetLanguage(self.current_at(&labels, h)));
+            if cx.session.boot_language {
+                cx.session.boot_language = false;
+            } else {
+                nav.back();
             }
         }
     }

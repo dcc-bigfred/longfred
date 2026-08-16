@@ -3,7 +3,7 @@
 use longfred_proto::action::Action;
 use longfred_proto::model::{RosterEntry, ThrottleSlot, TrackPower};
 use longfred_proto::net_status::{ConnState, NetStatus, PingStatus};
-use longfred_proto::persist::{Language, PersistRecord};
+use longfred_proto::persist::{Language, PersistRecord, StaticIpConfig};
 
 use longfred_ui::i18n::{HintSet, strings};
 use longfred_ui::input::{InputEvent, NavDir};
@@ -13,7 +13,9 @@ use longfred_ui::nav_profile::{LONGFRED, MARKWTECH, NavAction, NavProfile};
 use longfred_ui::screen::InputMode;
 use longfred_ui::view::UiView;
 use longfred_ui::widgets::{KeyboardMode, TextKeyboard};
-use longfred_ui::{DriveInfo, LAYOUT_128X64, NetInfo, Router, ScreenCtx, UiEnv, UiSession};
+use longfred_ui::{
+    DriveInfo, LAYOUT_128X64, NetField, NetInfo, Router, ScreenCtx, UiEnv, UiSession,
+};
 
 struct Fixture {
     slots: [ThrottleSlot; 1],
@@ -277,7 +279,7 @@ fn wifi_scan_page_opens_scanning_then_scan_list() {
         router.handle(InputEvent::Nav(NavDir::Right), &mut cx)
     };
     assert_eq!(router.screen_id(), ScreenId::SsidScanning);
-    assert!(intents.iter().any(|i| *i == Intent::WifiScan));
+    assert!(intents.contains(&Intent::WifiScan));
     {
         let mut cx = fx.ctx();
         let _ = router.on_app_event(longfred_ui::AppEvent::ScanDone, &mut cx);
@@ -375,4 +377,55 @@ fn stack_overflow_drops_oldest() {
         let _ = router.handle(InputEvent::Back, &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::DirectCommands);
+}
+
+fn handle(router: &mut Router, fx: &mut Fixture, ev: InputEvent) -> heapless::Vec<Intent, 4> {
+    let mut cx = fx.ctx();
+    router.handle(ev, &mut cx)
+}
+
+#[test]
+fn ip_wizard_dhcp_saves_and_returns_to_throttle() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::IpConfig);
+    let _ = handle(&mut router, &mut fx, InputEvent::Ok);
+    assert_eq!(router.screen_id(), ScreenId::IpEdit);
+    let intents = handle(&mut router, &mut fx, InputEvent::Ok);
+    assert!(
+        intents
+            .iter()
+            .any(|i| matches!(i, Intent::SaveNetwork(StaticIpConfig { dhcp: true, .. })))
+    );
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+}
+
+#[test]
+fn ip_wizard_static_walks_all_fields() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::IpConfig);
+    let _ = handle(&mut router, &mut fx, InputEvent::Ok);
+    let _ = handle(&mut router, &mut fx, InputEvent::Nav(NavDir::Left));
+    let _ = handle(&mut router, &mut fx, InputEvent::Digit('1'));
+    let _ = handle(&mut router, &mut fx, InputEvent::Ok);
+    assert_eq!(fx.session.ip_field, NetField::Ip);
+    assert_eq!(router.screen_id(), ScreenId::IpEdit);
+
+    let _ = handle(&mut router, &mut fx, InputEvent::Ok);
+    assert_eq!(fx.session.ip_field, NetField::Prefix);
+    assert_eq!(fx.session.net_cfg.prefix_len, 24);
+    assert_eq!(fx.session.net_cfg.gateway, Some([0, 0, 0, 1]));
+
+    let _ = handle(&mut router, &mut fx, InputEvent::Ok);
+    assert_eq!(fx.session.ip_field, NetField::Gateway);
+
+    let _ = handle(&mut router, &mut fx, InputEvent::Ok);
+    assert_eq!(fx.session.ip_field, NetField::Dns);
+
+    let intents = handle(&mut router, &mut fx, InputEvent::Ok);
+    assert!(
+        intents
+            .iter()
+            .any(|i| matches!(i, Intent::SaveNetwork(StaticIpConfig { dhcp: false, .. })))
+    );
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
 }

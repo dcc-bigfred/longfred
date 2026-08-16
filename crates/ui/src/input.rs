@@ -19,7 +19,7 @@ pub enum InputEvent {
     Back,
     Menu,
     EStop,
-    /// Physical Stop — screens map to EStop or Cancel.
+    /// Physical Stop — screens map to `EStop` or Cancel.
     Stop,
     FnPress(u8),
     FnRelease(u8),

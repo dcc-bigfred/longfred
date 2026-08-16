@@ -15,6 +15,7 @@ pub struct DeviceNameEditScreen {
 
 impl DeviceNameEditScreen {
     /// Text keyboard capped at [`MAX_DEVICE_NAME_LEN`].
+    #[must_use]
     pub fn new() -> Self {
         let mut kbd = TextKeyboard::new(KeyboardMode::Text);
         kbd.set_max_len(MAX_DEVICE_NAME_LEN);

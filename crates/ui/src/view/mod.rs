@@ -17,6 +17,7 @@ pub struct GridView {
 }
 
 impl GridView {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             lines: heapless::Vec::new(),
@@ -27,6 +28,7 @@ impl GridView {
         }
     }
 
+    #[must_use]
     pub fn inverted(&self, idx: usize) -> bool {
         idx < GRID_LINES && (self.invert & (1u16 << idx)) != 0
     }
@@ -56,7 +58,7 @@ impl GridView {
     }
 }
 
-/// FONT_6X10 is ASCII-only. Fold Latin extras and stop at [`LINE_LEN`] bytes
+/// `FONT_6X10` is ASCII-only. Fold Latin extras and stop at [`LINE_LEN`] bytes
 /// so a long SSID cannot fail `push_str` and render as a blank line.
 pub fn push_oled(line: &mut Line, s: &str) {
     for c in s.chars() {
@@ -67,11 +69,13 @@ pub fn push_oled(line: &mut Line, s: &str) {
 }
 
 /// Full-width line in characters (`FONT_6X10` × 6 px on a 128 px panel).
+#[must_use]
 pub fn col_chars() -> usize {
     LINE_LEN
 }
 
 /// Sequential content rows for paged lists (header index 0 unused).
+#[must_use]
 pub fn list_slots_for(height: u16) -> &'static [usize] {
     if height <= 32 {
         &[1, 2, 3]
@@ -81,24 +85,31 @@ pub fn list_slots_for(height: u16) -> &'static [usize] {
 }
 
 /// 1-based number drawn next to a list item (`global` 0 → `1:`).
+#[must_use]
 pub fn item_display_num(global: usize) -> usize {
     global.saturating_add(1)
 }
 
 /// Keypad `1`–`9` → those display numbers; `0` → 10.
+#[must_use]
 pub fn digit_display_num(n: u8) -> usize {
     if n == 0 { 10 } else { n as usize }
+}
+
+fn push_decimal_digit(buf: &mut heapless::String<64>, n: usize) {
+    let d = u8::try_from(n % 10).unwrap_or(0);
+    let _ = buf.push(char::from(b'0' + d));
 }
 
 fn push_item_num_prefix(buf: &mut heapless::String<64>, global: usize) {
     let n = item_display_num(global);
     if n >= 100 {
-        let _ = buf.push((b'0' + (n / 100) as u8) as char);
+        push_decimal_digit(buf, n / 100);
     }
     if n >= 10 {
-        let _ = buf.push((b'0' + ((n / 10) % 10) as u8) as char);
+        push_decimal_digit(buf, n / 10);
     }
-    let _ = buf.push((b'0' + (n % 10) as u8) as char);
+    push_decimal_digit(buf, n);
     let _ = buf.push(':');
 }
 
@@ -145,21 +156,23 @@ fn wrap_chunks(folded: &str, col: usize) -> heapless::Vec<Line, 8> {
 }
 
 fn flush_line(out: &mut heapless::Vec<Line, 8>, cur: &mut Line) {
-    if let Some(sp) = cur.rfind(' ') {
-        if sp > 0 && sp + 1 < cur.len() {
-            let mut next = Line::new();
-            for ch in cur.chars().skip(sp + 1) {
-                let _ = next.push(ch);
-            }
-            cur.truncate(sp);
-            let _ = out.push(core::mem::replace(cur, next));
-            return;
+    if let Some(sp) = cur.rfind(' ')
+        && sp > 0
+        && sp + 1 < cur.len()
+    {
+        let mut next = Line::new();
+        for ch in cur.chars().skip(sp + 1) {
+            let _ = next.push(ch);
         }
+        cur.truncate(sp);
+        let _ = out.push(core::mem::replace(cur, next));
+        return;
     }
     let _ = out.push(core::mem::replace(cur, Line::new()));
 }
 
 /// How many `items` starting at `start` fit on one list page.
+#[must_use]
 pub fn items_fitting(items: &[&str], start: usize, numbered: bool, height: u16) -> usize {
     let slots = list_slots_for(height).len();
     let mut used = 0usize;
@@ -176,6 +189,7 @@ pub fn items_fitting(items: &[&str], start: usize, numbered: bool, height: u16) 
 }
 
 /// First item index of `page` in a wrapped list.
+#[must_use]
 pub fn page_start(items: &[&str], page: usize, numbered: bool, height: u16) -> usize {
     let mut idx = 0usize;
     for _ in 0..page {
@@ -188,11 +202,13 @@ pub fn page_start(items: &[&str], page: usize, numbered: bool, height: u16) -> u
     idx
 }
 
+#[must_use]
 pub fn page_item_count(items: &[&str], page: usize, numbered: bool, height: u16) -> usize {
     let start = page_start(items, page, numbered, height);
     items_fitting(items, start, numbered, height)
 }
 
+#[must_use]
 pub fn has_next_page(items: &[&str], page: usize, numbered: bool, height: u16) -> bool {
     let start = page_start(items, page, numbered, height);
     start + items_fitting(items, start, numbered, height) < items.len()
@@ -223,9 +239,8 @@ pub fn fill_list_page_invert<F: Fn(usize, usize) -> bool>(
     let col = col_chars();
     let start = page_start(items, list.page, list.numbered, height);
     let mut slot_i = 0usize;
-    let mut local = 0usize;
-    for (off, item) in items.iter().skip(start).enumerate() {
-        let global = start + off;
+    for (local, item) in items.iter().skip(start).enumerate() {
+        let global = start + local;
         let mut folded = heapless::String::<64>::new();
         if list.numbered {
             push_item_num_prefix(&mut folded, global);
@@ -242,7 +257,6 @@ pub fn fill_list_page_invert<F: Fn(usize, usize) -> bool>(
             g.set(slots[slot_i], chunk.as_str(), ci == 0 && inv);
             slot_i += 1;
         }
-        local += 1;
     }
 }
 
@@ -280,6 +294,7 @@ impl Default for GridView {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ThrottleView {
     pub current: u8,
     pub speed: u8,
@@ -315,6 +330,7 @@ impl Default for ThrottleView {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub enum UiView {
     Throttle(ThrottleView),
     Grid(GridView),

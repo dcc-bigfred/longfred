@@ -34,6 +34,7 @@ pub struct TextKeyboard<const N: usize> {
 }
 
 impl<const N: usize> TextKeyboard<N> {
+    #[must_use]
     pub fn new(mode: KeyboardMode) -> Self {
         Self {
             mode,
@@ -85,18 +86,22 @@ impl<const N: usize> TextKeyboard<N> {
         debug_assert!(self.buffer.is_ascii());
     }
 
+    #[must_use]
     pub fn cursor(&self) -> usize {
         self.cursor
     }
 
+    #[must_use]
     pub fn pending(&self) -> Option<char> {
         self.pending.map(|c| self.apply_case(c))
     }
 
+    #[must_use]
     pub fn uppercase(&self) -> bool {
         self.uppercase
     }
 
+    #[must_use]
     pub fn slot_char(&self) -> char {
         self.pending().unwrap_or('_')
     }
@@ -191,14 +196,15 @@ impl<const N: usize> TextKeyboard<N> {
         if self.pending.is_none() && !self.can_insert() {
             return KeyboardAction::None;
         }
-        let len = set.chars().count() as isize;
-        let step = delta as isize;
+        let len = set.chars().count().cast_signed();
+        let step = isize::from(delta);
         let idx = if let Some(c) = self.pending {
             set.chars()
                 .position(|ch| ch == c.to_ascii_lowercase() || ch == c)
-                .unwrap_or(self.charset_idx) as isize
+                .unwrap_or(self.charset_idx)
+                .cast_signed()
         } else {
-            self.charset_idx as isize
+            self.charset_idx.cast_signed()
         };
         let next = (idx + step).rem_euclid(len) as usize;
         self.charset_idx = next;
@@ -256,7 +262,7 @@ impl<const N: usize> TextKeyboard<N> {
         }
     }
 
-    /// LongFred F-keys: digits only (F0–F9). No T9 on function keys.
+    /// `LongFred` F-keys: digits only (F0–F9). No T9 on function keys.
     pub fn fn_press(&mut self, key: u8, now_ms: u64) -> KeyboardAction {
         let _ = now_ms;
         if self.mode == KeyboardMode::Digits && key <= 9 {
@@ -282,10 +288,10 @@ impl<const N: usize> TextKeyboard<N> {
         };
         if group.len() == 1 {
             let _ = self.commit_pending();
-            if let Some(c) = group.chars().next() {
-                if self.insert_at_cursor(self.apply_case(c)) {
-                    return KeyboardAction::Committed;
-                }
+            if let Some(c) = group.chars().next()
+                && self.insert_at_cursor(self.apply_case(c))
+            {
+                return KeyboardAction::Committed;
             }
             return KeyboardAction::None;
         }
@@ -318,6 +324,7 @@ impl<const N: usize> TextKeyboard<N> {
     }
 
     /// Buffer + pending, no caret — for the throttle loco-address line.
+    #[must_use]
     pub fn value_preview(&self) -> String<N> {
         let mut s = String::new();
         let (head, tail) = split_at_cursor(self.buffer.as_str(), self.cursor);
@@ -330,6 +337,7 @@ impl<const N: usize> TextKeyboard<N> {
     }
 
     /// Caret preview (`prefix + slot + suffix`), windowed to [`LINE_LEN`].
+    #[must_use]
     pub fn preview(&self) -> Line {
         let mut full = heapless::String::<65>::new();
         let (head, tail) = split_at_cursor(self.buffer.as_str(), self.cursor);
@@ -351,6 +359,7 @@ fn split_at_cursor(s: &str, cursor: usize) -> (&str, &str) {
 }
 
 /// Dotted IPv4, optionally `:port`, with `_` / pending at `cursor`.
+#[must_use]
 pub fn format_grouped_ip(digits: &str, cursor: usize, slot: char, with_port: bool) -> Line {
     let mut full = heapless::String::<32>::new();
     let mut shown = 0usize;

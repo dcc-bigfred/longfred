@@ -3,7 +3,7 @@
 use longfred_proto::command::Protocol;
 use longfred_proto::model::MAX_FOUND_SERVERS;
 
-use super::helpers::{height, step_list};
+use super::helpers::{digit_key, height, step_list};
 use crate::context::ScreenCtx;
 use crate::intent::{AppEvent, Intent};
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -17,6 +17,7 @@ pub struct ServerListScreen {
 
 impl ServerListScreen {
     /// Numbered mDNS server list.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: PagedList::new(true),
@@ -47,7 +48,7 @@ impl ServerListScreen {
         names
     }
 
-    fn connect_at(&self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
+    fn connect_at(cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
         if idx < cx.net.found_servers.len() {
             nav.emit(Intent::ServerSelect(idx));
             nav.root(ScreenId::Throttle);
@@ -102,19 +103,18 @@ impl Screen for ServerListScreen {
 
     /// Digit jumps to that server and connects.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        if let Some(d) = c.to_digit(10) {
-            let idx = {
-                let bufs = Self::labels(cx);
-                let names = Self::name_refs(&bufs);
-                let h = height(cx);
-                self.list
-                    .select_digit(d as u8, &names, h)
-                    .is_some()
-                    .then(|| self.list.global_index(&names, h))
-            };
-            if let Some(idx) = idx {
-                self.connect_at(cx, nav, idx);
-            }
+        let Some(d) = digit_key(c) else { return };
+        let idx = {
+            let bufs = Self::labels(cx);
+            let names = Self::name_refs(&bufs);
+            let h = height(cx);
+            self.list
+                .select_digit(d, &names, h)
+                .is_some()
+                .then(|| self.list.global_index(&names, h))
+        };
+        if let Some(idx) = idx {
+            Self::connect_at(cx, nav, idx);
         }
     }
 
@@ -125,7 +125,7 @@ impl Screen for ServerListScreen {
             let names = Self::name_refs(&bufs);
             self.list.global_index(&names, height(cx))
         };
-        self.connect_at(cx, nav, idx);
+        Self::connect_at(cx, nav, idx);
     }
 
     /// Already connected (e.g. last server) → throttle.

@@ -23,6 +23,7 @@ pub enum NetField {
 }
 
 impl NetField {
+    #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
             Self::Dhcp => "Mode",
@@ -33,6 +34,7 @@ impl NetField {
         }
     }
 
+    #[must_use]
     pub const fn max_digits(self) -> usize {
         match self {
             Self::Dhcp => 1,
@@ -41,6 +43,7 @@ impl NetField {
         }
     }
 
+    #[must_use]
     pub const fn next(self) -> Option<Self> {
         match self {
             Self::Dhcp => Some(Self::Ip),
@@ -57,6 +60,7 @@ impl NetField {
 /// Screen objects are discarded on navigation, so anything the user typed that
 /// must survive `Back` belongs here.
 #[derive(Clone, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct UiSession {
     pub selected_ssid: heapless::String<32>,
     pub selected_from_scan: bool,
@@ -80,6 +84,7 @@ pub struct UiSession {
 }
 
 impl UiSession {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             selected_ssid: heapless::String::new(),

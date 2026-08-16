@@ -1,6 +1,6 @@
 //! Compiled-SSID picker.
 
-use super::helpers::{compiled_ssids, height, pick_ssid, step_list};
+use super::helpers::{compiled_ssids, digit_key, height, pick_ssid, step_list};
 use crate::context::ScreenCtx;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::screen::Screen;
@@ -13,13 +13,14 @@ pub struct SsidListScreen {
 
 impl SsidListScreen {
     /// Numbered list of firmware-compiled SSIDs.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: PagedList::new(true),
         }
     }
 
-    fn pick_at(&self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
+    fn pick_at(cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
         let ssid = cx.env.compiled_networks.get(idx).map(|n| n.ssid);
         if let Some(ssid) = ssid {
             cx.session.selected_ssid_idx = idx;
@@ -65,18 +66,17 @@ impl Screen for SsidListScreen {
 
     /// Digit jumps to that SSID and selects it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        if let Some(d) = c.to_digit(10) {
-            let idx = {
-                let names = compiled_ssids(cx);
-                let h = height(cx);
-                self.list
-                    .select_digit(d as u8, &names, h)
-                    .is_some()
-                    .then(|| self.list.global_index(&names, h))
-            };
-            if let Some(idx) = idx {
-                self.pick_at(cx, nav, idx);
-            }
+        let Some(d) = digit_key(c) else { return };
+        let idx = {
+            let names = compiled_ssids(cx);
+            let h = height(cx);
+            self.list
+                .select_digit(d, &names, h)
+                .is_some()
+                .then(|| self.list.global_index(&names, h))
+        };
+        if let Some(idx) = idx {
+            Self::pick_at(cx, nav, idx);
         }
     }
 
@@ -86,7 +86,7 @@ impl Screen for SsidListScreen {
             let names = compiled_ssids(cx);
             self.list.global_index(&names, height(cx))
         };
-        self.pick_at(cx, nav, idx);
+        Self::pick_at(cx, nav, idx);
     }
 
     /// Leave the wizard for the drive HUD.

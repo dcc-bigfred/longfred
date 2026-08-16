@@ -24,10 +24,12 @@ pub const TEXT_CHARSET: &str = " abcdefghijklmnopqrstuvwxyz0123456789-_.@";
 /// Digits only (IP, device ID, net config, loco address).
 pub const DIGIT_CHARSET: &str = "0123456789";
 
+#[must_use]
 pub fn multitap_group(key: u8) -> Option<&'static str> {
     MULTITAP.get(key as usize).copied()
 }
 
+#[must_use]
 pub fn multitap_char(key: u8, tap: u8) -> Option<char> {
     let group = multitap_group(key)?;
     if group.is_empty() {
@@ -37,6 +39,7 @@ pub fn multitap_char(key: u8, tap: u8) -> Option<char> {
     group.chars().nth(idx)
 }
 
+#[must_use]
 pub fn charset_char(set: &str, index: usize) -> Option<char> {
     if set.is_empty() {
         return None;

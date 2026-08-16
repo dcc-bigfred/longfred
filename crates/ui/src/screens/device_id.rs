@@ -2,11 +2,12 @@
 
 use longfred_proto::persist::{DEVICE_ID_MAX, DEVICE_ID_MIN};
 
+use super::helpers::write_u16_padded;
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, ScreenId};
 use crate::screen::{KeyBindings, Screen};
-use crate::view::UiView;
+use crate::view::{Line, UiView};
 use crate::widgets::{KeyboardMode, TextKeyboard};
 
 pub struct DeviceIdEditScreen {
@@ -15,6 +16,7 @@ pub struct DeviceIdEditScreen {
 
 impl DeviceIdEditScreen {
     /// Four-digit numeric id.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             kbd: TextKeyboard::new(KeyboardMode::Digits),
@@ -42,11 +44,8 @@ impl Screen for DeviceIdEditScreen {
         self.kbd.clear();
         let id = cx.session.device.id;
         if id >= DEVICE_ID_MIN {
-            let mut s = heapless::String::<4>::new();
-            let _ = s.push((b'0' + ((id / 1000) % 10) as u8) as char);
-            let _ = s.push((b'0' + ((id / 100) % 10) as u8) as char);
-            let _ = s.push((b'0' + ((id / 10) % 10) as u8) as char);
-            let _ = s.push((b'0' + (id % 10) as u8) as char);
+            let mut s = Line::new();
+            write_u16_padded(&mut s, id);
             self.kbd.load(s.as_str());
         }
     }

@@ -15,6 +15,7 @@ pub struct IpEditScreen {
 
 impl IpEditScreen {
     /// Digit keyboard reused for DHCP/IP/mask/GW/DNS fields.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             kbd: TextKeyboard::new(KeyboardMode::Digits),
@@ -139,15 +140,12 @@ impl Screen for IpEditScreen {
             nav.root(ScreenId::Throttle);
             return;
         }
-        match field.next() {
-            Some(next) => {
-                cx.session.ip_field = next;
-                self.reload(cx);
-            }
-            None => {
-                nav.emit(Intent::SaveNetwork(cx.session.net_cfg));
-                nav.root(ScreenId::Throttle);
-            }
+        if let Some(next) = field.next() {
+            cx.session.ip_field = next;
+            self.reload(cx);
+        } else {
+            nav.emit(Intent::SaveNetwork(cx.session.net_cfg));
+            nav.root(ScreenId::Throttle);
         }
     }
 

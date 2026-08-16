@@ -2,7 +2,7 @@
 
 use longfred_proto::model::MAX_FOUND_SSIDS;
 
-use super::helpers::{height, page_list, pick_ssid, step_list};
+use super::helpers::{digit_key, height, page_list, pick_ssid, step_list};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -16,6 +16,7 @@ pub struct SsidScanScreen {
 
 impl SsidScanScreen {
     /// Numbered list of last scan results.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: PagedList::new(true),
@@ -30,7 +31,7 @@ impl SsidScanScreen {
         names
     }
 
-    fn pick_at(&self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
+    fn pick_at(cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
         cx.session.selected_ssid_idx = idx;
         cx.session.selected_from_scan = true;
         if let Some(s) = cx.net.scanned_ssids.get(idx) {
@@ -81,18 +82,17 @@ impl Screen for SsidScanScreen {
 
     /// Digit jumps to that SSID and selects it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        if let Some(d) = c.to_digit(10) {
-            let idx = {
-                let names = Self::names(cx);
-                let h = height(cx);
-                self.list
-                    .select_digit(d as u8, &names, h)
-                    .is_some()
-                    .then(|| self.list.global_index(&names, h))
-            };
-            if let Some(idx) = idx {
-                self.pick_at(cx, nav, idx);
-            }
+        let Some(d) = digit_key(c) else { return };
+        let idx = {
+            let names = Self::names(cx);
+            let h = height(cx);
+            self.list
+                .select_digit(d, &names, h)
+                .is_some()
+                .then(|| self.list.global_index(&names, h))
+        };
+        if let Some(idx) = idx {
+            Self::pick_at(cx, nav, idx);
         }
     }
 
@@ -102,7 +102,7 @@ impl Screen for SsidScanScreen {
             let names = Self::names(cx);
             self.list.global_index(&names, height(cx))
         };
-        self.pick_at(cx, nav, idx);
+        Self::pick_at(cx, nav, idx);
     }
 
     /// Back to compiled SSIDs when they exist; otherwise stay (scan is the root list).

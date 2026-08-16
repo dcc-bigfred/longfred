@@ -32,10 +32,12 @@ impl Router {
         }
     }
 
+    #[must_use]
     pub fn screen_id(&self) -> ScreenId {
         self.current.id()
     }
 
+    #[must_use]
     pub fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         self.current.view(cx)
     }
@@ -63,6 +65,7 @@ impl Router {
     }
 
     /// Number of screens on the back-stack.
+    #[must_use]
     pub fn stack_len(&self) -> usize {
         self.stack.len()
     }
@@ -74,7 +77,7 @@ impl Router {
     }
 
     pub fn tick(&mut self, cx: &mut ScreenCtx<'_>) -> heapless::Vec<Intent, 4> {
-        self.with_nav(cx, |s, cx, nav| s.on_tick(cx, nav))
+        self.with_nav(cx, super::screen::Screen::on_tick)
     }
 
     pub fn on_app_event(
@@ -93,14 +96,14 @@ impl Router {
             NavAction::ListNext => {
                 self.with_nav(cx, |s, cx, nav| s.on_list_step(Step::Next, cx, nav))
             }
-            NavAction::Select => self.with_nav(cx, |s, cx, nav| s.on_select(cx, nav)),
-            NavAction::Cancel => self.with_nav(cx, |s, cx, nav| s.on_cancel(cx, nav)),
-            NavAction::MenuEnter => self.with_nav(cx, |s, cx, nav| s.on_menu_key(cx, nav)),
+            NavAction::Select => self.with_nav(cx, super::screen::Screen::on_select),
+            NavAction::Cancel => self.with_nav(cx, super::screen::Screen::on_cancel),
+            NavAction::MenuEnter => self.with_nav(cx, super::screen::Screen::on_menu_key),
             NavAction::CharCycle(d) => self.with_nav(cx, |s, cx, nav| s.on_char_cycle(d, cx, nav)),
             NavAction::CursorMove(d) => {
                 self.with_nav(cx, |s, cx, nav| s.on_cursor_move(d, cx, nav))
             }
-            NavAction::CaseToggle => self.with_nav(cx, |s, cx, nav| s.on_case_toggle(cx, nav)),
+            NavAction::CaseToggle => self.with_nav(cx, super::screen::Screen::on_case_toggle),
             NavAction::Digit(c) => self.with_nav(cx, |s, cx, nav| s.on_digit(c, cx, nav)),
             NavAction::PagePrev => {
                 self.with_nav(cx, |s, cx, nav| s.on_page(PageDir::Prev, cx, nav))
@@ -124,7 +127,7 @@ impl Router {
                 let _ = out.push(Intent::Action(longfred_proto::action::Action::EStop));
                 out
             }
-            InputEvent::Stop => self.with_nav(cx, |s, cx, nav| s.on_cancel(cx, nav)),
+            InputEvent::Stop => self.with_nav(cx, super::screen::Screen::on_cancel),
             InputEvent::FnPress(k) => self.with_nav(cx, |s, cx, nav| s.on_fn_key(k, true, cx, nav)),
             InputEvent::FnRelease(k) => {
                 self.with_nav(cx, |s, cx, nav| s.on_fn_key(k, false, cx, nav))

@@ -14,6 +14,7 @@ pub struct ServerProtoScreen {
 
 impl ServerProtoScreen {
     /// Two-row WIT / Z21 picker for manual entry.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: PagedList::new(false),
@@ -45,8 +46,8 @@ impl Screen for ServerProtoScreen {
     /// Toggle between WIT and Z21.
     fn on_list_step(&mut self, d: Step, _cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         match d {
-            Step::Prev => self.list.cursor = if self.list.cursor == 0 { 1 } else { 0 },
-            Step::Next => self.list.cursor = if self.list.cursor == 1 { 0 } else { 1 },
+            Step::Prev => self.list.cursor = usize::from(self.list.cursor == 0),
+            Step::Next => self.list.cursor = usize::from(self.list.cursor != 1),
         }
     }
 

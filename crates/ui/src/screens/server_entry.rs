@@ -16,6 +16,7 @@ pub struct ServerEntryScreen {
 
 impl ServerEntryScreen {
     /// 12 IP digits + 5 port digits.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             kbd: TextKeyboard::new(KeyboardMode::Digits),

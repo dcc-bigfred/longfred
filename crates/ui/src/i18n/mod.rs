@@ -14,6 +14,7 @@ pub enum HintSet {
 }
 
 /// Language table plus hardware-specific text-entry hints.
+#[must_use]
 pub fn strings(lang: Language, hints: HintSet) -> &'static Strings {
     match (lang, hints) {
         (Language::En, HintSet::Joystick) => &EN_JOYSTICK,

@@ -19,6 +19,7 @@ pub struct DiagnosticsScreen {
 
 impl DiagnosticsScreen {
     /// Starts on the battery page.
+    #[must_use]
     pub fn new() -> Self {
         Self { page: 0 }
     }
@@ -56,6 +57,7 @@ impl Screen for DiagnosticsScreen {
 }
 
 /// Fill `g` with one of six diagnostic pages. Title is row 0; body uses list layout.
+#[allow(clippy::too_many_lines)]
 fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'_>) {
     g.foot_line = false;
     let t = cx.s;

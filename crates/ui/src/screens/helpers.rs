@@ -8,6 +8,12 @@ use crate::session::NetField;
 use crate::view::Line;
 use crate::widgets::PagedList;
 
+/// Keypad digit `0..=9` from a character. Non-digits yield `None`.
+#[must_use]
+pub fn digit_key(c: char) -> Option<u8> {
+    c.to_digit(10).and_then(|n| u8::try_from(n).ok())
+}
+
 /// True when the current throttle slot has an acquired loco.
 pub fn has_loco(cx: &ScreenCtx<'_>) -> bool {
     cx.drive
@@ -49,12 +55,17 @@ pub fn write_ip_line(line: &mut Line, ip: [u8; 4]) {
     }
 }
 
+/// ASCII digit `0..=9` from the least significant decimal digit of `n`.
+fn dec_digit(n: u16) -> char {
+    char::from(b'0' + u8::try_from(n % 10).unwrap_or(0))
+}
+
 /// Append a 4-digit decimal (leading zeros).
 pub fn write_u16_padded(line: &mut Line, n: u16) {
-    let _ = line.push((b'0' + ((n / 1000) % 10) as u8) as char);
-    let _ = line.push((b'0' + ((n / 100) % 10) as u8) as char);
-    let _ = line.push((b'0' + ((n / 10) % 10) as u8) as char);
-    let _ = line.push((b'0' + (n % 10) as u8) as char);
+    let _ = line.push(dec_digit(n / 1000));
+    let _ = line.push(dec_digit(n / 100));
+    let _ = line.push(dec_digit(n / 10));
+    let _ = line.push(dec_digit(n));
 }
 
 /// Append `aa:bb:cc:dd:ee:ff`.
@@ -78,11 +89,11 @@ pub fn push_ip_octet(buf: &mut heapless::String<17>, oct: u8) {
 
 /// Append a 5-digit port (leading zeros).
 pub fn push_port_digits(buf: &mut heapless::String<17>, port: u16) {
-    let _ = buf.push((b'0' + ((port / 10000) % 10) as u8) as char);
-    let _ = buf.push((b'0' + ((port / 1000) % 10) as u8) as char);
-    let _ = buf.push((b'0' + ((port / 100) % 10) as u8) as char);
-    let _ = buf.push((b'0' + ((port / 10) % 10) as u8) as char);
-    let _ = buf.push((b'0' + (port % 10) as u8) as char);
+    let _ = buf.push(dec_digit(port / 10000));
+    let _ = buf.push(dec_digit(port / 1000));
+    let _ = buf.push(dec_digit(port / 100));
+    let _ = buf.push(dec_digit(port / 10));
+    let _ = buf.push(dec_digit(port));
 }
 
 /// Parse 12 digit characters as four 3-digit octets.
@@ -201,10 +212,10 @@ pub fn commit_net_field(
             } else if digits.len() <= 2 {
                 let mut prefix = 0u8;
                 for b in digits.as_bytes() {
-                    let Some(d) = (*b as char).to_digit(10) else {
+                    let Some(digit) = digit_key(*b as char) else {
                         return;
                     };
-                    prefix = prefix.saturating_mul(10).saturating_add(d as u8);
+                    prefix = prefix.saturating_mul(10).saturating_add(digit);
                 }
                 if prefix <= 32 {
                     cfg.prefix_len = prefix;

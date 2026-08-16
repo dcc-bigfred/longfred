@@ -2,7 +2,7 @@
 
 use longfred_proto::model::MAX_FUNCTIONS;
 
-use super::helpers::{height, page_list, step_list};
+use super::helpers::{digit_key, height, page_list, step_list};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -16,6 +16,7 @@ pub struct FunctionListScreen {
 
 impl FunctionListScreen {
     /// Numbered function picker for the current loco.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: PagedList::new(true),
@@ -42,6 +43,12 @@ impl Default for FunctionListScreen {
     }
 }
 
+fn emit_function(nav: &mut Nav<'_>, idx: usize) {
+    if let Ok(id) = u8::try_from(idx) {
+        nav.emit(Intent::Function(id));
+    }
+}
+
 impl Screen for FunctionListScreen {
     fn id(&self) -> ScreenId {
         ScreenId::FunctionList
@@ -60,8 +67,7 @@ impl Screen for FunctionListScreen {
             .drive
             .slots
             .get(cx.drive.current)
-            .map(|s| s.functions)
-            .unwrap_or([false; MAX_FUNCTIONS]);
+            .map_or([false; MAX_FUNCTIONS], |s| s.functions);
         fill_list_page_invert(&mut g, &names, &self.list, height(cx), |_local, global| {
             ons.get(global).copied().unwrap_or(false)
         });
@@ -82,16 +88,15 @@ impl Screen for FunctionListScreen {
 
     /// Digit jumps to that row and toggles it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        if let Some(d) = c.to_digit(10) {
-            let names = Self::names(cx);
-            let h = height(cx);
-            if self.list.select_digit(d as u8, &names, h).is_some() {
-                let idx = self
-                    .list
-                    .global_index(&names, h)
-                    .min(MAX_FUNCTIONS.saturating_sub(1));
-                nav.emit(Intent::Function(idx as u8));
-            }
+        let Some(d) = digit_key(c) else { return };
+        let names = Self::names(cx);
+        let h = height(cx);
+        if self.list.select_digit(d, &names, h).is_some() {
+            let idx = self
+                .list
+                .global_index(&names, h)
+                .min(MAX_FUNCTIONS.saturating_sub(1));
+            emit_function(nav, idx);
         }
     }
 
@@ -102,7 +107,7 @@ impl Screen for FunctionListScreen {
             .list
             .global_index(&names, height(cx))
             .min(MAX_FUNCTIONS.saturating_sub(1));
-        nav.emit(Intent::Function(idx as u8));
+        emit_function(nav, idx);
     }
 
     /// Skip Menu and return to throttle.

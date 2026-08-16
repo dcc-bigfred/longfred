@@ -13,7 +13,7 @@ impl Screen for WifiFailedScreen {
         ScreenId::WifiFailed
     }
 
-    /// Two-line failure message; WifiReady still advances to servers.
+    /// Two-line failure message; `WifiReady` still advances to servers.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         g.set(0, cx.s.msg_wifi_fail_1, false);

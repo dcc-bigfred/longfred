@@ -1,4 +1,4 @@
-//! Borrowed render / input context (no DomainState, no embassy).
+//! Borrowed render / input context (no `DomainState`, no embassy).
 
 use longfred_proto::mdns::WitServer;
 use longfred_proto::model::{
@@ -80,6 +80,7 @@ pub struct UiEnv {
 }
 
 impl UiEnv {
+    #[must_use]
     pub fn list_slots(&self) -> &'static [usize] {
         crate::view::list_slots_for(self.geometry.height)
     }

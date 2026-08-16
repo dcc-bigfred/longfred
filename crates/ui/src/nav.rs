@@ -45,6 +45,7 @@ pub enum PageDir {
     Next,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum NavCmd {
     Go(ScreenId),
     Replace(ScreenId),
