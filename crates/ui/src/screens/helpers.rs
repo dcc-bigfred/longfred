@@ -203,7 +203,10 @@ pub fn commit_net_field(cfg: &mut StaticIpConfig, field: u8, digits: &str, defau
             } else if digits.len() <= 2 {
                 let mut prefix = 0u8;
                 for b in digits.as_bytes() {
-                    prefix = prefix.saturating_mul(10).saturating_add(b - b'0');
+                    let Some(d) = (*b as char).to_digit(10) else {
+                        return;
+                    };
+                    prefix = prefix.saturating_mul(10).saturating_add(d as u8);
                 }
                 if prefix <= 32 {
                     cfg.prefix_len = prefix;
@@ -247,4 +250,43 @@ pub fn pick_ssid(cx: &mut ScreenCtx<'_>, ssid: &str) {
     }
     cx.session.selected_ssid.clear();
     let _ = cx.session.selected_ssid.push_str(ssid);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use longfred_proto::persist::StaticIpConfig;
+
+    #[test]
+    fn commit_prefix_ignores_non_digits() {
+        let mut cfg = StaticIpConfig {
+            prefix_len: 24,
+            ..StaticIpConfig::default()
+        };
+        commit_net_field(&mut cfg, 2, "x", 16);
+        assert_eq!(cfg.prefix_len, 24);
+    }
+
+    #[test]
+    fn commit_prefix_accepts_two_digits() {
+        let mut cfg = StaticIpConfig::default();
+        commit_net_field(&mut cfg, 2, "24", 16);
+        assert_eq!(cfg.prefix_len, 24);
+    }
+
+    #[test]
+    fn commit_prefix_rejects_over_32() {
+        let mut cfg = StaticIpConfig {
+            prefix_len: 24,
+            ..StaticIpConfig::default()
+        };
+        commit_net_field(&mut cfg, 2, "33", 16);
+        assert_eq!(cfg.prefix_len, 24);
+    }
+
+    #[test]
+    fn parse_ip_digits_rejects_wrong_len() {
+        assert!(parse_ip_digits("999").is_none());
+        assert_eq!(parse_ip_digits("192168001001"), Some([192, 168, 1, 1]));
+    }
 }

@@ -22,7 +22,7 @@ struct Fixture {
     servers: heapless::Vec<longfred_proto::mdns::WitServer, 5>,
     session: UiSession,
     env: UiEnv,
-    strings: longfred_ui::i18n::Strings,
+    strings: &'static longfred_ui::i18n::Strings,
 }
 
 impl Fixture {
@@ -83,7 +83,7 @@ impl Fixture {
                 http_ota_busy: false,
             },
             env: &self.env,
-            s: &self.strings,
+            s: self.strings,
             now_ms: 0,
             battery: None,
             session: &mut self.session,
@@ -234,6 +234,15 @@ fn server_list_page_right_opens_proto() {
         let _ = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::ServerProto);
+}
+
+#[test]
+fn keypad_strings_are_static_and_differ_from_joystick() {
+    let joy = strings(Language::En, HintSet::Joystick);
+    let pad = strings(Language::En, HintSet::Keypad);
+    assert!(core::ptr::eq(joy, strings(Language::En, HintSet::Joystick)));
+    assert!(pad.hint_enter_password.contains("*Caps"));
+    assert_ne!(joy.hint_enter_password, pad.hint_enter_password);
 }
 
 #[test]

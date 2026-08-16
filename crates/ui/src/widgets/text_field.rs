@@ -65,15 +65,24 @@ impl<const N: usize> TextKeyboard<N> {
     }
 
     /// Replace the buffer and park the caret at the end.
+    ///
+    /// Non-ASCII and control characters are dropped. The caret is a byte index,
+    /// so the buffer must stay single-byte ASCII.
     pub fn load(&mut self, s: &str) {
         self.clear();
         for c in s.chars() {
+            if !c.is_ascii() || c.is_ascii_control() {
+                continue;
+            }
             if self.buffer.len() >= self.max_len {
                 break;
             }
-            let _ = self.buffer.push(c);
+            if self.buffer.push(c).is_err() {
+                break;
+            }
         }
         self.cursor = self.buffer.len();
+        debug_assert!(self.buffer.is_ascii());
     }
 
     pub fn cursor(&self) -> usize {
@@ -119,15 +128,15 @@ impl<const N: usize> TextKeyboard<N> {
         if !self.can_insert() {
             return false;
         }
-        let i = self.cursor.min(self.buffer.len());
+        let (head, tail) = split_at_cursor(self.buffer.as_str(), self.cursor);
         let mut tmp = String::<N>::new();
-        let _ = tmp.push_str(&self.buffer.as_str()[..i]);
+        let _ = tmp.push_str(head);
         if tmp.push(c).is_err() {
             return false;
         }
-        let _ = tmp.push_str(&self.buffer.as_str()[i..]);
+        let _ = tmp.push_str(tail);
+        self.cursor = tmp.len() - tail.len();
         self.buffer = tmp;
-        self.cursor = i + 1;
         true
     }
 
@@ -314,24 +323,33 @@ impl<const N: usize> TextKeyboard<N> {
     /// Buffer + pending, no caret — for the throttle loco-address line.
     pub fn value_preview(&self) -> String<N> {
         let mut s = String::new();
-        let i = self.cursor.min(self.buffer.len());
-        let _ = s.push_str(&self.buffer.as_str()[..i]);
+        let (head, tail) = split_at_cursor(self.buffer.as_str(), self.cursor);
+        let _ = s.push_str(head);
         if let Some(c) = self.pending() {
             let _ = s.push(c);
         }
-        let _ = s.push_str(&self.buffer.as_str()[i..]);
+        let _ = s.push_str(tail);
         s
     }
 
     /// Caret preview (`prefix + slot + suffix`), windowed to [`LINE_LEN`].
     pub fn preview(&self) -> Line {
         let mut full = heapless::String::<65>::new();
-        let i = self.cursor.min(self.buffer.len());
-        let _ = full.push_str(&self.buffer.as_str()[..i]);
+        let (head, tail) = split_at_cursor(self.buffer.as_str(), self.cursor);
+        let _ = full.push_str(head);
         let focus = full.len();
         let _ = full.push(self.slot_char());
-        let _ = full.push_str(&self.buffer.as_str()[i..]);
+        let _ = full.push_str(tail);
         window_around(full.as_str(), focus)
+    }
+}
+
+/// Split `s` at byte `cursor`. A mid-character index degrades to `(s, "")`.
+fn split_at_cursor(s: &str, cursor: usize) -> (&str, &str) {
+    let i = cursor.min(s.len());
+    match s.get(..i) {
+        Some(head) => (head, s.get(i..).unwrap_or("")),
+        None => (s, ""),
     }
 }
 
@@ -375,4 +393,50 @@ fn window_around(s: &str, focus: usize) -> Line {
     let start = focus.saturating_sub(LINE_LEN / 2).min(max_start);
     crate::view::push_oled(&mut line, s.get(start..start + LINE_LEN).unwrap_or(s));
     line
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_drops_non_ascii_and_stays_insertable() {
+        let mut kbd = TextKeyboard::<16>::new(KeyboardMode::Text);
+        kbd.load("hasło");
+        assert_eq!(kbd.buffer.as_str(), "haso");
+        assert!(kbd.insert_at_cursor('x'));
+        assert_eq!(kbd.buffer.as_str(), "hasox");
+    }
+
+    #[test]
+    fn load_skips_control_chars() {
+        let mut kbd = TextKeyboard::<8>::new(KeyboardMode::Text);
+        kbd.load("ab\ncd");
+        assert_eq!(kbd.buffer.as_str(), "abcd");
+    }
+
+    #[test]
+    fn load_stops_at_max_len() {
+        let mut kbd = TextKeyboard::<8>::new(KeyboardMode::Digits);
+        kbd.set_max_len(4);
+        kbd.load("123456");
+        assert_eq!(kbd.buffer.as_str(), "1234");
+        assert!(!kbd.insert_at_cursor('7'));
+    }
+
+    #[test]
+    fn insert_in_the_middle() {
+        let mut kbd = TextKeyboard::<8>::new(KeyboardMode::Digits);
+        kbd.load("13");
+        kbd.cursor = 1;
+        assert!(kbd.insert_at_cursor('2'));
+        assert_eq!(kbd.buffer.as_str(), "123");
+        assert_eq!(kbd.cursor, 2);
+    }
+
+    #[test]
+    fn split_at_cursor_degrades_on_mid_char_index() {
+        assert_eq!(split_at_cursor("ab", 1), ("a", "b"));
+        assert_eq!(split_at_cursor("ł", 1), ("ł", ""));
+    }
 }

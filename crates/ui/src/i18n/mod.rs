@@ -14,28 +14,18 @@ pub enum HintSet {
 }
 
 /// Language table plus hardware-specific text-entry hints.
-pub fn strings(lang: Language, hints: HintSet) -> Strings {
-    let mut s = match lang {
-        Language::En => EN,
-        Language::Pl => PL,
-        Language::De => DE,
-    };
-    let h = match (lang, hints) {
-        (Language::En, HintSet::Keypad) => keypad_hints::EN,
-        (Language::Pl, HintSet::Keypad) => keypad_hints::PL,
-        (Language::De, HintSet::Keypad) => keypad_hints::DE,
-        (Language::En, HintSet::Joystick) => joystick_hints::EN,
-        (Language::Pl, HintSet::Joystick) => joystick_hints::PL,
-        (Language::De, HintSet::Joystick) => joystick_hints::DE,
-    };
-    s.hint_enter_password = h.pw;
-    s.hint_wit_entry = h.ip;
-    s.hint_net_edit = h.net;
-    s.hint_device_name_edit = h.name;
-    s.hint_device_id_edit = h.id;
-    s
+pub fn strings(lang: Language, hints: HintSet) -> &'static Strings {
+    match (lang, hints) {
+        (Language::En, HintSet::Joystick) => &EN_JOYSTICK,
+        (Language::En, HintSet::Keypad) => &EN_KEYPAD,
+        (Language::Pl, HintSet::Joystick) => &PL_JOYSTICK,
+        (Language::Pl, HintSet::Keypad) => &PL_KEYPAD,
+        (Language::De, HintSet::Joystick) => &DE_JOYSTICK,
+        (Language::De, HintSet::Keypad) => &DE_KEYPAD,
+    }
 }
 
+#[derive(Clone, Copy)]
 struct HintRow {
     pw: &'static str,
     ip: &'static str,
@@ -474,3 +464,19 @@ pub const DE: Strings = Strings {
     diag_na: "---",
     diag_timeout: "timeout",
 };
+
+const fn with_hints(mut s: Strings, h: HintRow) -> Strings {
+    s.hint_enter_password = h.pw;
+    s.hint_wit_entry = h.ip;
+    s.hint_net_edit = h.net;
+    s.hint_device_name_edit = h.name;
+    s.hint_device_id_edit = h.id;
+    s
+}
+
+const EN_JOYSTICK: Strings = with_hints(EN, joystick_hints::EN);
+const EN_KEYPAD: Strings = with_hints(EN, keypad_hints::EN);
+const PL_JOYSTICK: Strings = with_hints(PL, joystick_hints::PL);
+const PL_KEYPAD: Strings = with_hints(PL, keypad_hints::PL);
+const DE_JOYSTICK: Strings = with_hints(DE, joystick_hints::DE);
+const DE_KEYPAD: Strings = with_hints(DE, keypad_hints::DE);

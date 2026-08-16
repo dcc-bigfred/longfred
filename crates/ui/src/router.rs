@@ -181,54 +181,73 @@ impl Router {
         intents
     }
 
+    const MAX_NAV_HOPS: u8 = 4;
+
     fn apply(
         &mut self,
         cmd: NavCmd,
         cx: &mut ScreenCtx<'_>,
         intents: &mut heapless::Vec<Intent, 4>,
     ) {
+        let mut next = Some(cmd);
+        for _ in 0..Self::MAX_NAV_HOPS {
+            let Some(cmd) = next.take() else {
+                return;
+            };
+            next = self.step(cmd, cx, intents);
+        }
+        debug_assert!(next.is_none(), "navigation did not settle");
+    }
+
+    fn step(
+        &mut self,
+        cmd: NavCmd,
+        cx: &mut ScreenCtx<'_>,
+        intents: &mut heapless::Vec<Intent, 4>,
+    ) -> Option<NavCmd> {
         match cmd {
             NavCmd::Go(id) => {
                 let from = self.current.id();
-                if from != id {
-                    let _ = self.stack.push(from);
-                    self.enter(id, cx, intents);
+                if from == id {
+                    return None;
                 }
+                if self.stack.is_full() {
+                    let _ = self.stack.remove(0);
+                }
+                let _ = self.stack.push(from);
+                self.enter_screen(id, cx, intents)
             }
             NavCmd::Replace(id) => {
-                if self.current.id() != id {
-                    self.enter(id, cx, intents);
+                if self.current.id() == id {
+                    None
+                } else {
+                    self.enter_screen(id, cx, intents)
                 }
             }
             NavCmd::Back => {
-                if let Some(id) = self.stack.pop() {
-                    self.enter(id, cx, intents);
-                } else {
-                    self.enter(ScreenId::Throttle, cx, intents);
-                }
+                let id = self.stack.pop().unwrap_or(ScreenId::Throttle);
+                self.enter_screen(id, cx, intents)
             }
             NavCmd::Root(id) => {
                 self.stack.clear();
-                self.enter(id, cx, intents);
+                self.enter_screen(id, cx, intents)
             }
         }
     }
 
-    fn enter(
+    fn enter_screen(
         &mut self,
         id: ScreenId,
         cx: &mut ScreenCtx<'_>,
         intents: &mut heapless::Vec<Intent, 4>,
-    ) {
+    ) -> Option<NavCmd> {
         self.current = new_screen(id);
         let mut cmd = None;
         {
             let mut nav = Nav::new(&mut cmd, intents);
             self.current.on_enter(cx, &mut nav);
         }
-        if let Some(cmd) = cmd {
-            self.apply(cmd, cx, intents);
-        }
+        cmd
     }
 }
 

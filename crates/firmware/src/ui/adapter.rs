@@ -147,7 +147,7 @@ pub fn to_fw_view(view: HostView) -> UiView {
     }
 }
 
-pub fn strings_for(state: &DomainState) -> Strings {
+pub fn strings_for(state: &DomainState) -> &'static Strings {
     strings(state.persist.language, hint_set())
 }
 
@@ -174,7 +174,10 @@ pub fn publish(
     let cx = screen_ctx(
         state, session, env, s, net_status, conn, server, scanned, servers, battery, now_ms,
     );
-    ui_tx.send(to_fw_view(router.view(&cx)));
+    let view = to_fw_view(router.view(&cx));
+    if ui_tx.try_get().as_ref() != Some(&view) {
+        ui_tx.send(view);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
