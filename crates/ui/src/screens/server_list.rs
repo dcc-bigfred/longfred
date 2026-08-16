@@ -11,6 +11,7 @@ use crate::screen::Screen;
 use crate::view::{Line, UiView};
 use crate::widgets::PagedList;
 
+/// mDNS command-station list.
 pub struct ServerListScreen {
     list: PagedList,
 }

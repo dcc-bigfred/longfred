@@ -58,6 +58,7 @@ pub use wifi_scan::SsidScanScreen;
 pub use wifi_scanning::SsidScanningScreen;
 
 /// Active screen object (size = max variant, not the sum of all screens).
+#[expect(missing_docs, reason = "variants match ScreenId one-to-one")]
 pub enum ScreenState {
     Splash(SplashScreen),
     SsidList(SsidListScreen),

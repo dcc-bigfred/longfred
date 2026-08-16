@@ -6,6 +6,7 @@ use crate::nav::{Nav, ScreenId};
 use crate::screen::Screen;
 use crate::view::UiView;
 
+/// Busy screen while a Wi-Fi scan runs.
 pub struct SsidScanningScreen;
 
 impl Screen for SsidScanningScreen {

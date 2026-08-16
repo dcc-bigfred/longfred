@@ -1,4 +1,5 @@
 //! Multitap tables and charsets for the shared text-field engine.
+#![allow(missing_docs)]
 
 /// Idle time after which a pending T9 / alphabet character is committed
 /// and the cursor advances one slot to the right.

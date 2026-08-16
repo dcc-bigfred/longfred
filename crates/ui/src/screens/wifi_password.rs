@@ -8,6 +8,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 use crate::widgets::{KeyboardMode, TextKeyboard};
 
+/// Wi-Fi password entry.
 pub struct PasswordScreen {
     kbd: TextKeyboard<64>,
 }

@@ -6,23 +6,32 @@ use longfred_proto::persist::{DeviceIdentity, StaticIpConfig};
 /// Battery icon mode on the throttle HUD.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BatteryMode {
+    /// Hide the icon.
     None,
+    /// Icon only.
     Icon,
+    /// Icon plus percent.
     IconPercent,
 }
 
 /// Field currently being edited on the static-IP wizard.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum NetField {
+    /// DHCP (`0`) vs static (`1`).
     #[default]
     Dhcp,
+    /// Client IPv4 (12 digits).
     Ip,
+    /// Prefix length (`0..=32`).
     Prefix,
+    /// Gateway IPv4.
     Gateway,
+    /// DNS IPv4.
     Dns,
 }
 
 impl NetField {
+    /// Short OLED label for this field.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -34,6 +43,7 @@ impl NetField {
         }
     }
 
+    /// Maximum digit characters accepted by the editor.
     #[must_use]
     pub const fn max_digits(self) -> usize {
         match self {
@@ -43,6 +53,7 @@ impl NetField {
         }
     }
 
+    /// Next wizard field, or `None` after DNS (save).
     #[must_use]
     pub const fn next(self) -> Option<Self> {
         match self {
@@ -62,28 +73,45 @@ impl NetField {
 #[derive(Clone, Debug)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct UiSession {
+    /// SSID chosen in the Wi-Fi wizard.
     pub selected_ssid: heapless::String<32>,
+    /// `true` when [`Self::selected_ssid`] came from a live scan.
     pub selected_from_scan: bool,
+    /// Index in the compiled or scanned list.
     pub selected_ssid_idx: usize,
+    /// Persist the password after a successful join.
     pub pending_password_save: bool,
+    /// Password draft.
     pub password: heapless::String<64>,
 
+    /// Client IPv4 draft.
     pub net_cfg: StaticIpConfig,
+    /// Field currently shown on [`crate::nav::ScreenId::IpEdit`].
     pub ip_field: NetField,
+    /// Protocol chosen on the manual-entry path.
     pub manual_protocol: Protocol,
+    /// `true` when server entry was opened from the mDNS list (Back returns there).
     pub server_entry_from_list: bool,
+    /// Manual `aaa.bbb.ccc.ddd:port` digits.
     pub server_digits: heapless::String<17>,
 
+    /// Device name / id draft.
     pub device: DeviceIdentity,
+    /// DCC address digits for acquire.
     pub addr: heapless::String<8>,
 
+    /// Throttle battery icon mode.
     pub battery_mode: BatteryMode,
+    /// `#` opens the function list instead of a function toggle.
     pub hash_functions: bool,
+    /// Splash has already been dismissed this boot.
     pub splash_done: bool,
+    /// First-boot language wizard is still active.
     pub boot_language: bool,
 }
 
 impl UiSession {
+    /// Empty drafts; battery icon on; DHCP field first.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -106,6 +134,7 @@ impl UiSession {
         }
     }
 
+    /// Cycle none → icon → icon+percent → none.
     pub fn cycle_battery_mode(&mut self) {
         self.battery_mode = match self.battery_mode {
             BatteryMode::None => BatteryMode::Icon,

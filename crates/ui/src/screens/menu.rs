@@ -56,6 +56,7 @@ impl MenuItem {
     }
 }
 
+/// Main menu (Function / Locos / Speed / Power / Extras).
 pub struct MenuScreen {
     list: PagedList,
 }

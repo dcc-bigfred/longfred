@@ -10,6 +10,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::{UiView, fill_list_page};
 use crate::widgets::PagedList;
 
+/// Roster / locomotive picker.
 pub struct RosterListScreen {
     list: PagedList,
 }

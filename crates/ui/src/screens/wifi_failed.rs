@@ -6,6 +6,7 @@ use crate::nav::{Nav, ScreenId};
 use crate::screen::Screen;
 use crate::view::UiView;
 
+/// Wi-Fi association failed.
 pub struct WifiFailedScreen;
 
 impl Screen for WifiFailedScreen {

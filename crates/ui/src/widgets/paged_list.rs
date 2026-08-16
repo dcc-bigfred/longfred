@@ -1,4 +1,5 @@
 //! Reusable full-width paged choice list (SSID / menu / servers / language).
+#![allow(missing_docs)]
 
 use crate::view::{GridView, fill_list_page, items_fitting, page_start};
 

@@ -10,6 +10,7 @@ use crate::screen::Screen;
 use crate::view::UiView;
 use crate::widgets::PagedList;
 
+/// Live Wi-Fi scan results.
 pub struct SsidScanScreen {
     list: PagedList,
 }

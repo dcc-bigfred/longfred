@@ -8,6 +8,7 @@ use crate::screen::Screen;
 use crate::view::UiView;
 use crate::widgets::PagedList;
 
+/// WIT / Z21 picker for manual server entry.
 pub struct ServerProtoScreen {
     list: PagedList,
 }

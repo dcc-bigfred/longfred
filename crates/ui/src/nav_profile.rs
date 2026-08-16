@@ -6,21 +6,33 @@ use crate::screen::InputMode;
 /// Canonical UI navigation vocabulary (screen-agnostic).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavAction {
+    /// Highlight the previous list row.
     ListPrev,
+    /// Highlight the next list row.
     ListNext,
+    /// Confirm / select.
     Select,
+    /// Cancel / back.
     Cancel,
+    /// Open the main menu.
     MenuEnter,
+    /// Cycle the character under the text caret.
     CharCycle(i8),
+    /// Move the text caret.
     CursorMove(i8),
+    /// Toggle text-entry case.
     CaseToggle,
+    /// Keypad digit or `*` / `#`.
     Digit(char),
+    /// Previous page.
     PagePrev,
+    /// Next page.
     PageNext,
     /// Domain / throttle events not remapped by the profile.
     PassThrough(InputEvent),
 }
 
+/// Maps hardware events to [`NavAction`] for one board variant.
 pub trait NavProfile {
     /// Map an input event to a canonical navigation action.
     fn map(&self, ev: InputEvent, mode: InputMode) -> NavAction;
@@ -135,6 +147,7 @@ impl NavProfile for MarkwtechNav {
     }
 }
 
-/// Static instances for `Router::new`.
+/// `LongFred` 5-way joystick mapping.
 pub static LONGFRED: LongFredNav = LongFredNav;
+/// `MarkWTech` extra-button mapping.
 pub static MARKWTECH: MarkwtechNav = MarkwtechNav;

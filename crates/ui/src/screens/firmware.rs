@@ -7,6 +7,7 @@ use crate::nav::{Nav, ScreenId};
 use crate::screen::Screen;
 use crate::view::{Line, UiView};
 
+/// HTTP OTA toggle screen.
 pub struct FirmwareUpdateScreen;
 
 impl Screen for FirmwareUpdateScreen {

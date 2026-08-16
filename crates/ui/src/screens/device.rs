@@ -9,6 +9,7 @@ use crate::nav::{Nav, ScreenId, Step};
 use crate::screen::Screen;
 use crate::view::{Line, UiView};
 
+/// Device name / numeric id summary.
 pub struct DeviceScreen {
     cursor: DeviceRow,
 }

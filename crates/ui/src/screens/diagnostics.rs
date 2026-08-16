@@ -13,6 +13,7 @@ use crate::view::{Line, UiView, fill_list_page};
 
 const DIAG_PAGES: usize = 6;
 
+/// Six-page diagnostics (battery / version / board / RF / Wi-Fi / ping).
 pub struct DiagnosticsScreen {
     page: usize,
 }

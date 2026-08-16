@@ -6,6 +6,7 @@ use crate::nav::{Nav, ScreenId};
 use crate::screen::Screen;
 use crate::view::{Line, UiView};
 
+/// Client IPv4 config summary.
 pub struct IpConfigScreen;
 
 impl Screen for IpConfigScreen {

@@ -10,6 +10,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::{Line, UiView};
 use crate::widgets::{KeyboardMode, TextKeyboard};
 
+/// Device numeric-id editor.
 pub struct DeviceIdEditScreen {
     kbd: TextKeyboard<4>,
 }

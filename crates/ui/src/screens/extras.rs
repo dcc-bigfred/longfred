@@ -92,6 +92,7 @@ impl ExtrasItem {
     }
 }
 
+/// Extras menu.
 pub struct ExtrasScreen {
     list: PagedList,
 }

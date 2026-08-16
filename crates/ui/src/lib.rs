@@ -2,10 +2,6 @@
 //! Host-testable `LongFred` UI: router, screens, view model (no HAL).
 //!
 //! Strict heapless: no `alloc`, all storage is fixed-capacity.
-//!
-//! Public item docs are filled incrementally; CI clippy allows `missing_docs` for the
-//! same reason. Prefer documenting new public API when adding it.
-#![allow(missing_docs)]
 #![forbid(unsafe_code)]
 #![deny(clippy::disallowed_types, clippy::disallowed_macros)]
 

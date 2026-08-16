@@ -54,6 +54,7 @@ impl DirectItem {
     }
 }
 
+/// Direct command list (function / next throttle / estop / …).
 pub struct DirectCommandsScreen {
     list: PagedList,
 }

@@ -10,6 +10,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 use crate::widgets::{KeyboardMode, TextKeyboard, format_grouped_ip};
 
+/// Manual command-station IP:port entry.
 pub struct ServerEntryScreen {
     kbd: TextKeyboard<17>,
 }

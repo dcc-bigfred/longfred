@@ -10,6 +10,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 use crate::widgets::PagedList;
 
+/// Language picker (boot wizard or Extras).
 pub struct LanguageScreen {
     list: PagedList,
 }

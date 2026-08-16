@@ -1,4 +1,5 @@
 //! UI strings (EN / PL / DE). ASCII only (no diacritics on OLED font).
+#![allow(missing_docs)]
 
 use longfred_proto::persist::Language;
 

@@ -9,6 +9,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 use crate::widgets::{KeyboardMode, TextKeyboard};
 
+/// Device name editor.
 pub struct DeviceNameEditScreen {
     kbd: TextKeyboard<MAX_DEVICE_NAME_LEN>,
 }

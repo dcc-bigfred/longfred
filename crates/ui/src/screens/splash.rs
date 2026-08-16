@@ -5,6 +5,7 @@ use crate::nav::{Nav, ScreenId};
 use crate::screen::Screen;
 use crate::view::UiView;
 
+/// Boot splash.
 pub struct SplashScreen;
 
 impl SplashScreen {

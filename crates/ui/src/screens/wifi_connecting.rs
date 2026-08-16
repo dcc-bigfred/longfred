@@ -6,6 +6,7 @@ use crate::nav::{Nav, ScreenId};
 use crate::screen::Screen;
 use crate::view::UiView;
 
+/// Association in progress.
 pub struct ConnectingScreen;
 
 impl Screen for ConnectingScreen {

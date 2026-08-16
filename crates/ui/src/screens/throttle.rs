@@ -10,6 +10,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::{Line, ThrottleView, UiView, push_oled};
 use crate::widgets::{KeyboardMode, TextKeyboard};
 
+/// Drive HUD (loco acquired) and address-entry mode (no loco).
 pub struct ThrottleScreen {
     addr_kbd: TextKeyboard<5>,
 }

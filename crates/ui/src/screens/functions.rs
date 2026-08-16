@@ -10,6 +10,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::{UiView, fill_list_page_invert};
 use crate::widgets::PagedList;
 
+/// DCC function list (ON functions inverted).
 pub struct FunctionListScreen {
     list: PagedList,
 }

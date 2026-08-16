@@ -5,43 +5,71 @@
 /// The router reconstructs the corresponding screen type on every navigation.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ScreenId {
+    /// Boot splash / product name.
     Splash,
+    /// Compiled-SSID picker.
     SsidList,
+    /// Live Wi-Fi scan results.
     SsidScan,
+    /// Scan in progress (placeholder).
     SsidScanning,
+    /// Wi-Fi password editor.
     Password,
+    /// mDNS command-station list.
     ServerList,
+    /// WIT vs Z21 protocol pick.
     ServerProto,
+    /// Manual IP:port entry.
     ServerEntry,
+    /// STA / handshake wait.
     Connecting,
+    /// Drive HUD.
     Throttle,
+    /// Main menu.
     Menu,
+    /// Settings / extras.
     Extras,
+    /// Roster / loco picker.
     RosterList,
+    /// DCC function list.
     FunctionList,
+    /// Direct command list (`MarkWTech` extra keys).
     DirectCommands,
+    /// DHCP vs static summary.
     IpConfig,
+    /// Field-by-field IPv4 editor.
     IpEdit,
+    /// Device name / id summary.
     Device,
+    /// Device name editor.
     DeviceNameEdit,
+    /// Device numeric-id editor.
     DeviceIdEdit,
+    /// Language picker.
     Language,
+    /// HTTP OTA / firmware page.
     FirmwareUpdate,
+    /// STA join failed.
     WifiFailed,
+    /// Six-page diagnostics.
     Diagnostics,
 }
 
 /// List cursor step.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Step {
+    /// Previous row.
     Prev,
+    /// Next row.
     Next,
 }
 
 /// Page / left-right step.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PageDir {
+    /// Previous page (or leave on page 0).
     Prev,
+    /// Next page.
     Next,
 }
 

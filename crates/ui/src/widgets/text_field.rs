@@ -1,4 +1,5 @@
 //! Shared text-field engine: in-buffer caret `_`, T9, alphabet cycle, 2 s idle commit.
+#![allow(missing_docs)]
 
 use heapless::String;
 

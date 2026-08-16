@@ -24,6 +24,7 @@ pub struct Router {
 }
 
 impl Router {
+    /// Start on `start` with a board nav profile.
     pub fn new(profile: &'static dyn NavProfile, start: ScreenId) -> Self {
         Self {
             current: new_screen(start),
@@ -32,11 +33,13 @@ impl Router {
         }
     }
 
+    /// Active [`ScreenId`].
     #[must_use]
     pub fn screen_id(&self) -> ScreenId {
         self.current.id()
     }
 
+    /// Render the active screen.
     #[must_use]
     pub fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         self.current.view(cx)
@@ -76,10 +79,12 @@ impl Router {
         self.dispatch(self.profile.map(ev, mode), cx)
     }
 
+    /// Idle tick (multitap commit, splash timeout).
     pub fn tick(&mut self, cx: &mut ScreenCtx<'_>) -> heapless::Vec<Intent, 4> {
         self.with_nav(cx, super::screen::Screen::on_tick)
     }
 
+    /// Firmware lifecycle event (Wi-Fi ready, scan done, …).
     pub fn on_app_event(
         &mut self,
         e: AppEvent,

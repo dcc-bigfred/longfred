@@ -7,6 +7,7 @@ use crate::screen::Screen;
 use crate::view::UiView;
 use crate::widgets::PagedList;
 
+/// Compiled-SSID picker.
 pub struct SsidListScreen {
     list: PagedList,
 }

@@ -1,22 +1,30 @@
 //! OLED rendering model — pure data structures (no logic).
 
+/// Maximum lines in a [`GridView`] (128×64 uses 8 visible; extras are unused).
 pub const GRID_LINES: usize = 12;
+/// Characters per OLED line (`FONT_6X10` × 6 px on a 128 px panel).
 pub const LINE_LEN: usize = 21;
 
+/// One OLED text line (ASCII, folded by [`push_oled`]).
 pub type Line = heapless::String<LINE_LEN>;
 
+/// Full-screen grid of text lines (menus, wizards, diagnostics).
 #[derive(Clone, PartialEq, Eq)]
 pub struct GridView {
+    /// Line contents; missing indices are blank.
     pub lines: heapless::Vec<Line, GRID_LINES>,
     /// Bit `i` set ⇒ line `i` is drawn inverted.
     pub invert: u16,
+    /// Draw a rule under the title row.
     pub top_line: bool,
+    /// Draw a rule above the footer row.
     pub foot_line: bool,
     /// Caps Lock indicator: `Some(true)` = uppercase (arrow up).
     pub caps: Option<bool>,
 }
 
 impl GridView {
+    /// Empty grid, footer rule on.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -28,6 +36,7 @@ impl GridView {
         }
     }
 
+    /// True when row `idx` is drawn inverted.
     #[must_use]
     pub fn inverted(&self, idx: usize) -> bool {
         idx < GRID_LINES && (self.invert & (1u16 << idx)) != 0
@@ -45,6 +54,7 @@ impl GridView {
         }
     }
 
+    /// Write `text` on row `idx` and set invert.
     pub fn set(&mut self, idx: usize, text: &str, inv: bool) {
         if idx >= GRID_LINES {
             return;
@@ -202,12 +212,14 @@ pub fn page_start(items: &[&str], page: usize, numbered: bool, height: u16) -> u
     idx
 }
 
+/// How many items fit on `page` given wrap and numbering.
 #[must_use]
 pub fn page_item_count(items: &[&str], page: usize, numbered: bool, height: u16) -> usize {
     let start = page_start(items, page, numbered, height);
     items_fitting(items, start, numbered, height)
 }
 
+/// True when another page exists after `page`.
 #[must_use]
 pub fn has_next_page(items: &[&str], page: usize, numbered: bool, height: u16) -> bool {
     let start = page_start(items, page, numbered, height);
@@ -293,20 +305,33 @@ impl Default for GridView {
     }
 }
 
+/// Drive HUD: speed, direction, loco name, battery.
 #[derive(Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct ThrottleView {
+    /// Active throttle slot index.
     pub current: u8,
+    /// Speed step `0..=126`.
     pub speed: u8,
+    /// `true` = forward.
     pub forward: bool,
+    /// Consist size (1 = single loco).
     pub consist_len: u8,
+    /// Track power on.
     pub power_on: bool,
+    /// Heartbeat enabled.
     pub heartbeat_on: bool,
+    /// Bitmask of DCC functions 0–31.
     pub functions: u32,
+    /// Loco name / address line.
     pub loco: Line,
+    /// Footer hints.
     pub footer: Line,
+    /// Next-key hint (`MarkWTech`).
     pub next_hint: Line,
+    /// Battery percent when known.
     pub battery: Option<u8>,
+    /// Show numeric percent next to the icon.
     pub battery_show_percent: bool,
 }
 
@@ -329,11 +354,15 @@ impl Default for ThrottleView {
     }
 }
 
+/// What the firmware should paint this frame.
 #[derive(Clone, PartialEq, Eq)]
 #[allow(clippy::large_enum_variant)]
 pub enum UiView {
+    /// Drive HUD.
     Throttle(ThrottleView),
+    /// Menu / wizard / diagnostics grid.
     Grid(GridView),
+    /// Boot splash bitmap / product name.
     Splash,
     /// Soft-AP wizard page 2 on 128×64: QR + HTTP URL.
     PairingQr,

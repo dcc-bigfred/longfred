@@ -9,6 +9,7 @@ use crate::session::NetField;
 use crate::view::{Line, UiView, push_oled};
 use crate::widgets::{KeyboardMode, TextKeyboard, format_grouped_ip};
 
+/// Field-by-field IPv4 editor (DHCP / IP / mask / GW / DNS).
 pub struct IpEditScreen {
     kbd: TextKeyboard<12>,
 }
