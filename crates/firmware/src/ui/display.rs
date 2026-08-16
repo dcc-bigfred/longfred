@@ -44,7 +44,7 @@ fn line_text(grid: &GridView, idx: usize) -> &str {
 }
 
 fn line_invert(grid: &GridView, idx: usize) -> bool {
-    grid.invert.get(idx).copied().unwrap_or(false)
+    grid.inverted(idx)
 }
 
 fn col_max_chars(x: i32) -> usize {

@@ -49,11 +49,8 @@ impl Router {
 
     /// Drive one input event through the nav profile into the active screen.
     pub fn handle(&mut self, ev: InputEvent, cx: &mut ScreenCtx<'_>) -> heapless::Vec<Intent, 4> {
-        let bindings = self.current.key_bindings(cx);
-        let Some(action) = self.profile.map(ev, bindings.text_entry, bindings.throttle) else {
-            return heapless::Vec::new();
-        };
-        self.dispatch(action, cx)
+        let mode = self.current.key_bindings(cx);
+        self.dispatch(self.profile.map(ev, mode), cx)
     }
 
     pub fn tick(&mut self, cx: &mut ScreenCtx<'_>) -> heapless::Vec<Intent, 4> {

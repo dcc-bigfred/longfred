@@ -7,25 +7,20 @@ use crate::view::UiView;
 
 /// How hardware events should be interpreted on this screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct KeyBindings {
-    pub text_entry: bool,
-    pub throttle: bool,
+pub enum InputMode {
+    Navigation,
+    Text,
+    Throttle,
 }
 
-impl KeyBindings {
-    pub const NAVIGATION: Self = Self {
-        text_entry: false,
-        throttle: false,
-    };
-    pub const TEXT: Self = Self {
-        text_entry: true,
-        throttle: false,
-    };
-    pub const THROTTLE: Self = Self {
-        text_entry: false,
-        throttle: true,
-    };
+impl InputMode {
+    pub const NAVIGATION: Self = Self::Navigation;
+    pub const TEXT: Self = Self::Text;
+    pub const THROTTLE: Self = Self::Throttle;
 }
+
+/// Alias kept so existing screens can keep returning `KeyBindings::NAVIGATION`.
+pub type KeyBindings = InputMode;
 
 /// One UI screen: mapping, rendering, and input.
 pub trait Screen {

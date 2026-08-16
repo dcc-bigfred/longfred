@@ -10,6 +10,7 @@ use longfred_ui::input::{InputEvent, NavDir};
 use longfred_ui::intent::Intent;
 use longfred_ui::nav::ScreenId;
 use longfred_ui::nav_profile::{LONGFRED, MARKWTECH, NavAction, NavProfile};
+use longfred_ui::screen::InputMode;
 use longfred_ui::view::UiView;
 use longfred_ui::widgets::{KeyboardMode, TextKeyboard};
 use longfred_ui::{DriveInfo, LAYOUT_128X64, NetInfo, Router, ScreenCtx, UiEnv, UiSession};
@@ -173,16 +174,16 @@ fn keyboard_idle_commit_uses_injected_now_ms() {
 fn markwtech_star_is_cancel_off_throttle() {
     let p = MARKWTECH;
     assert_eq!(
-        p.map(InputEvent::Digit('*'), false, false),
-        Some(NavAction::Cancel)
+        p.map(InputEvent::Digit('*'), InputMode::Navigation),
+        NavAction::Cancel
     );
     assert_eq!(
-        p.map(InputEvent::Digit('*'), true, false),
-        Some(NavAction::CaseToggle)
+        p.map(InputEvent::Digit('*'), InputMode::Text),
+        NavAction::CaseToggle
     );
     assert_eq!(
-        p.map(InputEvent::Digit('*'), false, true),
-        Some(NavAction::PassThrough(InputEvent::DirectionToggle))
+        p.map(InputEvent::Digit('*'), InputMode::Throttle),
+        NavAction::PassThrough(InputEvent::DirectionToggle)
     );
 }
 

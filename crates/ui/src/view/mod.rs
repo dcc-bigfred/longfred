@@ -8,7 +8,8 @@ pub type Line = heapless::String<LINE_LEN>;
 #[derive(Clone, PartialEq, Eq)]
 pub struct GridView {
     pub lines: heapless::Vec<Line, GRID_LINES>,
-    pub invert: heapless::Vec<bool, GRID_LINES>,
+    /// Bit `i` set ⇒ line `i` is drawn inverted.
+    pub invert: u16,
     pub top_line: bool,
     pub foot_line: bool,
     /// Caps Lock indicator: `Some(true)` = uppercase (arrow up).
@@ -19,10 +20,26 @@ impl GridView {
     pub fn new() -> Self {
         Self {
             lines: heapless::Vec::new(),
-            invert: heapless::Vec::new(),
+            invert: 0,
             top_line: false,
             foot_line: true,
             caps: None,
+        }
+    }
+
+    pub fn inverted(&self, idx: usize) -> bool {
+        idx < GRID_LINES && (self.invert & (1u16 << idx)) != 0
+    }
+
+    fn set_inverted(&mut self, idx: usize, inv: bool) {
+        if idx >= GRID_LINES {
+            return;
+        }
+        let bit = 1u16 << idx;
+        if inv {
+            self.invert |= bit;
+        } else {
+            self.invert &= !bit;
         }
     }
 
@@ -32,13 +49,10 @@ impl GridView {
         }
         while self.lines.len() <= idx {
             let _ = self.lines.push(Line::new());
-            let _ = self.invert.push(false);
         }
         self.lines[idx].clear();
         push_oled(&mut self.lines[idx], text);
-        if idx < self.invert.len() {
-            self.invert[idx] = inv;
-        }
+        self.set_inverted(idx, inv);
     }
 }
 
@@ -312,5 +326,22 @@ pub enum UiView {
 impl Default for UiView {
     fn default() -> Self {
         UiView::Grid(GridView::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invert_bitmask_tracks_set_rows() {
+        let mut g = GridView::new();
+        g.set(0, "a", false);
+        g.set(2, "c", true);
+        assert!(!g.inverted(0));
+        assert!(!g.inverted(1));
+        assert!(g.inverted(2));
+        g.set(2, "c", false);
+        assert!(!g.inverted(2));
     }
 }

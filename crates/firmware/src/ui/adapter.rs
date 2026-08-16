@@ -1,4 +1,4 @@
-//! Bridge: firmware watches / config → `longfred-ui` context, and the reverse view.
+//! Bridge: firmware watches / config → `longfred-ui` context.
 
 use longfred_proto::mdns::WitServer;
 use longfred_proto::model::{MAX_FOUND_SERVERS, MAX_FOUND_SSIDS};
@@ -8,7 +8,6 @@ use longfred_ui::nav::ScreenId;
 use longfred_ui::nav_profile::NavProfile;
 use longfred_ui::{
     BatteryInfo, BatteryMode, DriveInfo, NetInfo, Router, ScreenCtx, UiEnv, UiSession,
-    UiView as HostView,
 };
 
 #[cfg(not(feature = "variant-markwtech"))]
@@ -22,7 +21,7 @@ use crate::input::{self, InputEvent as FwInput};
 use crate::net::{self, ConnState, NetStatus, ServerEndpoint};
 use crate::power::battery::BatterySample;
 use crate::ui::i18n;
-use crate::ui::view::{GridView, ThrottleView, UiView};
+use crate::ui::view::UiView;
 
 pub fn nav_profile() -> &'static dyn NavProfile {
     #[cfg(feature = "variant-markwtech")]
@@ -116,34 +115,6 @@ pub fn map_input(ev: FwInput) -> longfred_ui::InputEvent {
         FwInput::CursorMove(d) => longfred_ui::InputEvent::CursorMove(d),
         FwInput::CaseToggle => longfred_ui::InputEvent::CaseToggle,
         FwInput::EnterProgrammingMode => longfred_ui::InputEvent::EnterProgrammingMode,
-    }
-}
-
-pub fn to_fw_view(view: HostView) -> UiView {
-    match view {
-        HostView::Splash => UiView::Splash,
-        HostView::PairingQr => UiView::PairingQr,
-        HostView::Grid(g) => UiView::Grid(GridView {
-            lines: g.lines,
-            invert: g.invert,
-            top_line: g.top_line,
-            foot_line: g.foot_line,
-            caps: g.caps,
-        }),
-        HostView::Throttle(t) => UiView::Throttle(ThrottleView {
-            current: t.current,
-            speed: t.speed,
-            forward: t.forward,
-            consist_len: t.consist_len,
-            power_on: t.power_on,
-            heartbeat_on: t.heartbeat_on,
-            functions: t.functions,
-            loco: t.loco,
-            footer: t.footer,
-            next_hint: t.next_hint,
-            battery: t.battery,
-            battery_show_percent: t.battery_show_percent,
-        }),
     }
 }
 
@@ -255,7 +226,7 @@ pub fn publish(
     let cx = screen_ctx(
         state, session, env, s, net_status, conn, server, scanned, servers, battery, now_ms,
     );
-    let view = to_fw_view(router.view(&cx));
+    let view = router.view(&cx);
     if ui_tx.try_get().as_ref() != Some(&view) {
         ui_tx.send(view);
     }

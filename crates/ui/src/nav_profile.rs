@@ -1,6 +1,7 @@
 //! Per-variant navigation profile: InputEvent → canonical NavAction.
 
 use crate::input::{InputEvent, NavDir};
+use crate::screen::InputMode;
 
 /// Canonical UI navigation vocabulary (screen-agnostic).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,10 +23,7 @@ pub enum NavAction {
 
 pub trait NavProfile {
     /// Map an input event to a canonical navigation action.
-    ///
-    /// `text_entry` is true on password / address / IP edit screens.
-    /// `on_throttle` is true on the drive screen (no menu open).
-    fn map(&self, ev: InputEvent, text_entry: bool, on_throttle: bool) -> Option<NavAction>;
+    fn map(&self, ev: InputEvent, mode: InputMode) -> NavAction;
 }
 
 /// LongFred standard / mini: 5-way joystick + Stop + Menu center.
@@ -33,43 +31,54 @@ pub trait NavProfile {
 pub struct LongFredNav;
 
 impl NavProfile for LongFredNav {
-    fn map(&self, ev: InputEvent, text_entry: bool, _on_throttle: bool) -> Option<NavAction> {
+    fn map(&self, ev: InputEvent, mode: InputMode) -> NavAction {
+        let text = mode == InputMode::Text;
         match ev {
-            InputEvent::Nav(NavDir::Up) => Some(if text_entry {
-                NavAction::CharCycle(-1)
-            } else {
-                NavAction::ListPrev
-            }),
-            InputEvent::Nav(NavDir::Down) => Some(if text_entry {
-                NavAction::CharCycle(1)
-            } else {
-                NavAction::ListNext
-            }),
-            InputEvent::Nav(NavDir::Left) => Some(if text_entry {
-                NavAction::CursorMove(-1)
-            } else {
-                NavAction::PagePrev
-            }),
-            InputEvent::Nav(NavDir::Right) => Some(if text_entry {
-                NavAction::CursorMove(1)
-            } else {
-                NavAction::PageNext
-            }),
-            InputEvent::Ok => Some(NavAction::Select),
-            InputEvent::Back => Some(NavAction::Cancel),
-            InputEvent::Menu => Some(if text_entry {
-                NavAction::Select
-            } else {
-                NavAction::MenuEnter
-            }),
-            InputEvent::EncoderClockwise if text_entry => Some(NavAction::CharCycle(1)),
-            InputEvent::EncoderCounterClockwise if text_entry => Some(NavAction::CharCycle(-1)),
-            InputEvent::EncoderButton if text_entry => Some(NavAction::Select),
-            InputEvent::CaseToggle => Some(NavAction::CaseToggle),
-            InputEvent::Digit(c) => Some(NavAction::Digit(c)),
-            InputEvent::CharCycle(d) => Some(NavAction::CharCycle(d)),
-            InputEvent::CursorMove(d) => Some(NavAction::CursorMove(d)),
-            other => Some(NavAction::PassThrough(other)),
+            InputEvent::Nav(NavDir::Up) => {
+                if text {
+                    NavAction::CharCycle(-1)
+                } else {
+                    NavAction::ListPrev
+                }
+            }
+            InputEvent::Nav(NavDir::Down) => {
+                if text {
+                    NavAction::CharCycle(1)
+                } else {
+                    NavAction::ListNext
+                }
+            }
+            InputEvent::Nav(NavDir::Left) => {
+                if text {
+                    NavAction::CursorMove(-1)
+                } else {
+                    NavAction::PagePrev
+                }
+            }
+            InputEvent::Nav(NavDir::Right) => {
+                if text {
+                    NavAction::CursorMove(1)
+                } else {
+                    NavAction::PageNext
+                }
+            }
+            InputEvent::Ok => NavAction::Select,
+            InputEvent::Back => NavAction::Cancel,
+            InputEvent::Menu => {
+                if text {
+                    NavAction::Select
+                } else {
+                    NavAction::MenuEnter
+                }
+            }
+            InputEvent::EncoderClockwise if text => NavAction::CharCycle(1),
+            InputEvent::EncoderCounterClockwise if text => NavAction::CharCycle(-1),
+            InputEvent::EncoderButton if text => NavAction::Select,
+            InputEvent::CaseToggle => NavAction::CaseToggle,
+            InputEvent::Digit(c) => NavAction::Digit(c),
+            InputEvent::CharCycle(d) => NavAction::CharCycle(d),
+            InputEvent::CursorMove(d) => NavAction::CursorMove(d),
+            other => NavAction::PassThrough(other),
         }
     }
 }
@@ -79,50 +88,50 @@ impl NavProfile for LongFredNav {
 pub struct MarkwtechNav;
 
 impl NavProfile for MarkwtechNav {
-    fn map(&self, ev: InputEvent, text_entry: bool, on_throttle: bool) -> Option<NavAction> {
+    fn map(&self, ev: InputEvent, mode: InputMode) -> NavAction {
         match ev {
-            InputEvent::EncoderCounterClockwise => Some(if text_entry {
-                NavAction::CharCycle(-1)
-            } else if on_throttle {
-                NavAction::PassThrough(InputEvent::EncoderCounterClockwise)
-            } else {
-                NavAction::ListPrev
-            }),
-            InputEvent::EncoderClockwise => Some(if text_entry {
-                NavAction::CharCycle(1)
-            } else if on_throttle {
-                NavAction::PassThrough(InputEvent::EncoderClockwise)
-            } else {
-                NavAction::ListNext
-            }),
-            InputEvent::Nav(NavDir::Left) => Some(if text_entry {
-                NavAction::CursorMove(-1)
-            } else {
-                NavAction::PagePrev
-            }),
-            InputEvent::Nav(NavDir::Right) => Some(if text_entry {
-                NavAction::CursorMove(1)
-            } else {
-                NavAction::PageNext
-            }),
-            InputEvent::Digit('#') => Some(NavAction::Select),
-            InputEvent::Digit('*') => Some(if text_entry {
-                NavAction::CaseToggle
-            } else if on_throttle {
-                NavAction::PassThrough(InputEvent::DirectionToggle)
-            } else {
-                NavAction::Cancel
-            }),
-            InputEvent::Digit(c) => Some(NavAction::Digit(c)),
-            InputEvent::Menu => Some(if text_entry {
-                NavAction::Select
-            } else {
-                NavAction::MenuEnter
-            }),
-            InputEvent::EncoderButton if text_entry => Some(NavAction::Select),
-            InputEvent::Back => Some(NavAction::Cancel),
-            InputEvent::Ok => Some(NavAction::Select),
-            other => Some(NavAction::PassThrough(other)),
+            InputEvent::EncoderCounterClockwise => match mode {
+                InputMode::Text => NavAction::CharCycle(-1),
+                InputMode::Throttle => NavAction::PassThrough(InputEvent::EncoderCounterClockwise),
+                InputMode::Navigation => NavAction::ListPrev,
+            },
+            InputEvent::EncoderClockwise => match mode {
+                InputMode::Text => NavAction::CharCycle(1),
+                InputMode::Throttle => NavAction::PassThrough(InputEvent::EncoderClockwise),
+                InputMode::Navigation => NavAction::ListNext,
+            },
+            InputEvent::Nav(NavDir::Left) => {
+                if mode == InputMode::Text {
+                    NavAction::CursorMove(-1)
+                } else {
+                    NavAction::PagePrev
+                }
+            }
+            InputEvent::Nav(NavDir::Right) => {
+                if mode == InputMode::Text {
+                    NavAction::CursorMove(1)
+                } else {
+                    NavAction::PageNext
+                }
+            }
+            InputEvent::Digit('#') => NavAction::Select,
+            InputEvent::Digit('*') => match mode {
+                InputMode::Text => NavAction::CaseToggle,
+                InputMode::Throttle => NavAction::PassThrough(InputEvent::DirectionToggle),
+                InputMode::Navigation => NavAction::Cancel,
+            },
+            InputEvent::Digit(c) => NavAction::Digit(c),
+            InputEvent::Menu => {
+                if mode == InputMode::Text {
+                    NavAction::Select
+                } else {
+                    NavAction::MenuEnter
+                }
+            }
+            InputEvent::EncoderButton if mode == InputMode::Text => NavAction::Select,
+            InputEvent::Back => NavAction::Cancel,
+            InputEvent::Ok => NavAction::Select,
+            other => NavAction::PassThrough(other),
         }
     }
 }

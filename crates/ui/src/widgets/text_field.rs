@@ -125,18 +125,27 @@ impl<const N: usize> TextKeyboard<N> {
     }
 
     fn insert_at_cursor(&mut self, c: char) -> bool {
-        if !self.can_insert() {
+        if !c.is_ascii() || c.is_ascii_control() || !self.can_insert() {
             return false;
         }
-        let (head, tail) = split_at_cursor(self.buffer.as_str(), self.cursor);
-        let mut tmp = String::<N>::new();
-        let _ = tmp.push_str(head);
-        if tmp.push(c).is_err() {
+        let i = self.cursor.min(self.buffer.len());
+        let mut tail: heapless::Vec<u8, N> = heapless::Vec::new();
+        while self.buffer.len() > i {
+            let Some(ch) = self.buffer.pop() else {
+                break;
+            };
+            let _ = tail.push(ch as u8);
+        }
+        if self.buffer.push(c).is_err() {
+            while let Some(b) = tail.pop() {
+                let _ = self.buffer.push(b as char);
+            }
             return false;
         }
-        let _ = tmp.push_str(tail);
-        self.cursor = tmp.len() - tail.len();
-        self.buffer = tmp;
+        while let Some(b) = tail.pop() {
+            let _ = self.buffer.push(b as char);
+        }
+        self.cursor = i + 1;
         true
     }
 

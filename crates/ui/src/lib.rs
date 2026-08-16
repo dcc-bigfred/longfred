@@ -4,6 +4,7 @@
 //! Public item docs are filled incrementally; CI clippy allows `missing_docs` for the
 //! same reason. Prefer documenting new public API when adding it.
 #![allow(missing_docs)]
+#![forbid(unsafe_code)]
 
 pub mod context;
 pub mod geometry;
@@ -27,6 +28,6 @@ pub use intent::{AppEvent, Intent};
 pub use nav::{Nav, PageDir, ScreenId, Step};
 pub use nav_profile::{LongFredNav, MarkwtechNav, NavAction, NavProfile};
 pub use router::Router;
-pub use screen::{KeyBindings, Screen};
+pub use screen::{InputMode, KeyBindings, Screen};
 pub use session::{BatteryMode, NetField, UiSession};
 pub use view::{GridView, ThrottleView, UiView};

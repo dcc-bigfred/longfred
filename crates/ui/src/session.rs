@@ -60,17 +60,20 @@ pub struct UiSession {
     pub selected_ssid_idx: usize,
     pub pending_password_save: bool,
     pub password: heapless::String<64>,
+
     pub net_cfg: StaticIpConfig,
+    pub ip_field: NetField,
     pub manual_protocol: Protocol,
+    pub server_entry_from_list: bool,
+    pub server_digits: heapless::String<17>,
+
     pub device: DeviceIdentity,
+    pub addr: heapless::String<8>,
+
     pub battery_mode: BatteryMode,
     pub hash_functions: bool,
     pub splash_done: bool,
     pub boot_language: bool,
-    pub server_entry_from_list: bool,
-    pub ip_field: NetField,
-    pub addr: heapless::String<8>,
-    pub server_digits: heapless::String<17>,
 }
 
 impl UiSession {
