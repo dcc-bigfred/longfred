@@ -18,6 +18,9 @@ pub enum Action {
     /// Stop if moving, otherwise toggle direction.
     SpeedStopThenToggleDirection,
 
+    /// Set throttle speed 0..=126 from an analog pot.
+    SpeedSet(u8),
+
     EStop,
     EStopCurrentLoco,
 

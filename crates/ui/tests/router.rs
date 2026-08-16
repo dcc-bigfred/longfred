@@ -209,6 +209,65 @@ fn extras_ok_opens_ip_config() {
 }
 
 #[test]
+fn extras_last_row_opens_diagnostics() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    for _ in 0..10 {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
+    }
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Ok, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Diagnostics);
+}
+
+#[test]
+fn menu_digit_opens_function_list() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Menu);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('1'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::FunctionList);
+}
+
+#[test]
+fn loco_slot_emits_throttle_action() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Throttle);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::LocoSlot(2, true), &mut cx)
+    };
+    assert!(
+        intents
+            .iter()
+            .any(|i| *i == Intent::Action(Action::Throttle(2)))
+    );
+}
+
+#[test]
+fn speed_absolute_emits_speed_set_when_loco_acquired() {
+    let mut fx = Fixture::new();
+    let mut addr = heapless::String::new();
+    let _ = addr.push('3');
+    let _ = fx.slots[0].consist.push(addr);
+    let mut router = Router::new(&LONGFRED, ScreenId::Throttle);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::SpeedAbsolute(40), &mut cx)
+    };
+    assert!(
+        intents
+            .iter()
+            .any(|i| *i == Intent::Action(Action::SpeedSet(40)))
+    );
+}
+
+#[test]
 fn wifi_scan_page_opens_scanning_then_scan_list() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::SsidList);

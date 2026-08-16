@@ -1,10 +1,11 @@
 //! Field-by-field IPv4 editor (DHCP / IP / mask / GW / DNS).
 
-use super::helpers::{commit_net_field, load_net_field_digits, net_field_max_len};
+use super::helpers::{commit_net_field, load_net_field_digits};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, ScreenId};
 use crate::screen::{KeyBindings, Screen};
+use crate::session::NetField;
 use crate::view::{Line, UiView, push_oled};
 use crate::widgets::{KeyboardMode, TextKeyboard, format_grouped_ip};
 
@@ -23,7 +24,7 @@ impl IpEditScreen {
     /// Load the current field's digits and max length.
     fn reload(&mut self, cx: &mut ScreenCtx<'_>) {
         let field = cx.session.ip_field;
-        self.kbd.set_max_len(net_field_max_len(field));
+        self.kbd.set_max_len(field.max_digits());
         self.kbd
             .load(load_net_field_digits(&cx.session.net_cfg, field).as_str());
     }
@@ -31,29 +32,24 @@ impl IpEditScreen {
     /// `"Mode 0 DHCP"` / `"IP aaa.bbb.ccc.ddd"` / mask / GW / DNS line for the current field.
     fn format_line(&self, cx: &ScreenCtx<'_>) -> Line {
         let mut s = Line::new();
-        let label = match cx.session.ip_field {
-            0 => "Mode",
-            1 => "IP",
-            2 => "Mask",
-            3 => "GW",
-            4 => "DNS",
-            _ => "?",
-        };
-        let _ = s.push_str(label);
+        let _ = s.push_str(cx.session.ip_field.label());
         let _ = s.push(' ');
-        if cx.session.ip_field == 0 {
-            push_oled(&mut s, self.kbd.preview().as_str());
-            let d = self
-                .kbd
-                .pending()
-                .or_else(|| self.kbd.buffer.chars().next())
-                .unwrap_or(if cx.session.net_cfg.dhcp { '0' } else { '1' });
-            let _ = s.push_str(if d == '0' { " DHCP" } else { " Static" });
-            return s;
-        }
-        if cx.session.ip_field == 2 {
-            push_oled(&mut s, self.kbd.preview().as_str());
-            return s;
+        match cx.session.ip_field {
+            NetField::Dhcp => {
+                push_oled(&mut s, self.kbd.preview().as_str());
+                let d = self
+                    .kbd
+                    .pending()
+                    .or_else(|| self.kbd.buffer.chars().next())
+                    .unwrap_or(if cx.session.net_cfg.dhcp { '0' } else { '1' });
+                let _ = s.push_str(if d == '0' { " DHCP" } else { " Static" });
+                return s;
+            }
+            NetField::Prefix => {
+                push_oled(&mut s, self.kbd.preview().as_str());
+                return s;
+            }
+            NetField::Ip | NetField::Gateway | NetField::Dns => {}
         }
         let ip = format_grouped_ip(
             self.kbd.buffer.as_str(),
@@ -138,18 +134,21 @@ impl Screen for IpEditScreen {
             self.kbd.buffer.as_str(),
             cx.env.default_prefix_len,
         );
-        if field == 0 && cx.session.net_cfg.dhcp {
+        if field == NetField::Dhcp && cx.session.net_cfg.dhcp {
             nav.emit(Intent::SaveNetwork(cx.session.net_cfg));
             nav.root(ScreenId::Throttle);
             return;
         }
-        if field >= 4 {
-            nav.emit(Intent::SaveNetwork(cx.session.net_cfg));
-            nav.root(ScreenId::Throttle);
-            return;
+        match field.next() {
+            Some(next) => {
+                cx.session.ip_field = next;
+                self.reload(cx);
+            }
+            None => {
+                nav.emit(Intent::SaveNetwork(cx.session.net_cfg));
+                nav.root(ScreenId::Throttle);
+            }
         }
-        cx.session.ip_field = field.saturating_add(1);
-        self.reload(cx);
     }
 
     /// Discard remaining fields (draft is not saved) and pop to Extras.

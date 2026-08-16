@@ -207,14 +207,6 @@ impl<const N: usize> TextKeyboard<N> {
         KeyboardAction::Changed
     }
 
-    pub fn nav_up(&mut self, now_ms: u64) -> KeyboardAction {
-        self.char_cycle(-1, now_ms)
-    }
-
-    pub fn nav_down(&mut self, now_ms: u64) -> KeyboardAction {
-        self.char_cycle(1, now_ms)
-    }
-
     pub fn nav_right(&mut self) -> KeyboardAction {
         if self.pending.is_some() {
             let _ = self.commit_pending();
@@ -242,10 +234,6 @@ impl<const N: usize> TextKeyboard<N> {
             return KeyboardAction::Changed;
         }
         KeyboardAction::None
-    }
-
-    pub fn back(&mut self) -> KeyboardAction {
-        self.nav_left()
     }
 
     /// Phone keypad digit 0–9 (T9 in Text, immediate insert in Digits).

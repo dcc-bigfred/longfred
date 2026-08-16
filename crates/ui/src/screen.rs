@@ -27,23 +27,12 @@ impl KeyBindings {
     };
 }
 
-/// Choice-list description owned by the screen (labels live in the caller).
-pub struct MenuModel<'a> {
-    pub title: Option<&'a str>,
-    pub items: &'a [&'a str],
-    pub numbered: bool,
-}
-
 /// One UI screen: mapping, rendering, and input.
 pub trait Screen {
     fn id(&self) -> ScreenId;
 
     fn key_bindings(&self, _cx: &ScreenCtx<'_>) -> KeyBindings {
         KeyBindings::NAVIGATION
-    }
-
-    fn menu<'a>(&'a self, _cx: &'a ScreenCtx<'_>) -> Option<MenuModel<'a>> {
-        None
     }
 
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView;

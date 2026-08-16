@@ -89,7 +89,6 @@ fn interpret(
     servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
 ) {
     match intent {
-        Intent::None => {}
         Intent::Action(Action::ShowHideBattery) => session.cycle_battery_mode(),
         Intent::Action(Action::Sleep) => {
             net::set_http_ota_enabled(false);
@@ -130,7 +129,6 @@ fn interpret(
         Intent::WifiScan => {
             let _ = wifi_tx.try_send(WifiCmd::Scan);
         }
-        Intent::WifiSelect(_, _) => {}
         Intent::WifiConnect => {
             if !session.selected_ssid.is_empty() {
                 let mut ss = String::<32>::new();
@@ -181,7 +179,6 @@ fn interpret(
         Intent::RequestMdns => {
             let _ = MDNS_CTRL.try_send(());
         }
-        Intent::NetConfig => {}
         Intent::SaveNetwork(cfg) => {
             let _ = storage_tx.try_send(StorageCmd::SaveNetwork(cfg));
             NET_CONFIG_CTRL.signal(cfg);

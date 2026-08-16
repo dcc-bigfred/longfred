@@ -10,13 +10,32 @@ use crate::screen::Screen;
 use crate::view::{Line, UiView};
 
 pub struct DeviceScreen {
-    cursor: u8,
+    cursor: DeviceRow,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeviceRow {
+    Name,
+    Id,
+    NewId,
+}
+
+impl DeviceRow {
+    fn step(self, d: Step) -> Self {
+        match (self, d) {
+            (Self::Name, Step::Prev) | (Self::Id, Step::Next) => Self::NewId,
+            (Self::Name, Step::Next) | (Self::NewId, Step::Prev) => Self::Id,
+            (Self::Id, Step::Prev) | (Self::NewId, Step::Next) => Self::Name,
+        }
+    }
 }
 
 impl DeviceScreen {
     /// Three-row picker: name, id, regenerate.
     pub fn new() -> Self {
-        Self { cursor: 0 }
+        Self {
+            cursor: DeviceRow::Name,
+        }
     }
 }
 
@@ -34,7 +53,7 @@ impl Screen for DeviceScreen {
     /// Copy persist into the session draft and reset the cursor.
     fn on_enter(&mut self, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         cx.session.device = cx.drive.persist.device.clone();
-        self.cursor = 0;
+        self.cursor = DeviceRow::Name;
     }
 
     /// Current name/id plus two action rows (edit vs new id).
@@ -56,39 +75,27 @@ impl Screen for DeviceScreen {
             let _ = id_line.push_str("----");
         }
         g.set(2, id_line.as_str(), false);
-        g.set(3, cx.s.device_name_id, self.cursor <= 1);
-        g.set(4, cx.s.device_new_id, self.cursor == 2);
+        g.set(
+            3,
+            cx.s.device_name_id,
+            matches!(self.cursor, DeviceRow::Name | DeviceRow::Id),
+        );
+        g.set(4, cx.s.device_new_id, self.cursor == DeviceRow::NewId);
         g.set(5, cx.s.hint_device, false);
         UiView::Grid(g)
     }
 
-    /// Cycle cursor 0=name, 1=id, 2=regenerate.
+    /// Cycle name / id / regenerate.
     fn on_list_step(&mut self, d: Step, _cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
-        self.cursor = match d {
-            Step::Prev => {
-                if self.cursor == 0 {
-                    2
-                } else {
-                    self.cursor - 1
-                }
-            }
-            Step::Next => {
-                if self.cursor >= 2 {
-                    0
-                } else {
-                    self.cursor + 1
-                }
-            }
-        };
+        self.cursor = self.cursor.step(d);
     }
 
     /// Replace with a name/id editor (Back → Extras) or emit a new random id.
     fn on_select(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match self.cursor {
-            0 => nav.replace(ScreenId::DeviceNameEdit),
-            1 => nav.replace(ScreenId::DeviceIdEdit),
-            2 => nav.emit(Intent::RegenerateDeviceId),
-            _ => {}
+            DeviceRow::Name => nav.replace(ScreenId::DeviceNameEdit),
+            DeviceRow::Id => nav.replace(ScreenId::DeviceIdEdit),
+            DeviceRow::NewId => nav.emit(Intent::RegenerateDeviceId),
         }
     }
 }

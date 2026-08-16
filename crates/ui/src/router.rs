@@ -6,6 +6,7 @@ use crate::intent::{AppEvent, Intent};
 use crate::nav::{Nav, NavCmd, PageDir, ScreenId, Step};
 use crate::nav_profile::{NavAction, NavProfile};
 use crate::screen::Screen;
+use crate::screens::helpers::has_loco;
 use crate::screens::{ScreenState, new_screen};
 use crate::view::UiView;
 
@@ -160,6 +161,18 @@ impl Router {
                 ));
                 out
             }
+            InputEvent::SpeedAbsolute(v) if driving(cx) => {
+                let mut out = heapless::Vec::new();
+                let _ = out.push(Intent::Action(longfred_proto::action::Action::SpeedSet(v)));
+                out
+            }
+            InputEvent::LocoSlot(slot, true) => {
+                let mut out = heapless::Vec::new();
+                let _ = out.push(Intent::Action(longfred_proto::action::Action::Throttle(
+                    slot,
+                )));
+                out
+            }
             _ => heapless::Vec::new(),
         }
     }
@@ -252,8 +265,5 @@ impl Router {
 }
 
 fn driving(cx: &ScreenCtx<'_>) -> bool {
-    cx.drive
-        .slots
-        .get(cx.drive.current)
-        .is_some_and(longfred_proto::model::ThrottleSlot::has_loco)
+    has_loco(cx)
 }

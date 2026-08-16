@@ -36,7 +36,7 @@ impl Screen for IpConfigScreen {
     /// Copy persist into the session draft and replace with the field editor (Back → Extras).
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         cx.session.net_cfg = cx.drive.persist.network.unwrap_or_default();
-        cx.session.ip_field = 0;
+        cx.session.ip_field = crate::session::NetField::Dhcp;
         nav.replace(ScreenId::IpEdit);
     }
 

@@ -5,7 +5,6 @@
 //! same reason. Prefer documenting new public API when adding it.
 #![allow(missing_docs)]
 
-pub mod boot;
 pub mod context;
 pub mod geometry;
 pub mod i18n;
@@ -28,6 +27,6 @@ pub use intent::{AppEvent, Intent};
 pub use nav::{Nav, PageDir, ScreenId, Step};
 pub use nav_profile::{LongFredNav, MarkwtechNav, NavAction, NavProfile};
 pub use router::Router;
-pub use screen::{KeyBindings, MenuModel, Screen};
-pub use session::{BatteryMode, UiSession};
+pub use screen::{KeyBindings, Screen};
+pub use session::{BatteryMode, NetField, UiSession};
 pub use view::{GridView, ThrottleView, UiView};

@@ -4,6 +4,7 @@ use longfred_proto::persist::StaticIpConfig;
 
 use crate::context::ScreenCtx;
 use crate::nav::{PageDir, Step};
+use crate::session::NetField;
 use crate::view::Line;
 use crate::widgets::PagedList;
 
@@ -150,54 +151,49 @@ pub fn password_for_ssid<'a>(cx: &'a ScreenCtx<'_>, ssid: &str) -> &'a str {
 }
 
 /// Load the digit buffer for one IP-config field (DHCP/IP/mask/GW/DNS).
-pub fn load_net_field_digits(cfg: &StaticIpConfig, field: u8) -> heapless::String<12> {
+pub fn load_net_field_digits(cfg: &StaticIpConfig, field: NetField) -> heapless::String<12> {
     let mut digits = heapless::String::new();
     match field {
-        0 => {
+        NetField::Dhcp => {
             let _ = digits.push(if cfg.dhcp { '0' } else { '1' });
         }
-        1 => push_ip_digits(&mut digits, cfg.ip),
-        2 => {
+        NetField::Ip => push_ip_digits(&mut digits, cfg.ip),
+        NetField::Prefix => {
             let _ = digits.push((b'0' + cfg.prefix_len / 10) as char);
             let _ = digits.push((b'0' + cfg.prefix_len % 10) as char);
         }
-        3 => {
+        NetField::Gateway => {
             if let Some(gw) = cfg.gateway {
                 push_ip_digits(&mut digits, gw);
             }
         }
-        4 => {
+        NetField::Dns => {
             if let Some(dns) = cfg.dns {
                 push_ip_digits(&mut digits, dns);
             }
         }
-        _ => {}
     }
     digits
 }
 
-/// Max digit length for an IP-config field.
-pub fn net_field_max_len(field: u8) -> usize {
-    match field {
-        0 => 1,
-        2 => 2,
-        _ => 12,
-    }
-}
-
 /// Write a field's digits back into `cfg`. IP also auto-fills prefix/gateway.
-pub fn commit_net_field(cfg: &mut StaticIpConfig, field: u8, digits: &str, default_prefix: u8) {
+pub fn commit_net_field(
+    cfg: &mut StaticIpConfig,
+    field: NetField,
+    digits: &str,
+    default_prefix: u8,
+) {
     match field {
-        0 => {
+        NetField::Dhcp => {
             cfg.dhcp = digits.as_bytes().first() != Some(&b'1');
         }
-        1 => {
+        NetField::Ip => {
             if let Some(ip) = parse_ip_digits(digits) {
                 cfg.ip = ip;
                 auto_fill_from_ip(cfg, default_prefix);
             }
         }
-        2 => {
+        NetField::Prefix => {
             if digits.is_empty() {
                 cfg.prefix_len = default_prefix;
             } else if digits.len() <= 2 {
@@ -213,21 +209,20 @@ pub fn commit_net_field(cfg: &mut StaticIpConfig, field: u8, digits: &str, defau
                 }
             }
         }
-        3 => {
+        NetField::Gateway => {
             cfg.gateway = if digits.is_empty() {
                 None
             } else {
                 parse_ip_digits(digits)
             };
         }
-        4 => {
+        NetField::Dns => {
             cfg.dns = if digits.is_empty() {
                 None
             } else {
                 parse_ip_digits(digits)
             };
         }
-        _ => {}
     }
 }
 
@@ -263,14 +258,14 @@ mod tests {
             prefix_len: 24,
             ..StaticIpConfig::default()
         };
-        commit_net_field(&mut cfg, 2, "x", 16);
+        commit_net_field(&mut cfg, NetField::Prefix, "x", 16);
         assert_eq!(cfg.prefix_len, 24);
     }
 
     #[test]
     fn commit_prefix_accepts_two_digits() {
         let mut cfg = StaticIpConfig::default();
-        commit_net_field(&mut cfg, 2, "24", 16);
+        commit_net_field(&mut cfg, NetField::Prefix, "24", 16);
         assert_eq!(cfg.prefix_len, 24);
     }
 
@@ -280,7 +275,7 @@ mod tests {
             prefix_len: 24,
             ..StaticIpConfig::default()
         };
-        commit_net_field(&mut cfg, 2, "33", 16);
+        commit_net_field(&mut cfg, NetField::Prefix, "33", 16);
         assert_eq!(cfg.prefix_len, 24);
     }
 

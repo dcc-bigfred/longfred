@@ -4,11 +4,57 @@ use longfred_proto::action::Action;
 
 use super::helpers::page_list;
 use crate::context::ScreenCtx;
+use crate::i18n::Strings;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 use crate::widgets::PagedList;
+
+#[derive(Clone, Copy)]
+enum MenuItem {
+    Function,
+    Locos,
+    SpeedMult,
+    Power,
+    Extras,
+}
+
+impl MenuItem {
+    const ALL: [Self; 5] = [
+        Self::Function,
+        Self::Locos,
+        Self::SpeedMult,
+        Self::Power,
+        Self::Extras,
+    ];
+
+    fn label(self, s: &Strings) -> &'static str {
+        match self {
+            Self::Function => s.menu_fn,
+            Self::Locos => s.menu_locos,
+            Self::SpeedMult => s.menu_speed_mult,
+            Self::Power => s.menu_power,
+            Self::Extras => s.menu_extras,
+        }
+    }
+
+    fn activate(self, nav: &mut Nav<'_>) {
+        match self {
+            Self::Function => nav.go(ScreenId::FunctionList),
+            Self::Locos => nav.go(ScreenId::RosterList),
+            Self::SpeedMult => {
+                nav.emit(Intent::Action(Action::SpeedMultiplier));
+                nav.root(ScreenId::Throttle);
+            }
+            Self::Power => {
+                nav.emit(Intent::Action(Action::PowerToggle));
+                nav.root(ScreenId::Throttle);
+            }
+            Self::Extras => nav.go(ScreenId::Extras),
+        }
+    }
+}
 
 pub struct MenuScreen {
     list: PagedList,
@@ -22,20 +68,18 @@ impl MenuScreen {
         }
     }
 
-    /// Localized labels for the five menu rows.
     fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 5] {
-        [
-            cx.s.menu_fn,
-            cx.s.menu_locos,
-            cx.s.menu_speed_mult,
-            cx.s.menu_power,
-            cx.s.menu_extras,
-        ]
+        MenuItem::ALL.map(|item| item.label(cx.s))
     }
 
-    /// Display height used for paging.
     fn height(cx: &ScreenCtx<'_>) -> u16 {
         cx.env.geometry.height
+    }
+
+    fn current(&self, cx: &ScreenCtx<'_>) -> Option<MenuItem> {
+        let labels = Self::labels(cx);
+        let idx = self.list.global_index(&labels, true, Self::height(cx));
+        MenuItem::ALL.get(idx).copied()
     }
 }
 
@@ -94,20 +138,8 @@ impl Screen for MenuScreen {
 
     /// Open Function/Roster/Extras, or apply speed-mult / power and return to throttle.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        let labels = Self::labels(cx);
-        match self.list.global_index(&labels, true, Self::height(cx)) {
-            0 => nav.go(ScreenId::FunctionList),
-            1 => nav.go(ScreenId::RosterList),
-            2 => {
-                nav.emit(Intent::Action(Action::SpeedMultiplier));
-                nav.root(ScreenId::Throttle);
-            }
-            3 => {
-                nav.emit(Intent::Action(Action::PowerToggle));
-                nav.root(ScreenId::Throttle);
-            }
-            4 => nav.go(ScreenId::Extras),
-            _ => {}
+        if let Some(item) = self.current(cx) {
+            item.activate(nav);
         }
     }
 

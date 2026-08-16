@@ -6,7 +6,7 @@ use super::helpers::page_list;
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
-use crate::screen::{KeyBindings, MenuModel, Screen};
+use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 use crate::widgets::PagedList;
 
@@ -15,6 +15,8 @@ pub struct LanguageScreen {
 }
 
 impl LanguageScreen {
+    const LANGS: [Language; 3] = [Language::En, Language::Pl, Language::De];
+
     /// Unnumbered EN/PL/DE picker.
     pub fn new() -> Self {
         Self {
@@ -22,14 +24,22 @@ impl LanguageScreen {
         }
     }
 
-    /// Localized language names.
     fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 3] {
-        [cx.s.lang_en, cx.s.lang_pl, cx.s.lang_de]
+        Self::LANGS.map(|lang| match lang {
+            Language::En => cx.s.lang_en,
+            Language::Pl => cx.s.lang_pl,
+            Language::De => cx.s.lang_de,
+        })
     }
 
-    /// Display height used for paging.
     fn height(cx: &ScreenCtx<'_>) -> u16 {
         cx.env.geometry.height
+    }
+
+    fn current(&self, cx: &ScreenCtx<'_>) -> Language {
+        let labels = Self::labels(cx);
+        let idx = self.list.global_index(&labels, false, Self::height(cx));
+        Self::LANGS.get(idx).copied().unwrap_or(Language::En)
     }
 }
 
@@ -46,12 +56,6 @@ impl Screen for LanguageScreen {
 
     fn key_bindings(&self, _cx: &ScreenCtx<'_>) -> KeyBindings {
         KeyBindings::NAVIGATION
-    }
-
-    /// No [`MenuModel`]; the router uses list handlers instead.
-    fn menu<'a>(&'a self, cx: &'a ScreenCtx<'_>) -> Option<MenuModel<'a>> {
-        let _ = cx;
-        None
     }
 
     /// Language names plus a footer hint.
@@ -94,16 +98,7 @@ impl Screen for LanguageScreen {
 
     /// Persist the language. On first boot stay here so firmware can start the Wi-Fi wizard.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        let idx = {
-            let labels = Self::labels(cx);
-            self.list.global_index(&labels, false, Self::height(cx))
-        };
-        let lang = match idx {
-            1 => Language::Pl,
-            2 => Language::De,
-            _ => Language::En,
-        };
-        nav.emit(Intent::SetLanguage(lang));
+        nav.emit(Intent::SetLanguage(self.current(cx)));
         if cx.session.boot_language {
             cx.session.boot_language = false;
         } else {

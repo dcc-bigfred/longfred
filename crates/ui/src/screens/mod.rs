@@ -8,7 +8,7 @@ mod direct;
 mod extras;
 mod firmware;
 mod functions;
-mod helpers;
+pub(crate) mod helpers;
 mod ip_config;
 mod ip_edit;
 mod language;
@@ -29,7 +29,7 @@ mod wifi_scanning;
 use crate::context::ScreenCtx;
 use crate::intent::AppEvent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
-use crate::screen::{KeyBindings, MenuModel, Screen};
+use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 
 pub use device::DeviceScreen;
@@ -155,11 +155,6 @@ impl Screen for ScreenState {
     /// Key map of the live variant.
     fn key_bindings(&self, cx: &ScreenCtx<'_>) -> KeyBindings {
         dispatch_screen!(self, key_bindings, cx)
-    }
-
-    /// Optional menu model of the live variant.
-    fn menu<'a>(&'a self, cx: &'a ScreenCtx<'_>) -> Option<MenuModel<'a>> {
-        dispatch_screen!(self, menu, cx)
     }
 
     /// Render the live variant.

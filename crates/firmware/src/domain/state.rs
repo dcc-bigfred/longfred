@@ -116,6 +116,7 @@ impl DomainState {
                 true
             }
             Action::SpeedStopThenToggleDirection => self.stop_then_toggle_direction(out),
+            Action::SpeedSet(v) => self.speed_set(v, out),
             Action::EStop => self.estop_all(out),
             Action::EStopCurrentLoco => self.estop_current(out),
             Action::DirectionToggle => {

@@ -6,7 +6,6 @@ use longfred_proto::persist::{DeviceIdentity, Language, StaticIpConfig};
 /// Side-effect requested by a screen. Firmware interprets these.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Intent {
-    None,
     Action(Action),
     AcquireAddr,
     AcquireRoster(usize),
@@ -14,7 +13,6 @@ pub enum Intent {
     /// Toggle DCC function `0..=31`.
     Function(u8),
     WifiScan,
-    WifiSelect(usize, bool),
     WifiConnect,
     ServerSelect(usize),
     ServerManual,
@@ -23,7 +21,6 @@ pub enum Intent {
     HashFunctionsToggle,
     Sleep,
     RequestMdns,
-    NetConfig,
     SaveNetwork(StaticIpConfig),
     SaveDevice(DeviceIdentity),
     RegenerateDeviceId,
@@ -39,5 +36,4 @@ pub enum AppEvent {
     ScanDone,
     ServerConnected,
     WifiFailed,
-    PersistLoaded,
 }
