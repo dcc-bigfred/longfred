@@ -1,10 +1,13 @@
 #![cfg_attr(not(test), no_std)]
 //! Host-testable LongFred UI: router, screens, view model (no HAL).
 //!
+//! Strict heapless: no `alloc`, all storage is fixed-capacity.
+//!
 //! Public item docs are filled incrementally; CI clippy allows `missing_docs` for the
 //! same reason. Prefer documenting new public API when adding it.
 #![allow(missing_docs)]
 #![forbid(unsafe_code)]
+#![deny(clippy::disallowed_types, clippy::disallowed_macros)]
 
 pub mod context;
 pub mod geometry;
@@ -20,7 +23,9 @@ pub mod session;
 pub mod view;
 pub mod widgets;
 
-pub use context::{BatteryInfo, CompiledNetwork, DriveInfo, NetInfo, ScreenCtx, UiEnv};
+pub use context::{
+    BatteryInfo, CompiledNetwork, DriveInfo, MAX_COMPILED_NETWORKS, NetInfo, ScreenCtx, UiEnv,
+};
 pub use geometry::{DisplayGeometry, LAYOUT_128X32, LAYOUT_128X64};
 pub use i18n::{HintSet, Strings, strings};
 pub use input::{InputEvent, NavDir};

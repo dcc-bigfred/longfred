@@ -436,4 +436,22 @@ mod tests {
         assert_eq!(split_at_cursor("ab", 1), ("a", "b"));
         assert_eq!(split_at_cursor("ł", 1), ("ł", ""));
     }
+
+    #[test]
+    fn char_cycle_on_full_buffer_does_not_grow() {
+        let mut kbd = TextKeyboard::<4>::new(KeyboardMode::Digits);
+        kbd.load("1234");
+        let _ = kbd.char_cycle(1, 0);
+        assert_eq!(kbd.buffer.as_str(), "1234");
+        assert_eq!(kbd.buffer.len(), 4);
+    }
+
+    #[test]
+    fn exact_capacity_rejects_one_more() {
+        let mut kbd = TextKeyboard::<3>::new(KeyboardMode::Digits);
+        kbd.load("12");
+        assert!(kbd.insert_at_cursor('3'));
+        assert_eq!(kbd.buffer.as_str(), "123");
+        assert!(!kbd.insert_at_cursor('4'));
+    }
 }

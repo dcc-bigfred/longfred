@@ -13,6 +13,10 @@ use crate::view::UiView;
 const STACK_CAP: usize = 8;
 
 /// Owns the current screen object and a back-stack of [`ScreenId`].
+///
+/// Navigation always reconstructs the destination with [`new_screen`]: list
+/// cursors and keyboards do not survive `Back` / `Go`. Drafts that must persist
+/// (password, address, IP digits) live in [`crate::session::UiSession`].
 pub struct Router {
     current: ScreenState,
     stack: heapless::Vec<ScreenId, STACK_CAP>,
@@ -45,6 +49,22 @@ impl Router {
         let mut intents = heapless::Vec::new();
         self.apply(NavCmd::Replace(id), cx, &mut intents);
         intents
+    }
+
+    /// Push the current screen and open `id` (same as a screen calling [`crate::nav::Nav::go`]).
+    pub fn push_screen(
+        &mut self,
+        id: ScreenId,
+        cx: &mut ScreenCtx<'_>,
+    ) -> heapless::Vec<Intent, 4> {
+        let mut intents = heapless::Vec::new();
+        self.apply(NavCmd::Go(id), cx, &mut intents);
+        intents
+    }
+
+    /// Number of screens on the back-stack.
+    pub fn stack_len(&self) -> usize {
+        self.stack.len()
     }
 
     /// Drive one input event through the nav profile into the active screen.

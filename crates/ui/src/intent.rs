@@ -3,7 +3,8 @@
 use longfred_proto::action::Action;
 use longfred_proto::persist::{DeviceIdentity, Language, StaticIpConfig};
 
-/// Side-effect requested by a screen. Firmware interprets these.
+/// Side-effect requested by a screen. Firmware interprets these; the UI crate
+/// does not talk to Wi-Fi, storage, or the command station itself.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Intent {
     Action(Action),

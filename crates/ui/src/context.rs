@@ -49,6 +49,10 @@ pub struct BatteryInfo {
     pub raw: u16,
 }
 
+/// Firmware-compiled SSIDs shown in the picker. Extra `NETWORKS` entries are dropped
+/// (debug builds assert).
+pub const MAX_COMPILED_NETWORKS: usize = 16;
+
 /// Build-time / board facts injected by firmware (no `cfg` in screens).
 #[derive(Clone, Copy, Debug)]
 pub struct CompiledNetwork {

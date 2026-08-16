@@ -319,3 +319,60 @@ fn diagnostics_pages_wrap() {
         assert!(matches!(router.view(&cx), UiView::Grid(_)));
     }
 }
+
+#[test]
+fn menu_digit_index_opens_expected_screen() {
+    for (digit, want) in [
+        ('1', ScreenId::FunctionList),
+        ('2', ScreenId::RosterList),
+        ('5', ScreenId::Extras),
+    ] {
+        let mut fx = Fixture::new();
+        let mut router = Router::new(&LONGFRED, ScreenId::Menu);
+        {
+            let mut cx = fx.ctx();
+            let _ = router.handle(InputEvent::Digit(digit), &mut cx);
+        }
+        assert_eq!(router.screen_id(), want, "digit {digit}");
+    }
+}
+
+#[test]
+fn back_with_empty_stack_goes_to_throttle() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Back, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+}
+
+#[test]
+fn stack_overflow_drops_oldest() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Throttle);
+    let ids = [
+        ScreenId::Menu,
+        ScreenId::Extras,
+        ScreenId::Device,
+        ScreenId::Language,
+        ScreenId::Diagnostics,
+        ScreenId::FirmwareUpdate,
+        ScreenId::IpConfig,
+        ScreenId::FunctionList,
+        ScreenId::RosterList,
+        ScreenId::DirectCommands,
+        ScreenId::Diagnostics,
+    ];
+    {
+        let mut cx = fx.ctx();
+        for id in ids {
+            let _ = router.push_screen(id, &mut cx);
+        }
+        assert_eq!(router.stack_len(), 8);
+        assert_eq!(router.screen_id(), ScreenId::Diagnostics);
+        let _ = router.handle(InputEvent::Back, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::DirectCommands);
+}

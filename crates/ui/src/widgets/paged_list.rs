@@ -171,4 +171,23 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn select_digit_zero_is_tenth_numbered_row() {
+        let items = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+        let mut list = PagedList::new(true);
+        list.page_next(&items, H);
+        assert_eq!(list.select_digit(0, &items, H), Some(9));
+        assert_eq!(list.global_index(&items, H), 9);
+    }
+
+    #[test]
+    fn long_item_uses_more_than_one_slot() {
+        let items = ["abcdefghijklmnopqrstuvwxyz0123456789"];
+        let list = PagedList::new(false);
+        let layout = list.layout(&items, H);
+        assert_eq!(layout.start, 0);
+        assert_eq!(layout.count, 1);
+        assert!(!layout.has_next);
+    }
 }

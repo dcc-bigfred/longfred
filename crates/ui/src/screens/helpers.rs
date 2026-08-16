@@ -2,7 +2,7 @@
 
 use longfred_proto::persist::StaticIpConfig;
 
-use crate::context::ScreenCtx;
+use crate::context::{MAX_COMPILED_NETWORKS, ScreenCtx};
 use crate::nav::{PageDir, Step};
 use crate::session::NetField;
 use crate::view::Line;
@@ -125,12 +125,14 @@ pub fn default_server_digits(cx: &ScreenCtx<'_>, z21: bool) -> heapless::String<
 }
 
 /// SSIDs compiled into the firmware (`NETWORKS`).
-pub fn compiled_ssids(cx: &ScreenCtx<'_>) -> heapless::Vec<&'static str, 16> {
+pub fn compiled_ssids(cx: &ScreenCtx<'_>) -> heapless::Vec<&'static str, MAX_COMPILED_NETWORKS> {
+    debug_assert!(
+        cx.env.compiled_networks.len() <= MAX_COMPILED_NETWORKS,
+        "compiled NETWORKS exceeds MAX_COMPILED_NETWORKS"
+    );
     let mut v = heapless::Vec::new();
-    for n in cx.env.compiled_networks {
-        if v.push(n.ssid).is_err() {
-            break;
-        }
+    for n in cx.env.compiled_networks.iter().take(MAX_COMPILED_NETWORKS) {
+        let _ = v.push(n.ssid);
     }
     v
 }
@@ -283,5 +285,11 @@ mod tests {
     fn parse_ip_digits_rejects_wrong_len() {
         assert!(parse_ip_digits("999").is_none());
         assert_eq!(parse_ip_digits("192168001001"), Some([192, 168, 1, 1]));
+    }
+
+    #[test]
+    fn parse_ip_digits_rejects_out_of_range_octet() {
+        assert!(parse_ip_digits("999000000000").is_none());
+        assert_eq!(parse_ip_digits("255255255255"), Some([255, 255, 255, 255]));
     }
 }

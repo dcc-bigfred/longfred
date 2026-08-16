@@ -53,6 +53,9 @@ impl NetField {
 }
 
 /// Drafts and flags shared across screens (Wi-Fi wizard, device, net config).
+///
+/// Screen objects are discarded on navigation, so anything the user typed that
+/// must survive `Back` belongs here.
 #[derive(Clone, Debug)]
 pub struct UiSession {
     pub selected_ssid: heapless::String<32>,

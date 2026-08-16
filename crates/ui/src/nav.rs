@@ -1,6 +1,8 @@
 //! Screen identifiers and navigation commands issued by a screen.
 
 /// Logical screen (one object; may contain several internal pages).
+///
+/// The router reconstructs the corresponding screen type on every navigation.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ScreenId {
     Splash,

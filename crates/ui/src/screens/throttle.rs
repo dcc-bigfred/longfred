@@ -39,6 +39,13 @@ impl Screen for ThrottleScreen {
         KeyBindings::THROTTLE
     }
 
+    /// Restore a typed DCC address from the session (screen objects are not reused).
+    fn on_enter(&mut self, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
+        if !cx.session.addr.is_empty() {
+            self.addr_kbd.load(cx.session.addr.as_str());
+        }
+    }
+
     /// Drive HUD when a loco is acquired; otherwise address preview or "no loco".
     /// Packs speed, direction, consist length, function bitmask, and battery.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
@@ -92,8 +99,11 @@ impl Screen for ThrottleScreen {
         })
     }
 
-    /// Open the main menu.
-    fn on_menu_key(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+    /// Open the main menu (keep a typed address in the session).
+    fn on_menu_key(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let _ = self.addr_kbd.ok();
+        cx.session.addr.clear();
+        let _ = cx.session.addr.push_str(self.addr_kbd.buffer.as_str());
         nav.go(ScreenId::Menu);
     }
 

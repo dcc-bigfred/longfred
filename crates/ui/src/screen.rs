@@ -6,10 +6,15 @@ use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::view::UiView;
 
 /// How hardware events should be interpreted on this screen.
+///
+/// Profiles map keys differently in text entry vs the drive HUD vs list navigation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputMode {
+    /// Lists, wizards, and most settings screens.
     Navigation,
+    /// Password / address / IP editors (joystick cycles characters).
     Text,
+    /// Drive HUD: encoder is speed, digits are functions.
     Throttle,
 }
 

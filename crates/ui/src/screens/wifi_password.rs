@@ -37,10 +37,9 @@ impl Screen for PasswordScreen {
     }
 
     /// Prefill from the session buffer, else stored/compiled password for this SSID.
+    ///
+    /// The keyboard is always empty here: [`Router`] reconstructs the screen on enter.
     fn on_enter(&mut self, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
-        if !self.kbd.buffer.is_empty() {
-            return;
-        }
         if !cx.session.password.is_empty() {
             self.kbd.load(cx.session.password.as_str());
             return;

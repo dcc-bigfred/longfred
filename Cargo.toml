@@ -35,6 +35,11 @@ debug = 2
 lto = "fat"
 opt-level = "s"
 
+[profile.release-assertions]
+inherits = "release"
+debug-assertions = true
+overflow-checks = true
+
 [profile.dev.package.esp-radio]
 opt-level = 3
 

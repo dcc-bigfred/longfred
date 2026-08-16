@@ -1,0 +1,17 @@
+# clippy.toml — longfred-ui is strict heapless (no alloc).
+
+disallowed-types = [
+  { path = "alloc::boxed::Box", reason = "heap allocation is forbidden in strict runtime code", allow-invalid = true },
+  { path = "alloc::string::String", reason = "borrow text or use fixed-capacity storage", allow-invalid = true },
+  { path = "alloc::vec::Vec", reason = "use caller-owned slices or fixed-capacity storage", allow-invalid = true },
+  { path = "std::boxed::Box", reason = "heap allocation is forbidden in strict runtime code", allow-invalid = true },
+  { path = "std::string::String", reason = "borrow text or use fixed-capacity storage", allow-invalid = true },
+  { path = "std::vec::Vec", reason = "use caller-owned slices or fixed-capacity storage", allow-invalid = true },
+]
+
+disallowed-macros = [
+  { path = "alloc::format", reason = "write into a caller-owned or fixed-capacity sink", allow-invalid = true },
+  { path = "alloc::vec", reason = "use arrays, slices, or fixed-capacity storage", allow-invalid = true },
+  { path = "std::format", reason = "write into a caller-owned or fixed-capacity sink", allow-invalid = true },
+  { path = "std::vec", reason = "use arrays, slices, or fixed-capacity storage", allow-invalid = true },
+]

@@ -38,9 +38,12 @@ impl Screen for ServerEntryScreen {
         KeyBindings::TEXT
     }
 
-    /// Prefill default WIT or Z21 endpoint unless the user already typed.
+    /// Prefill session digits, else the default WIT or Z21 endpoint.
+    ///
+    /// The keyboard is always empty here: [`Router`] reconstructs the screen on enter.
     fn on_enter(&mut self, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
-        if !self.kbd.buffer.is_empty() {
+        if !cx.session.server_digits.is_empty() {
+            self.kbd.load(cx.session.server_digits.as_str());
             return;
         }
         let z21 = !cx.session.server_entry_from_list && cx.session.manual_protocol == Protocol::Z21;
@@ -106,8 +109,11 @@ impl Screen for ServerEntryScreen {
         }
     }
 
-    /// Clear the from-list shortcut and pop.
+    /// Keep typed digits in the session and pop.
     fn on_cancel(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let _ = self.kbd.ok();
+        cx.session.server_digits.clear();
+        let _ = cx.session.server_digits.push_str(self.kbd.buffer.as_str());
         cx.session.server_entry_from_list = false;
         nav.back();
     }
