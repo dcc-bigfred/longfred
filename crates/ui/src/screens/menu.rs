@@ -76,10 +76,14 @@ impl MenuScreen {
         cx.env.geometry.height
     }
 
+    fn current_at(&self, labels: &[&str], h: u16) -> Option<MenuItem> {
+        MenuItem::ALL
+            .get(self.list.global_index(labels, h))
+            .copied()
+    }
+
     fn current(&self, cx: &ScreenCtx<'_>) -> Option<MenuItem> {
-        let labels = Self::labels(cx);
-        let idx = self.list.global_index(&labels, true, Self::height(cx));
-        MenuItem::ALL.get(idx).copied()
+        self.current_at(&Self::labels(cx), Self::height(cx))
     }
 }
 
@@ -102,13 +106,8 @@ impl Screen for MenuScreen {
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         let labels = Self::labels(cx);
-        self.list.draw(
-            &mut g,
-            Some(cx.env.app_name),
-            &labels,
-            true,
-            Self::height(cx),
-        );
+        self.list
+            .draw(&mut g, Some(cx.env.app_name), &labels, Self::height(cx));
         g.set(5, cx.s.hint_menu, false);
         UiView::Grid(g)
     }
@@ -117,8 +116,8 @@ impl Screen for MenuScreen {
     fn on_list_step(&mut self, d: Step, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let labels = Self::labels(cx);
         match d {
-            Step::Prev => self.list.list_prev(&labels, true, Self::height(cx)),
-            Step::Next => self.list.list_next(&labels, true, Self::height(cx)),
+            Step::Prev => self.list.list_prev(&labels, Self::height(cx)),
+            Step::Next => self.list.list_next(&labels, Self::height(cx)),
         }
     }
 
@@ -126,12 +125,11 @@ impl Screen for MenuScreen {
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if let Some(d) = c.to_digit(10) {
             let labels = Self::labels(cx);
-            if self
-                .list
-                .select_digit(d as u8, &labels, true, Self::height(cx))
-                .is_some()
-            {
-                self.on_select(cx, nav);
+            let h = Self::height(cx);
+            if self.list.select_digit(d as u8, &labels, h).is_some() {
+                if let Some(item) = self.current_at(&labels, h) {
+                    item.activate(nav);
+                }
             }
         }
     }
@@ -151,6 +149,6 @@ impl Screen for MenuScreen {
     /// Page the menu list if it overflows the display.
     fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let labels = Self::labels(cx);
-        page_list(&mut self.list, d, &labels, true, Self::height(cx));
+        page_list(&mut self.list, d, &labels, Self::height(cx));
     }
 }

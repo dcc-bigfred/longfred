@@ -184,17 +184,15 @@ pub fn has_next_page(items: &[&str], page: usize, numbered: bool, height: u16) -
     start + items_fitting(items, start, numbered, height) < items.len()
 }
 
-/// Place wrapped list items into grid slots. `cursor` is the index **on this page**.
+/// Place wrapped list items into grid slots using `list` page, cursor, and numbering.
 pub fn fill_list_page(
     g: &mut GridView,
     items: &[&str],
-    page: usize,
-    cursor: usize,
-    numbered: bool,
+    list: &crate::widgets::PagedList,
     height: u16,
 ) {
-    fill_list_page_invert(g, items, page, numbered, height, |local, _global| {
-        local == cursor
+    fill_list_page_invert(g, items, list, height, |local, _global| {
+        local == list.cursor
     });
 }
 
@@ -202,21 +200,20 @@ pub fn fill_list_page(
 pub fn fill_list_page_invert<F: Fn(usize, usize) -> bool>(
     g: &mut GridView,
     items: &[&str],
-    page: usize,
-    numbered: bool,
+    list: &crate::widgets::PagedList,
     height: u16,
     invert: F,
 ) {
     g.foot_line = false;
     let slots = list_slots_for(height);
     let col = col_chars();
-    let start = page_start(items, page, numbered, height);
+    let start = page_start(items, list.page, list.numbered, height);
     let mut slot_i = 0usize;
     let mut local = 0usize;
     for (off, item) in items.iter().skip(start).enumerate() {
         let global = start + off;
         let mut folded = heapless::String::<64>::new();
-        if numbered {
+        if list.numbered {
             push_item_num_prefix(&mut folded, global);
         }
         for c in item.chars() {

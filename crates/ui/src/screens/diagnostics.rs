@@ -222,5 +222,10 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
     for line in &lines {
         let _ = refs.push(line.as_str());
     }
-    fill_list_page(g, &refs, 0, usize::MAX, false, cx.env.geometry.height);
+    let list = crate::widgets::PagedList {
+        page: 0,
+        cursor: usize::MAX,
+        numbered: false,
+    };
+    fill_list_page(g, &refs, &list, cx.env.geometry.height);
 }

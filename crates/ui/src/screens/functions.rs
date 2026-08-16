@@ -62,40 +62,35 @@ impl Screen for FunctionListScreen {
             .get(cx.drive.current)
             .map(|s| s.functions)
             .unwrap_or([false; MAX_FUNCTIONS]);
-        fill_list_page_invert(
-            &mut g,
-            &names,
-            self.list.page,
-            true,
-            height(cx),
-            |_local, global| ons.get(global).copied().unwrap_or(false),
-        );
+        fill_list_page_invert(&mut g, &names, &self.list, height(cx), |_local, global| {
+            ons.get(global).copied().unwrap_or(false)
+        });
         UiView::Grid(g)
     }
 
     /// Move the highlighted function row.
     fn on_list_step(&mut self, d: Step, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let names = Self::names(cx);
-        step_list(&mut self.list, d, &names, true, height(cx));
+        step_list(&mut self.list, d, &names, height(cx));
     }
 
     /// Page the function list.
     fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let names = Self::names(cx);
-        page_list(&mut self.list, d, &names, true, height(cx));
+        page_list(&mut self.list, d, &names, height(cx));
     }
 
     /// Digit jumps to that row and toggles it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if let Some(d) = c.to_digit(10) {
-            let hit = {
-                let names = Self::names(cx);
-                self.list
-                    .select_digit(d as u8, &names, true, height(cx))
-                    .is_some()
-            };
-            if hit {
-                self.on_select(cx, nav);
+            let names = Self::names(cx);
+            let h = height(cx);
+            if self.list.select_digit(d as u8, &names, h).is_some() {
+                let idx = self
+                    .list
+                    .global_index(&names, h)
+                    .min(MAX_FUNCTIONS.saturating_sub(1));
+                nav.emit(Intent::Function(idx as u8));
             }
         }
     }
@@ -105,7 +100,7 @@ impl Screen for FunctionListScreen {
         let names = Self::names(cx);
         let idx = self
             .list
-            .global_index(&names, true, height(cx))
+            .global_index(&names, height(cx))
             .min(MAX_FUNCTIONS.saturating_sub(1));
         nav.emit(Intent::Function(idx as u8));
     }

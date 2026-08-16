@@ -21,6 +21,24 @@ impl SsidScanScreen {
             list: PagedList::new(true),
         }
     }
+
+    fn names<'a>(cx: &'a ScreenCtx<'_>) -> heapless::Vec<&'a str, MAX_FOUND_SSIDS> {
+        let mut names = heapless::Vec::new();
+        for s in cx.net.scanned_ssids {
+            let _ = names.push(s.ssid.as_str());
+        }
+        names
+    }
+
+    fn pick_at(&self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
+        cx.session.selected_ssid_idx = idx;
+        cx.session.selected_from_scan = true;
+        if let Some(s) = cx.net.scanned_ssids.get(idx) {
+            let ssid = s.ssid.clone();
+            pick_ssid(cx, ssid.as_str());
+            nav.go(ScreenId::Password);
+        }
+    }
 }
 
 impl Default for SsidScanScreen {
@@ -37,31 +55,22 @@ impl Screen for SsidScanScreen {
     /// SSIDs from the last Wi-Fi scan.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
-        let mut names: heapless::Vec<&str, MAX_FOUND_SSIDS> = heapless::Vec::new();
-        for s in cx.net.scanned_ssids {
-            let _ = names.push(s.ssid.as_str());
-        }
+        let names = Self::names(cx);
         self.list
-            .draw(&mut g, Some(cx.s.msg_ssids_found), &names, true, height(cx));
+            .draw(&mut g, Some(cx.s.msg_ssids_found), &names, height(cx));
         UiView::Grid(g)
     }
 
     /// Move the highlighted scanned-SSID row.
     fn on_list_step(&mut self, d: Step, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
-        let mut names: heapless::Vec<&str, MAX_FOUND_SSIDS> = heapless::Vec::new();
-        for s in cx.net.scanned_ssids {
-            let _ = names.push(s.ssid.as_str());
-        }
-        step_list(&mut self.list, d, &names, true, height(cx));
+        let names = Self::names(cx);
+        step_list(&mut self.list, d, &names, height(cx));
     }
 
     /// Page the scan-result list.
     fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
-        let mut names: heapless::Vec<&str, MAX_FOUND_SSIDS> = heapless::Vec::new();
-        for s in cx.net.scanned_ssids {
-            let _ = names.push(s.ssid.as_str());
-        }
-        page_list(&mut self.list, d, &names, true, height(cx));
+        let names = Self::names(cx);
+        page_list(&mut self.list, d, &names, height(cx));
     }
 
     /// Menu restarts a scan.
@@ -73,17 +82,16 @@ impl Screen for SsidScanScreen {
     /// Digit jumps to that SSID and selects it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if let Some(d) = c.to_digit(10) {
-            let hit = {
-                let mut names: heapless::Vec<&str, MAX_FOUND_SSIDS> = heapless::Vec::new();
-                for s in cx.net.scanned_ssids {
-                    let _ = names.push(s.ssid.as_str());
-                }
+            let idx = {
+                let names = Self::names(cx);
+                let h = height(cx);
                 self.list
-                    .select_digit(d as u8, &names, true, height(cx))
+                    .select_digit(d as u8, &names, h)
                     .is_some()
+                    .then(|| self.list.global_index(&names, h))
             };
-            if hit {
-                self.on_select(cx, nav);
+            if let Some(idx) = idx {
+                self.pick_at(cx, nav, idx);
             }
         }
     }
@@ -91,19 +99,10 @@ impl Screen for SsidScanScreen {
     /// Remember the scanned SSID and open the password screen.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let idx = {
-            let mut names: heapless::Vec<&str, MAX_FOUND_SSIDS> = heapless::Vec::new();
-            for s in cx.net.scanned_ssids {
-                let _ = names.push(s.ssid.as_str());
-            }
-            self.list.global_index(&names, true, height(cx))
+            let names = Self::names(cx);
+            self.list.global_index(&names, height(cx))
         };
-        cx.session.selected_ssid_idx = idx;
-        cx.session.selected_from_scan = true;
-        if let Some(s) = cx.net.scanned_ssids.get(idx) {
-            let ssid = s.ssid.clone();
-            pick_ssid(cx, ssid.as_str());
-            nav.go(ScreenId::Password);
-        }
+        self.pick_at(cx, nav, idx);
     }
 
     /// Back to compiled SSIDs when they exist; otherwise stay (scan is the root list).

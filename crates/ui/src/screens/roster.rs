@@ -45,6 +45,19 @@ impl RosterListScreen {
         }
         v
     }
+
+    fn acquire_at(&self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
+        if !cx.drive.roster.is_empty() {
+            nav.emit(Intent::AcquireRoster(
+                idx.min(cx.drive.roster.len().saturating_sub(1)),
+            ));
+        } else if let Some(e) = cx.drive.persist.static_roster.get(idx) {
+            cx.session.addr.clear();
+            let _ = cx.session.addr.push_str(e.addr.as_str());
+            nav.emit(Intent::AcquireAddr);
+        }
+        nav.root(ScreenId::Throttle);
+    }
 }
 
 impl Default for RosterListScreen {
@@ -67,40 +80,35 @@ impl Screen for RosterListScreen {
         let mut g = crate::view::GridView::new();
         g.set(0, cx.s.menu_locos, false);
         let names = Self::names(cx);
-        fill_list_page(
-            &mut g,
-            &names,
-            self.list.page,
-            self.list.cursor,
-            true,
-            height(cx),
-        );
+        fill_list_page(&mut g, &names, &self.list, height(cx));
         UiView::Grid(g)
     }
 
     /// Move the highlighted roster row.
     fn on_list_step(&mut self, d: Step, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let names = Self::names(cx);
-        step_list(&mut self.list, d, &names, true, height(cx));
+        step_list(&mut self.list, d, &names, height(cx));
     }
 
     /// Page the roster list.
     fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let names = Self::names(cx);
-        page_list(&mut self.list, d, &names, true, height(cx));
+        page_list(&mut self.list, d, &names, height(cx));
     }
 
     /// Digit jumps to that row and acquires it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if let Some(d) = c.to_digit(10) {
-            let hit = {
+            let idx = {
                 let names = Self::names(cx);
+                let h = height(cx);
                 self.list
-                    .select_digit(d as u8, &names, true, height(cx))
+                    .select_digit(d as u8, &names, h)
                     .is_some()
+                    .then(|| self.list.global_index(&names, h))
             };
-            if hit {
-                self.on_select(cx, nav);
+            if let Some(idx) = idx {
+                self.acquire_at(cx, nav, idx);
             }
         }
     }
@@ -109,18 +117,9 @@ impl Screen for RosterListScreen {
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let idx = {
             let names = Self::names(cx);
-            self.list.global_index(&names, true, height(cx))
+            self.list.global_index(&names, height(cx))
         };
-        if !cx.drive.roster.is_empty() {
-            nav.emit(Intent::AcquireRoster(
-                idx.min(cx.drive.roster.len().saturating_sub(1)),
-            ));
-        } else if let Some(e) = cx.drive.persist.static_roster.get(idx) {
-            cx.session.addr.clear();
-            let _ = cx.session.addr.push_str(e.addr.as_str());
-            nav.emit(Intent::AcquireAddr);
-        }
-        nav.root(ScreenId::Throttle);
+        self.acquire_at(cx, nav, idx);
     }
 
     /// Skip Menu and return to throttle.

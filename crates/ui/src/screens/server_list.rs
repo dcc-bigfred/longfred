@@ -38,6 +38,21 @@ impl ServerListScreen {
         }
         v
     }
+
+    fn name_refs(bufs: &[Line]) -> heapless::Vec<&str, MAX_FOUND_SERVERS> {
+        let mut names = heapless::Vec::new();
+        for b in bufs {
+            let _ = names.push(b.as_str());
+        }
+        names
+    }
+
+    fn connect_at(&self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
+        if idx < cx.net.found_servers.len() {
+            nav.emit(Intent::ServerSelect(idx));
+            nav.root(ScreenId::Throttle);
+        }
+    }
 }
 
 impl Default for ServerListScreen {
@@ -60,28 +75,17 @@ impl Screen for ServerListScreen {
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         let bufs = Self::labels(cx);
-        let mut names: heapless::Vec<&str, MAX_FOUND_SERVERS> = heapless::Vec::new();
-        for b in &bufs {
-            let _ = names.push(b.as_str());
-        }
-        self.list.draw(
-            &mut g,
-            Some(cx.s.msg_services_found),
-            &names,
-            true,
-            height(cx),
-        );
+        let names = Self::name_refs(&bufs);
+        self.list
+            .draw(&mut g, Some(cx.s.msg_services_found), &names, height(cx));
         UiView::Grid(g)
     }
 
     /// Move the highlighted server row.
     fn on_list_step(&mut self, d: Step, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let bufs = Self::labels(cx);
-        let mut names: heapless::Vec<&str, MAX_FOUND_SERVERS> = heapless::Vec::new();
-        for b in &bufs {
-            let _ = names.push(b.as_str());
-        }
-        step_list(&mut self.list, d, &names, true, height(cx));
+        let names = Self::name_refs(&bufs);
+        step_list(&mut self.list, d, &names, height(cx));
     }
 
     /// Next → protocol picker. Prev → WIT manual IP (from-list flag set).
@@ -99,18 +103,17 @@ impl Screen for ServerListScreen {
     /// Digit jumps to that server and connects.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if let Some(d) = c.to_digit(10) {
-            let hit = {
+            let idx = {
                 let bufs = Self::labels(cx);
-                let mut names: heapless::Vec<&str, MAX_FOUND_SERVERS> = heapless::Vec::new();
-                for b in &bufs {
-                    let _ = names.push(b.as_str());
-                }
+                let names = Self::name_refs(&bufs);
+                let h = height(cx);
                 self.list
-                    .select_digit(d as u8, &names, true, height(cx))
+                    .select_digit(d as u8, &names, h)
                     .is_some()
+                    .then(|| self.list.global_index(&names, h))
             };
-            if hit {
-                self.on_select(cx, nav);
+            if let Some(idx) = idx {
+                self.connect_at(cx, nav, idx);
             }
         }
     }
@@ -119,16 +122,10 @@ impl Screen for ServerListScreen {
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let idx = {
             let bufs = Self::labels(cx);
-            let mut names: heapless::Vec<&str, MAX_FOUND_SERVERS> = heapless::Vec::new();
-            for b in &bufs {
-                let _ = names.push(b.as_str());
-            }
-            self.list.global_index(&names, true, height(cx))
+            let names = Self::name_refs(&bufs);
+            self.list.global_index(&names, height(cx))
         };
-        if idx < cx.net.found_servers.len() {
-            nav.emit(Intent::ServerSelect(idx));
-            nav.root(ScreenId::Throttle);
-        }
+        self.connect_at(cx, nav, idx);
     }
 
     /// Already connected (e.g. last server) → throttle.

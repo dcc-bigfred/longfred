@@ -22,18 +22,18 @@ pub fn height(cx: &ScreenCtx<'_>) -> u16 {
 }
 
 /// Move the list cursor one row.
-pub fn step_list(list: &mut PagedList, d: Step, items: &[&str], numbered: bool, h: u16) {
+pub fn step_list(list: &mut PagedList, d: Step, items: &[&str], h: u16) {
     match d {
-        Step::Prev => list.list_prev(items, numbered, h),
-        Step::Next => list.list_next(items, numbered, h),
+        Step::Prev => list.list_prev(items, h),
+        Step::Next => list.list_next(items, h),
     }
 }
 
 /// Flip one page of a paged list.
-pub fn page_list(list: &mut PagedList, d: PageDir, items: &[&str], numbered: bool, h: u16) {
+pub fn page_list(list: &mut PagedList, d: PageDir, items: &[&str], h: u16) {
     match d {
         PageDir::Prev => list.page_prev(items, h),
-        PageDir::Next => list.page_next(items, numbered, h),
+        PageDir::Next => list.page_next(items, h),
     }
 }
 

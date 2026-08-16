@@ -36,10 +36,15 @@ impl LanguageScreen {
         cx.env.geometry.height
     }
 
+    fn current_at(&self, labels: &[&str], h: u16) -> Language {
+        Self::LANGS
+            .get(self.list.global_index(labels, h))
+            .copied()
+            .unwrap_or(Language::En)
+    }
+
     fn current(&self, cx: &ScreenCtx<'_>) -> Language {
-        let labels = Self::labels(cx);
-        let idx = self.list.global_index(&labels, false, Self::height(cx));
-        Self::LANGS.get(idx).copied().unwrap_or(Language::En)
+        self.current_at(&Self::labels(cx), Self::height(cx))
     }
 }
 
@@ -62,13 +67,8 @@ impl Screen for LanguageScreen {
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         let labels = Self::labels(cx);
-        self.list.draw(
-            &mut g,
-            Some(cx.s.msg_language),
-            &labels,
-            false,
-            Self::height(cx),
-        );
+        self.list
+            .draw(&mut g, Some(cx.s.msg_language), &labels, Self::height(cx));
         g.set(5, cx.s.hint_language, false);
         UiView::Grid(g)
     }
@@ -77,8 +77,8 @@ impl Screen for LanguageScreen {
     fn on_list_step(&mut self, d: Step, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let labels = Self::labels(cx);
         match d {
-            Step::Prev => self.list.list_prev(&labels, false, Self::height(cx)),
-            Step::Next => self.list.list_next(&labels, false, Self::height(cx)),
+            Step::Prev => self.list.list_prev(&labels, Self::height(cx)),
+            Step::Next => self.list.list_next(&labels, Self::height(cx)),
         }
     }
 
@@ -86,12 +86,14 @@ impl Screen for LanguageScreen {
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if let Some(d) = c.to_digit(10) {
             let labels = Self::labels(cx);
-            if self
-                .list
-                .select_digit(d as u8, &labels, false, Self::height(cx))
-                .is_some()
-            {
-                self.on_select(cx, nav);
+            let h = Self::height(cx);
+            if self.list.select_digit(d as u8, &labels, h).is_some() {
+                nav.emit(Intent::SetLanguage(self.current_at(&labels, h)));
+                if cx.session.boot_language {
+                    cx.session.boot_language = false;
+                } else {
+                    nav.back();
+                }
             }
         }
     }
@@ -109,7 +111,7 @@ impl Screen for LanguageScreen {
     /// Page the language list if it overflows.
     fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let labels = Self::labels(cx);
-        page_list(&mut self.list, d, &labels, false, Self::height(cx));
+        page_list(&mut self.list, d, &labels, Self::height(cx));
     }
 
     /// Back is ignored during the boot wizard; otherwise pop to Extras.

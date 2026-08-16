@@ -70,10 +70,14 @@ impl DirectCommandsScreen {
         DirectItem::ALL.map(|item| item.label(cx.s))
     }
 
+    fn current_at(&self, labels: &[&str], h: u16) -> Option<DirectItem> {
+        DirectItem::ALL
+            .get(self.list.global_index(labels, h))
+            .copied()
+    }
+
     fn current(&self, cx: &ScreenCtx<'_>) -> Option<DirectItem> {
-        let labels = Self::labels(cx);
-        let idx = self.list.global_index(&labels, false, height(cx));
-        DirectItem::ALL.get(idx).copied()
+        self.current_at(&Self::labels(cx), height(cx))
     }
 }
 
@@ -96,39 +100,31 @@ impl Screen for DirectCommandsScreen {
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         let labels = Self::labels(cx);
-        fill_list_page(
-            &mut g,
-            &labels,
-            self.list.page,
-            self.list.cursor,
-            false,
-            height(cx),
-        );
+        fill_list_page(&mut g, &labels, &self.list, height(cx));
         UiView::Grid(g)
     }
 
     /// Move the highlighted command row.
     fn on_list_step(&mut self, d: Step, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let labels = Self::labels(cx);
-        step_list(&mut self.list, d, &labels, false, height(cx));
+        step_list(&mut self.list, d, &labels, height(cx));
     }
 
     /// Page the command list.
     fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
         let labels = Self::labels(cx);
-        page_list(&mut self.list, d, &labels, false, height(cx));
+        page_list(&mut self.list, d, &labels, height(cx));
     }
 
     /// Digit jumps to that row and runs it.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if let Some(d) = c.to_digit(10) {
             let labels = Self::labels(cx);
-            if self
-                .list
-                .select_digit(d as u8, &labels, false, height(cx))
-                .is_some()
-            {
-                self.on_select(cx, nav);
+            let h = height(cx);
+            if self.list.select_digit(d as u8, &labels, h).is_some() {
+                if let Some(item) = self.current_at(&labels, h) {
+                    item.activate(nav);
+                }
             }
         }
     }

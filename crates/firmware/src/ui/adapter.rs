@@ -151,6 +151,87 @@ pub fn strings_for(state: &DomainState) -> &'static Strings {
     strings(state.persist.language, hint_set())
 }
 
+/// Domain state, UI session, and live net snapshots used to build [`ScreenCtx`].
+pub struct UiWorld {
+    pub state: DomainState,
+    pub session: UiSession,
+    pub env: UiEnv,
+    pub router: Router,
+    pub net_status: NetStatus,
+    pub conn: ConnState,
+    pub server: Option<ServerEndpoint>,
+    pub scanned: heapless::Vec<SsidInfo, MAX_FOUND_SSIDS>,
+    pub servers: heapless::Vec<WitServer, MAX_FOUND_SERVERS>,
+    pub battery: Option<BatterySample>,
+}
+
+impl UiWorld {
+    pub fn new() -> Self {
+        Self {
+            state: DomainState::new(),
+            session: init_session(),
+            env: ui_env(),
+            router: Router::new(nav_profile(), ScreenId::Splash),
+            net_status: NetStatus::Disconnected,
+            conn: ConnState::Disconnected,
+            server: None,
+            scanned: heapless::Vec::new(),
+            servers: heapless::Vec::new(),
+            battery: None,
+        }
+    }
+
+    /// Run `f` with a [`ScreenCtx`] and a disjoint borrow of the router.
+    pub fn with_ctx<R>(
+        &mut self,
+        now_ms: u64,
+        f: impl FnOnce(&mut Router, &mut ScreenCtx<'_>) -> R,
+    ) -> R {
+        let strings = strings_for(&self.state);
+        let mut cx = screen_ctx(
+            &self.state,
+            &mut self.session,
+            &self.env,
+            strings,
+            self.net_status,
+            self.conn,
+            self.server,
+            &self.scanned,
+            &self.servers,
+            self.battery,
+            now_ms,
+        );
+        f(&mut self.router, &mut cx)
+    }
+
+    pub fn publish_view(
+        &mut self,
+        now_ms: u64,
+        ui_tx: &embassy_sync::watch::Sender<
+            'static,
+            embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+            UiView,
+            2,
+        >,
+    ) {
+        publish(
+            &self.router,
+            &self.state,
+            &mut self.session,
+            &self.env,
+            strings_for(&self.state),
+            self.net_status,
+            self.conn,
+            self.server,
+            &self.scanned,
+            &self.servers,
+            self.battery,
+            now_ms,
+            ui_tx,
+        );
+    }
+}
+
 pub fn publish(
     router: &Router,
     state: &DomainState,
