@@ -22,4 +22,4 @@ pub mod z21;
 
 pub use command::{ClientCommand, LocoId, Protocol};
 pub use events::ServerEvent;
-pub use model::{Direction, RouteState, TrackPower, TurnoutState};
+pub use model::{Direction, TrackPower};

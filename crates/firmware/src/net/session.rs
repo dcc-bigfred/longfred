@@ -181,12 +181,12 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
     }
 }
 
-async fn run_tcp_session(stack: Stack<'static>, ep: ServerEndpoint) -> bool {
-    static RX: static_cell::StaticCell<[u8; TCP_RX_SIZE]> = static_cell::StaticCell::new();
-    static TX: static_cell::StaticCell<[u8; TCP_TX_SIZE]> = static_cell::StaticCell::new();
-    let rx = RX.init([0; TCP_RX_SIZE]);
-    let tx = TX.init([0; TCP_TX_SIZE]);
-
+async fn run_tcp_session(
+    stack: Stack<'static>,
+    ep: ServerEndpoint,
+    rx: &mut [u8],
+    tx: &mut [u8],
+) -> bool {
     let mut sock = TcpSocket::new(stack, rx, tx);
     sock.set_nagle_enabled(!config::network::TCP_NODELAY);
     sock.set_timeout(Some(Duration::from_secs(config::network::TCP_TIMEOUT_S)));
@@ -212,19 +212,15 @@ async fn run_tcp_session(stack: Stack<'static>, ep: ServerEndpoint) -> bool {
     true
 }
 
-async fn run_udp_session(stack: Stack<'static>, ep: ServerEndpoint) -> bool {
-    static RX_META: static_cell::StaticCell<[PacketMetadata; 4]> = static_cell::StaticCell::new();
-    static TX_META: static_cell::StaticCell<[PacketMetadata; 4]> = static_cell::StaticCell::new();
-    static RX: static_cell::StaticCell<[u8; UDP_RX_SIZE]> = static_cell::StaticCell::new();
-    static TX: static_cell::StaticCell<[u8; UDP_TX_SIZE]> = static_cell::StaticCell::new();
-
-    let mut sock = UdpSocket::new(
-        stack,
-        RX_META.init([PacketMetadata::EMPTY; 4]),
-        RX.init([0; UDP_RX_SIZE]),
-        TX_META.init([PacketMetadata::EMPTY; 4]),
-        TX.init([0; UDP_TX_SIZE]),
-    );
+async fn run_udp_session(
+    stack: Stack<'static>,
+    ep: ServerEndpoint,
+    rx_meta: &mut [PacketMetadata],
+    rx: &mut [u8],
+    tx_meta: &mut [PacketMetadata],
+    tx: &mut [u8],
+) -> bool {
+    let mut sock = UdpSocket::new(stack, rx_meta, rx, tx_meta, tx);
     if sock.bind(0).is_err() {
         warn!("z21 udp bind failed");
         return false;
@@ -247,13 +243,35 @@ async fn run_udp_session(stack: Stack<'static>, ep: ServerEndpoint) -> bool {
 
 #[embassy_executor::task]
 pub async fn task(stack: Stack<'static>) {
+    // Taken once: reconnect must reuse these buffers (`StaticCell::init` panics on the 2nd call).
+    static TCP_RX: static_cell::ConstStaticCell<[u8; TCP_RX_SIZE]> =
+        static_cell::ConstStaticCell::new([0; TCP_RX_SIZE]);
+    static TCP_TX: static_cell::ConstStaticCell<[u8; TCP_TX_SIZE]> =
+        static_cell::ConstStaticCell::new([0; TCP_TX_SIZE]);
+    static UDP_RX_META: static_cell::ConstStaticCell<[PacketMetadata; 4]> =
+        static_cell::ConstStaticCell::new([PacketMetadata::EMPTY; 4]);
+    static UDP_TX_META: static_cell::ConstStaticCell<[PacketMetadata; 4]> =
+        static_cell::ConstStaticCell::new([PacketMetadata::EMPTY; 4]);
+    static UDP_RX: static_cell::ConstStaticCell<[u8; UDP_RX_SIZE]> =
+        static_cell::ConstStaticCell::new([0; UDP_RX_SIZE]);
+    static UDP_TX: static_cell::ConstStaticCell<[u8; UDP_TX_SIZE]> =
+        static_cell::ConstStaticCell::new([0; UDP_TX_SIZE]);
+    let tcp_rx = TCP_RX.take();
+    let tcp_tx = TCP_TX.take();
+    let udp_rx_meta = UDP_RX_META.take();
+    let udp_tx_meta = UDP_TX_META.take();
+    let udp_rx = UDP_RX.take();
+    let udp_tx = UDP_TX.take();
+
     let mut connect_fails: u32 = 0;
     loop {
         CONN.sender().send(ConnState::Connecting);
         let ep = wait_for_server().await;
         let established = match ep.protocol {
-            Protocol::WiThrottle => run_tcp_session(stack, ep).await,
-            Protocol::Z21 => run_udp_session(stack, ep).await,
+            Protocol::WiThrottle => run_tcp_session(stack, ep, tcp_rx, tcp_tx).await,
+            Protocol::Z21 => {
+                run_udp_session(stack, ep, udp_rx_meta, udp_rx, udp_tx_meta, udp_tx).await
+            }
         };
         CONN.sender().send(ConnState::Disconnected);
         if established {

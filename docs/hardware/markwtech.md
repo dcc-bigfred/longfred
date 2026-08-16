@@ -9,14 +9,16 @@ ESP32-C6-DevKitC-1 with 3×4 keypad, extra buttons, KY-040 encoder, and 2.42" SS
 | Cargo feature | `variant-markwtech` |
 | Display | SSD1309/SSD1306 128×64 I2C |
 | Expanders | none |
-| Programming chord | **\* (Menu) + Stop** 8 s |
+| Programming chord | **\* (Menu) + Stop** 8 s, or **Stop** during the 2 s boot splash |
 
 ## Controls
 
 - 3×4 keypad: digits, `*` (menu/cancel), `#` (select)
 - Five extra GPIO tact switches (left / Stop / right / Back / Menu)
 - KY-040 encoder for speed / list scroll
-- Dedicated Stop for EStop / programming chord
+- Dedicated Stop for EStop, boot-splash programming, and the 8 s chord
+- **Left / Right** page lists (and Diagnostics subpages). **Stop** on Diagnostics advances to the next subpage.
+- **Extras → Diagnostics**: battery, version, software, Wi‑Fi range, IP/MAC, ping to the command station.
 
 ## Pin map
 
@@ -489,4 +491,213 @@ Use the **USB Type-C to UART** port (the one wired to the on-board bridge) — n
 
 ## Programming mode
 
-Hold **\* + Stop** for 8 seconds. Soft-AP gets DHCP; firmware OTA from the pairing page or Extras → Firmware update on layout Wi‑Fi. See [provisioning.md](../provisioning.md).
+- **Boot splash (2 s):** press **Stop** to enter Soft-AP. Hint `[STOP - Programming mode]` is in the bottom-right corner.
+- **Anytime after boot:** hold **\* + Stop** for 8 seconds.
+- In Soft-AP the OLED asks whether you joined the AP (**left** = cancel / reboot, **right** = next), then shows a QR code for `http://192.168.0.1/`.
+
+After splash (and a one-time language picker, stored in NVS, later **Extras → Language**):
+
+1. If a Wi-Fi network is saved, the device tries it for 5 s. On failure it shows `Cannot connect` / `choose other network`, then a live scan. **Back** skips Wi-Fi and goes to the server list.
+2. If a command station is saved, it tries that endpoint for 5 s and skips the list on success. Otherwise mDNS fills the server list. **Left** opens manual IP:port (WiThrottle).
+
+Soft-AP gets DHCP; firmware OTA from the pairing page or Extras → Firmware update on layout Wi‑Fi. See [provisioning.md](../provisioning.md).
+
+## TODO — Pin reorganisation for modular harnesses
+
+> **Not implemented yet.** The sections above describe the **current** firmware pinout. This section is a saved plan for a future hardware/firmware pass — to group signals into short Dupont/JST harnesses and cut cable clutter.
+
+### Goal
+
+Group connections by physical location on the controller:
+
+| Harness group | Components |
+|---------------|------------|
+| Keypad | 3×4 matrix (7 wires) |
+| Left / Stop / Right | three tact switches |
+| Display | OLED I2C |
+| Back / Menu | two tact switches |
+| Speed control | KY-040 encoder |
+
+The DevKit headers have gaps (GPIO 8 = RGB LED, GPIO 9 = BOOT, GPIO 1 = battery ADC, GPIO 16/17 = UART). Not every group can share one connector without moving the encoder.
+
+### Today vs target
+
+| Group | GPIO today | On headers today |
+|-------|------------|------------------|
+| Keypad | 18–23 + **10** | six in a row on J3, seventh on the **other** side |
+| OLED | 6, 7 | together (J1-5, J1-6) |
+| Encoder | 2, 3, 0 | A/B together (J1-12, J1-13), SW separate (J1-7) |
+| Left / Stop / Right / Back / Menu | 11, 12, 4, 5, 15 | spread across both headers |
+
+The only seven-GPIO block on the board is **J3-4 … J3-10**: `15, 23, 22, 21, 20, 19, 18`. The keypad should use that block entirely — move **C2 from GPIO 10 to GPIO 15**.
+
+`3V3` is on J1-1, ground at the ends of both headers. **Do not put OLED/encoder power on the same connector as SDA/SCL** without tapping `RST` or `5V`. Use separate 2-pin `3V3` + `G` feeds for power.
+
+### Proposed layout (all groups on connectors)
+
+```text
+J3 (TX/RX)                         J1 (3V3/RST/5V)
+ 1  G                              1  3V3     ── OLED + encoder power (2-pin with G)
+ 2  TX  (console — leave)          2  RST     (do not use)
+ 3  RX  (console — leave)          3  GPIO4   ┐ encoder DT
+ 4  GPIO15 ┐                       4  GPIO5   ┘ encoder CLK     BLS-03
+ 5  GPIO23 │                       5  GPIO6   ┐ OLED SDA
+ 6  GPIO22 │ keypad                6  GPIO7   ┘ OLED SCL        BLS-02
+ 7  GPIO21 │ BLS-07                7  GPIO0     encoder SW      BLS-01 (wake from sleep)
+ 8  GPIO20 │                       8  GPIO1     battery ADC
+ 9  GPIO19 │                       9  GPIO8     RGB LED — leave
+10  GPIO18 ┘                      10  GPIO10  ┐
+11  GPIO9   BOOT — leave           11  GPIO11  │ left, right, stop   BLS-03
+12  G                             12  GPIO2   ┘
+13  GPIO13 ┐ back, menu            13  GPIO3     spare
+14  GPIO12 ┘ BLS-02               14  5V
+15  G                             15  G
+```
+
+| Connector | Header pins (order on strip) | GPIO |
+|-----------|------------------------------|------|
+| Keypad BLS-07 | J3-4 … J3-10 | 15, 23, 22, 21, 20, 19, 18 |
+| Encoder A/B BLS-03 | J1-3, J1-4 | 4, 5 (+ SW separately on 0) |
+| OLED BLS-02 | J1-5, J1-6 | 6, 7 |
+| Left / right / stop BLS-03 | J1-10 … J1-12 | 10, 11, **2** |
+| Back / Menu BLS-02 | J3-13, J3-14 | 13, 12 |
+
+### Proposed function → GPIO map
+
+| Function | GPIO | Was |
+|----------|------|-----|
+| Keypad R0–R3, C0, C1 | 18, 19, 20, 21, 22, 23 | unchanged |
+| Keypad C2 | **15** | 10 |
+| Encoder DT / CLK | **4, 5** | 2, 3 |
+| Encoder SW | **0** | unchanged (deep-sleep wake) |
+| OLED SDA / SCL | **6, 7** | unchanged |
+| Menu left / right / Stop | **10, 11, 2** | 11, 4, 12 |
+| Back / Menu | **13, 12** | 5, 15 |
+
+Stop moves off `USB_D−` to GPIO 2. Back/Menu use 12/13, so **native USB stays unavailable anyway**, but Stop is no longer alone on D− and the two buttons share one connector.
+
+Encoder SW must stay on GPIO 0–7 (deep-sleep wake domain). Keeping it on 0 does not affect `sleep::task`. A/B cannot share one connector with SW: GPIO 1 (ADC) and GPIO 8 (LED) sit between them — hence BLS-03 on 4+5 and a separate 1-pin lead for SW.
+
+GPIO **3** remains spare.
+
+### What cannot be done
+
+Left + right + stop as **three adjacent pins** with the encoder still on GPIO 2 and 3 — there is no third free pin next to them. Encoder A/B must move (as in the proposed layout above).
+
+I2C and encoder pins live in global [`config/board.rs`](../../crates/firmware/src/config/board.rs) (shared across variants). Moving DT/CLK to 4 and 5 needs **markwtech-only constants**; otherwise LongFred/Heiko break. Keypad and the five extra buttons are already in [`markwtech.rs`](../../crates/firmware/src/board/variants/markwtech.rs), so C2→15 and the new button map are local changes.
+
+### When implementing
+
+- [ ] Update `KEYPAD_COL_PINS`, `EXTRA_BUTTON_PINS` / `EXTRA_BUTTON_MAP` in `markwtech.rs`
+- [ ] Add markwtech-only encoder pin constants (or override in variant init)
+- [ ] Refresh pin tables and assembly steps in this file and `markwtech_pl.md`
+- [ ] Re-test keypad mapping, all five buttons, encoder, OLED, battery ADC, `* + Stop` chord, deep-sleep wake on encoder press
+- [ ] Optional bench test before soldering: move keypad to J3-4…10 and verify digits (connector order: 15=C2, then 23, 22, 21, 20, 19, 18)
+
+## TODO — Modular connectors (goldpin + JST / Dupont)
+
+> **Not implemented yet.** Saved plan for cleaner wiring and easier case disassembly. Works together with the [pin reorganisation](#todo--pin-reorganisation-for-modular-harnesses) above — grouped GPIO first, then one connector per harness.
+
+### Problem
+
+Loose single-pin Dupont jumpers on the DevKit headers are the main source of cable clutter and connectors that fall off. On a handheld controller, friction alone is not enough — a Stop button that disconnects is worse than an ugly cable.
+
+### Goldpin and JST are not interchangeable
+
+| Connector | Pitch | Mates with |
+|-----------|-------|------------|
+| Goldpin / Dupont (BLS) | 2.54 mm | male header pin 0.64 × 0.64 mm |
+| JST SH | 1.0 mm | own SH plug/socket only |
+| JST XH | 2.54 mm | own XH plug/socket (has latch) |
+| JST PH | 2.0 mm | own PH plug/socket |
+
+**You cannot push a goldpin into a JST socket** — different contact shape and pitch. Each transition needs a proper wire: crimped Dupont on one end, crimped JST on the other.
+
+### Proposed architecture
+
+Duponts stay on the ESP **permanently**. Service and debugging disconnect **JST** harnesses only.
+
+```text
+ESP header (goldpin) ── Dupont (tight, never removed)
+                         │
+                         ├── tape / zip tie to case wall  ← strain relief
+                         │
+                      JST socket glued in case
+                         │
+                      JST plug ── cable ── OLED / keypad / encoder / buttons
+```
+
+When removing the case: unplug JST. Duponts remain on the DevKit.
+
+Glue the **socket** (fixed side) into the case. The component side carries the **plug** with the latch. For JST XH 2.54 mm: male header pins in the case, female housings with latch on the cables.
+
+### Which connector for what
+
+| Use | Recommended | Why |
+|-----|-------------|-----|
+| Signals (OLED, encoder, keypad, buttons) | **JST XH 2.54 mm** or **Dupont BLS multi-pin** | latch (XH) or grouped pins (BLS-07); 1 A is enough |
+| Very compact harnesses | JST SH 1.0 mm | smallest, latched — but hard to crimp; prefer **ready-made pigtails** |
+| Battery / charger / regulator | **JST PH 2.0 mm** or **XH** | thicker contacts; **different colour or pin count** from signal harnesses |
+| Bench testing only | loose Dupont | OK temporarily; not the final solution |
+
+For a DIY adapter strip in the case, **JST XH** is easier than SH: fits perfboard at 2.54 mm, cheap housings, crimps with common tools. SH makes sense with ready-made pigtails or a custom breakout PCB.
+
+### Dupont / BLS on the DevKit (permanent side)
+
+Use **multi-pin BLS housings**, not one BLS-01 per wire:
+
+| Harness | BLS housing | Wires |
+|---------|-------------|-------|
+| OLED | BLS-04 | VCC, GND, SCL, SDA |
+| KY-040 | BLS-05 | +, GND, DT, CLK, SW |
+| Keypad | BLS-07 | 7 matrix leads |
+| Buttons | BLS-06 | 5 signals + common GND |
+| Spares / single GND | BLS-01 | as needed |
+
+BLS-01 is only the **plastic shell** — buy **female crimp terminals** separately (open barrel, AWG 28–22, latch tab). A 7-pin BLS-07 on a header row holds much better than seven separate 1-pin plugs.
+
+**Tight fit on goldpins:**
+
+1. Crimp with a proper open-barrel tool (e.g. **IWISS IWS-2820M**), not generic pliers.
+2. Optionally squeeze the contact forks slightly after crimping (remove from housing first).
+3. Prefer **machine-pin** female terminals if buying new stock.
+4. **Strain relief:** tape or zip-tie the Dupont→JST segment to the case wall; never pull on the Dupont when unplugging a component.
+5. Do **not** glue Duponts to the ESP board.
+
+### Crimp tool note (IWS-2820M)
+
+| Connector | IWS-2820M |
+|-----------|-----------|
+| Dupont / BLS 2.54 mm | **Yes** (AWG 28–20) |
+| JST XH 2.54 mm | **Yes** |
+| JST PH 2.0 mm | Possible, tighter |
+| JST SH 1.0 mm | **No** — pitch too small; use PA-09 / SN-2549 or buy SH pigtails |
+
+One IWS-2820M covers Dupont on the ESP and XH on the case-side sockets.
+
+### Harness plan (with current pinout)
+
+| Case socket | Pins | Goes to |
+|-------------|------|---------|
+| OLED | 4 | VCC, GND, SCL, SDA |
+| Encoder | 5 | +, GND, DT, CLK, SW |
+| Keypad | 7 | R0–R3, C0–C2 (label your FPC pin order) |
+| Buttons | 6 | 5 signals + shared GND |
+| Power | 2–3 | separate plug, different housing colour |
+
+Keep **power on a separate connector** from signals. Wrong polarity on a swapped plug still destroys hardware.
+
+### What not to do
+
+- Do not push a goldpin into a JST housing “because both are connectors”.
+- Do not use seven single-pin Duponts for the keypad — use one BLS-07.
+- Do not rely on friction alone for Stop or other critical buttons.
+- Do not route TP4056 charge current through signal Duponts (1 A rating is for logic, not charging).
+
+### When implementing
+
+- [ ] Crimp Dupont harnesses per group; label both ends (GPIO number + function).
+- [ ] Mount JST/XH sockets in case with epoxy or 3D-printed clip (hot glue may fail on smooth PETG).
+- [ ] Tape or zip-tie each adapter lead at the case wall before gluing sockets.
+- [ ] Use consistent wire colours (e.g. black = GND everywhere).
+- [ ] After [pin reorganisation](#todo--pin-reorganisation-for-modular-harnesses), rebuild harness pin order to match new GPIO groups.

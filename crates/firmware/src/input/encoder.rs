@@ -41,6 +41,7 @@ pub async fn task(mut a: Input<'static>, b: Input<'static>, sender: RawSender) {
         // Direction from B at the A edge (KY-040/EC11 detent).
         let cw = b.is_high();
         let delta: i8 = if cw { 1 } else { -1 };
+        log::info!("input: encoder {}", if cw { "CW" } else { "CCW" });
         let _ = sender.try_send(RawEvent::Encoder(delta));
         Timer::after(Duration::from_millis(2)).await;
     }
@@ -52,8 +53,10 @@ pub async fn button_task(mut button: Input<'static>, sender: RawSender) {
         button.wait_for_falling_edge().await;
         Timer::after(Duration::from_millis(BTN_DEBOUNCE_MS)).await;
         if button.is_low() {
+            log::info!("input: encoder SW press");
             let _ = sender.try_send(RawEvent::Button(ButtonId::EncoderButton, true));
             button.wait_for_high().await;
+            log::info!("input: encoder SW release");
             let _ = sender.try_send(RawEvent::Button(ButtonId::EncoderButton, false));
         }
     }

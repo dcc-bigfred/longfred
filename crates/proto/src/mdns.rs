@@ -208,18 +208,10 @@ pub fn build_ota_announce(hostname: &str, ipv4: [u8; 4], port: u16, buf: &mut [u
         &mut n,
         &u16::try_from(instance_len).unwrap_or(0).to_be_bytes(),
     );
-    mdns_put_name(
-        buf,
-        &mut n,
-        &[hostname, "_longfred-ota", "_tcp", "local"],
-    );
+    mdns_put_name(buf, &mut n, &[hostname, "_longfred-ota", "_tcp", "local"]);
 
     // SRV {hostname}._longfred-ota._tcp.local -> {hostname}.local:port
-    mdns_put_name(
-        buf,
-        &mut n,
-        &[hostname, "_longfred-ota", "_tcp", "local"],
-    );
+    mdns_put_name(buf, &mut n, &[hostname, "_longfred-ota", "_tcp", "local"]);
     mdns_put_slice(buf, &mut n, &[0, 33, 0, 1, 0, 0, 0, 120]);
     let target_len = 6 + 1 + hostname.len() + 1 + "local".len() + 1;
     mdns_put_slice(
@@ -281,10 +273,7 @@ pub fn collect_ota_hosts<const N: usize>(pkt: &[u8]) -> heapless::Vec<OtaHost, N
                 pkt.get(rdata + 2),
                 pkt.get(rdata + 3),
             ) {
-                let host = name
-                    .split('.')
-                    .next()
-                    .unwrap_or("longfred");
+                let host = name.split('.').next().unwrap_or("longfred");
                 let mut hostname = heapless::String::new();
                 let _ = hostname.push_str(host);
                 let _ = out.push(OtaHost {

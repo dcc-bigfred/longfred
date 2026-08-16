@@ -4,7 +4,6 @@
 mod menu_nav;
 
 use longfred_proto::command::Protocol;
-use longfred_proto::model::TurnoutAction;
 use longfred_proto::persist::{DEVICE_ID_MIN, DeviceIdentity, Language, StaticIpConfig};
 
 use crate::config::{self, buttons, network, power, sizes};
@@ -14,13 +13,17 @@ use crate::input::InputEvent;
 use crate::net::SsidInfo;
 use crate::ui::i18n;
 use crate::ui::keyboard::{KeyboardMode, TextKeyboard};
-use crate::ui::view::{GridView, Line, ThrottleView, UiView, ViewCtx};
+use crate::ui::paged_list::PagedList;
+use crate::ui::view::{
+    GridView, Line, ThrottleView, UiView, ViewCtx, fill_list_page, fill_list_page_invert,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Screen {
     Splash,
     SsidList,
     SsidScan,
+    SsidScanning,
     Password,
     ServerList,
     ServerProto,
@@ -31,8 +34,6 @@ pub enum Screen {
     Extras,
     RosterList,
     FunctionList,
-    TurnoutList,
-    RouteList,
     DirectCommands,
     IpConfig,
     IpEdit,
@@ -41,12 +42,8 @@ pub enum Screen {
     DeviceIdEdit,
     Language,
     FirmwareUpdate,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ListRef {
-    Addr,
-    Index(usize),
+    WifiFailed,
+    Diagnostics,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -56,9 +53,8 @@ pub enum Intent {
     AcquireAddr,
     AcquireRoster(usize),
     ReleaseAll,
-    Function(u8, bool),
-    Turnout(TurnoutAction, ListRef),
-    Route(ListRef),
+    /// Toggle DCC function `0..=31` (press on, press again off).
+    Function(u8),
     WifiScan,
     WifiSelect(usize, bool),
     WifiConnect,
@@ -68,7 +64,6 @@ pub enum Intent {
     DropBeforeAcquireToggle,
     HashFunctionsToggle,
     Sleep,
-    SaveLocos,
     RequestMdns,
     NetConfig,
     SaveNetwork(StaticIpConfig),
@@ -86,42 +81,25 @@ pub enum BatteryMode {
     IconPercent,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum MenuItemType {
-    Direct,
-    SubMenu,
-    OneOrMore,
-}
-
-const MENU_KEYS: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-const MENU_TYPES: [MenuItemType; 10] = [
-    MenuItemType::OneOrMore,
-    MenuItemType::OneOrMore,
-    MenuItemType::OneOrMore,
-    MenuItemType::Direct,
-    MenuItemType::Direct,
-    MenuItemType::OneOrMore,
-    MenuItemType::OneOrMore,
-    MenuItemType::OneOrMore,
-    MenuItemType::Direct,
-    MenuItemType::SubMenu,
-];
+pub(crate) const DIAG_PAGES: usize = 6;
 
 pub struct MenuFsm {
     pub screen: Screen,
-    menu_cmd: heapless::String<8>,
-    page: usize,
+    /// Typed 1-based index while picking from a list longer than 9 items.
+    list_num: heapless::String<3>,
+    list: PagedList,
     fn_page: usize,
-    pub addr: heapless::String<5>,
+    pub addr: heapless::String<8>,
     pw: heapless::String<64>,
     ip_digits: heapless::String<17>,
     hash_functions: bool,
     selected_ssid_idx: usize,
     selected_from_scan: bool,
-    turnout_throw: bool,
     selected_ssid: heapless::String<32>,
     pending_password_save: bool,
     splash_done: bool,
+    boot_language: bool,
+    server_entry_from_list: bool,
     battery_mode: BatteryMode,
     net_cfg: StaticIpConfig,
     ip_field: u8,
@@ -129,7 +107,6 @@ pub struct MenuFsm {
     manual_protocol: Protocol,
     device_name_edit: heapless::String<32>,
     device_id_digits: heapless::String<4>,
-    cursor: usize,
     text_kbd: TextKeyboard<64>,
     addr_kbd: TextKeyboard<5>,
     ip_kbd: TextKeyboard<17>,
@@ -141,8 +118,8 @@ impl MenuFsm {
     pub fn new() -> Self {
         Self {
             screen: Screen::Splash,
-            menu_cmd: heapless::String::new(),
-            page: 0,
+            list_num: heapless::String::new(),
+            list: PagedList::new(true),
             fn_page: 0,
             addr: heapless::String::new(),
             pw: heapless::String::new(),
@@ -150,10 +127,11 @@ impl MenuFsm {
             hash_functions: buttons::HASH_SHOWS_FUNCTIONS_INSTEAD_OF_KEY_DEFS,
             selected_ssid_idx: 0,
             selected_from_scan: false,
-            turnout_throw: true,
             selected_ssid: heapless::String::new(),
             pending_password_save: false,
             splash_done: false,
+            boot_language: false,
+            server_entry_from_list: false,
             battery_mode: if power::USE_BATTERY_TEST {
                 if power::USE_BATTERY_PERCENT_WITH_ICON {
                     BatteryMode::IconPercent
@@ -169,7 +147,6 @@ impl MenuFsm {
             manual_protocol: Protocol::WiThrottle,
             device_name_edit: heapless::String::new(),
             device_id_digits: heapless::String::new(),
-            cursor: 0,
             text_kbd: TextKeyboard::new(KeyboardMode::Text),
             addr_kbd: TextKeyboard::new(KeyboardMode::Digits),
             ip_kbd: TextKeyboard::new(KeyboardMode::Digits),
@@ -178,36 +155,77 @@ impl MenuFsm {
         }
     }
 
-    pub fn tick_splash(&mut self) -> Intent {
-        if self.screen == Screen::Splash && !self.splash_done {
-            self.splash_done = true;
-            if network::AUTO_CONNECT_TO_FIRST_DEFINED_SERVER
-                && !config::network::NETWORKS.is_empty()
-            {
-                self.screen = Screen::Connecting;
-                Intent::WifiConnect
-            } else {
-                self.screen = Screen::SsidList;
-                Intent::None
-            }
+    pub fn begin_language_wizard(&mut self) {
+        self.splash_done = true;
+        self.boot_language = true;
+        self.screen = Screen::Language;
+        self.list.cursor = 0;
+    }
+
+    /// After splash / language: try last NVS credential or open a live scan.
+    pub fn begin_wifi_setup(&mut self, last_ssid: Option<&str>) -> Intent {
+        self.splash_done = true;
+        self.boot_language = false;
+        self.list.cursor = 0;
+        self.list.page = 0;
+        if let Some(ssid) = last_ssid {
+            self.selected_ssid.clear();
+            let _ = self.selected_ssid.push_str(ssid);
+            self.selected_from_scan = false;
+            self.screen = Screen::Connecting;
+            Intent::WifiConnect
         } else {
-            Intent::None
+            self.selected_ssid.clear();
+            self.screen = Screen::SsidScanning;
+            Intent::WifiScan
         }
+    }
+
+    pub fn show_wifi_failed(&mut self) {
+        self.screen = Screen::WifiFailed;
+    }
+
+    pub fn show_ssid_scan(&mut self) -> Intent {
+        self.screen = Screen::SsidScanning;
+        self.list.page = 0;
+        self.list.cursor = 0;
+        Intent::WifiScan
+    }
+
+    pub fn skip_wifi_to_servers(&mut self) -> Intent {
+        self.screen = Screen::ServerList;
+        self.list.page = 0;
+        self.list.cursor = 0;
+        Intent::RequestMdns
+    }
+
+    pub fn show_server_list(&mut self) -> Intent {
+        self.screen = Screen::ServerList;
+        self.list.page = 0;
+        self.list.cursor = 0;
+        Intent::RequestMdns
     }
 
     pub fn on_wifi_ready(&mut self) {
         if matches!(
             self.screen,
-            Screen::Connecting | Screen::Password | Screen::SsidList | Screen::SsidScan
+            Screen::Connecting
+                | Screen::Password
+                | Screen::SsidList
+                | Screen::SsidScan
+                | Screen::SsidScanning
+                | Screen::WifiFailed
         ) {
             self.screen = Screen::ServerList;
         }
     }
 
     pub fn on_scan_done(&mut self) {
-        if self.screen == Screen::SsidList {
+        if matches!(
+            self.screen,
+            Screen::SsidList | Screen::SsidScan | Screen::SsidScanning
+        ) {
             self.screen = Screen::SsidScan;
-            self.page = 0;
         }
     }
 
@@ -218,8 +236,6 @@ impl MenuFsm {
                 | Screen::Extras
                 | Screen::RosterList
                 | Screen::FunctionList
-                | Screen::TurnoutList
-                | Screen::RouteList
                 | Screen::DirectCommands
                 | Screen::IpConfig
                 | Screen::IpEdit
@@ -228,6 +244,9 @@ impl MenuFsm {
                 | Screen::DeviceIdEdit
                 | Screen::Language
                 | Screen::FirmwareUpdate
+                | Screen::Diagnostics
+                | Screen::WifiFailed
+                | Screen::Splash
         ) {
             self.screen = Screen::Throttle;
         }
@@ -238,89 +257,23 @@ impl MenuFsm {
         ev: InputEvent,
         domain: &DomainState,
         scanned: &heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
+        servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
     ) -> Intent {
-        self.handle_input(ev, domain, scanned)
-    }
-
-    pub(crate) fn finish_menu(&mut self) -> Intent {
-        if self.menu_cmd.is_empty() {
-            return Intent::None;
-        }
-        use longfred_proto::menu::{MenuFinish, finish_menu as finish};
-        let result = finish(self.menu_cmd.as_str());
-        self.menu_cmd.clear();
-        match result {
-            MenuFinish::None => Intent::None,
-            MenuFinish::AcquireAddr(addr) => {
-                self.addr.clear();
-                let _ = self.addr.push_str(addr.as_str());
-                self.screen = Screen::Throttle;
-                Intent::AcquireAddr
-            }
-            MenuFinish::RosterList => {
-                self.screen = Screen::RosterList;
-                self.page = 0;
-                Intent::None
-            }
-            MenuFinish::ReleaseAll => {
-                self.screen = Screen::Throttle;
-                Intent::ReleaseAll
-            }
-            MenuFinish::DirectionToggle => {
-                self.screen = Screen::Throttle;
-                Intent::Action(Action::DirectionToggle)
-            }
-            MenuFinish::SpeedMultiplier => {
-                self.screen = Screen::Throttle;
-                Intent::Action(Action::SpeedMultiplier)
-            }
-            MenuFinish::TurnoutThrowAddr(addr) => {
-                self.addr.clear();
-                let _ = self.addr.push_str(addr.as_str());
-                self.screen = Screen::Throttle;
-                Intent::Turnout(TurnoutAction::Throw, ListRef::Addr)
-            }
-            MenuFinish::TurnoutCloseAddr(addr) => {
-                self.addr.clear();
-                let _ = self.addr.push_str(addr.as_str());
-                self.screen = Screen::Throttle;
-                Intent::Turnout(TurnoutAction::Close, ListRef::Addr)
-            }
-            MenuFinish::TurnoutList { throw } => {
-                self.turnout_throw = throw;
-                self.screen = Screen::TurnoutList;
-                self.page = 0;
-                Intent::None
-            }
-            MenuFinish::RouteAddr(addr) => {
-                self.addr.clear();
-                let _ = self.addr.push_str(addr.as_str());
-                self.screen = Screen::Throttle;
-                Intent::Route(ListRef::Addr)
-            }
-            MenuFinish::RouteList => {
-                self.screen = Screen::RouteList;
-                self.page = 0;
-                Intent::None
-            }
-            MenuFinish::PowerToggle => {
-                self.screen = Screen::Throttle;
-                Intent::Action(Action::PowerToggle)
-            }
-            MenuFinish::FunctionPress(f) => {
-                self.screen = Screen::Throttle;
-                Intent::Function(f, true)
-            }
-            MenuFinish::FunctionList => {
-                self.screen = Screen::FunctionList;
-                self.fn_page = 0;
-                Intent::None
-            }
-        }
+        self.handle_input(ev, domain, scanned, servers)
     }
 
     pub(crate) fn begin_server_entry(&mut self, protocol: Protocol) {
+        let keep_draft = self.manual_protocol == protocol
+            && (!self.ip_kbd.buffer.is_empty() || !self.ip_digits.is_empty());
         self.manual_protocol = protocol;
+        self.server_entry_from_list = false;
+        self.screen = Screen::ServerEntry;
+        if keep_draft {
+            if self.ip_kbd.buffer.is_empty() {
+                self.ip_kbd.load(self.ip_digits.as_str());
+            }
+            return;
+        }
         self.ip_digits.clear();
         let ip = match protocol {
             Protocol::WiThrottle => network::DEFAULT_WIT_IP,
@@ -335,9 +288,12 @@ impl MenuFsm {
         push_ip_octet(&mut self.ip_digits, ip[2]);
         push_ip_octet(&mut self.ip_digits, ip[3]);
         push_port_digits(&mut self.ip_digits, port);
-        self.ip_kbd.clear();
-        let _ = self.ip_kbd.buffer.push_str(self.ip_digits.as_str());
-        self.screen = Screen::ServerEntry;
+        self.ip_kbd.load(self.ip_digits.as_str());
+    }
+
+    pub(crate) fn begin_manual_server_from_list(&mut self) {
+        self.begin_server_entry(Protocol::WiThrottle);
+        self.server_entry_from_list = true;
     }
 
     pub fn manual_protocol(&self) -> Protocol {
@@ -354,11 +310,11 @@ impl MenuFsm {
     }
 
     fn sync_net_kbd_from_digits(&mut self) {
-        self.net_kbd.clear();
-        let _ = self.net_kbd.buffer.push_str(self.net_digits.as_str());
+        self.net_kbd.load(self.net_digits.as_str());
     }
 
     pub(crate) fn sync_digits_from_net_kbd(&mut self) {
+        let _ = self.net_kbd.ok();
         self.net_digits.clear();
         let _ = self.net_digits.push_str(self.net_kbd.buffer.as_str());
     }
@@ -465,8 +421,8 @@ impl MenuFsm {
         Intent::None
     }
 
-    pub fn format_net_display(&self) -> heapless::String<24> {
-        let mut s = heapless::String::new();
+    pub fn format_net_display(&self) -> Line {
+        let mut s = Line::new();
         let label = match self.ip_field {
             0 => "Mode",
             1 => "IP",
@@ -478,50 +434,34 @@ impl MenuFsm {
         let _ = s.push_str(label);
         let _ = s.push(' ');
         if self.ip_field == 0 {
-            if self.net_digits.is_empty() {
-                let _ = s.push(if self.net_cfg.dhcp { '0' } else { '1' });
-            } else {
-                let _ = s.push(self.net_digits.as_bytes()[0] as char);
-            }
-            let _ = s.push_str(
-                if self.net_cfg.dhcp || self.net_digits.as_bytes().first() == Some(&b'0') {
-                    " DHCP"
-                } else {
-                    " Static"
-                },
-            );
+            crate::ui::view::push_oled(&mut s, self.net_kbd.preview().as_str());
+            let d = self
+                .net_kbd
+                .pending()
+                .or_else(|| self.net_kbd.buffer.chars().next())
+                .unwrap_or(if self.net_cfg.dhcp { '0' } else { '1' });
+            let _ = s.push_str(if d == '0' { " DHCP" } else { " Static" });
             return s;
         }
         if self.ip_field == 2 {
-            let _ = s.push_str(self.net_digits.as_str());
+            crate::ui::view::push_oled(&mut s, self.net_kbd.preview().as_str());
             return s;
         }
-        let d = self.net_digits.as_str();
-        if d.len() >= 3 {
-            let _ = s.push_str(&d[0..3]);
-            let _ = s.push('.');
-        }
-        if d.len() >= 6 {
-            let _ = s.push_str(&d[3..6]);
-            let _ = s.push('.');
-        }
-        if d.len() >= 9 {
-            let _ = s.push_str(&d[6..9]);
-            let _ = s.push('.');
-        }
-        if d.len() > 9 {
-            let _ = s.push_str(&d[9..]);
-        }
+        let ip = crate::ui::keyboard::format_grouped_ip(
+            self.net_kbd.buffer.as_str(),
+            self.net_kbd.cursor(),
+            self.net_kbd.slot_char(),
+            false,
+        );
+        crate::ui::view::push_oled(&mut s, ip.as_str());
         s
     }
 
     pub(crate) fn begin_device_name_edit(&mut self, domain: &DomainState) {
-        self.text_kbd.clear();
         self.text_kbd.mode = KeyboardMode::Text;
-        let _ = self
-            .text_kbd
-            .buffer
-            .push_str(domain.persist.device.name.as_str());
+        self.text_kbd
+            .set_max_len(longfred_proto::persist::MAX_DEVICE_NAME_LEN);
+        self.text_kbd.load(domain.persist.device.name.as_str());
         self.device_name_edit.clear();
         let _ = self
             .device_name_edit
@@ -539,9 +479,11 @@ impl MenuFsm {
                 ((id / 10) % 10) as u8 + b'0',
                 (id % 10) as u8 + b'0',
             ];
+            let mut s = heapless::String::<4>::new();
             for d in digits {
-                let _ = self.id_kbd.buffer.push(d as char);
+                let _ = s.push(d as char);
             }
+            self.id_kbd.load(s.as_str());
         }
         self.device_id_digits.clear();
         let _ = self.device_id_digits.push_str(self.id_kbd.buffer.as_str());
@@ -601,19 +543,25 @@ impl MenuFsm {
     }
 
     pub(crate) fn encoder_button(&mut self, domain: &DomainState) -> Intent {
-        if matches!(self.screen, Screen::Password | Screen::DeviceNameEdit) {
-            let _ = self.text_kbd.ok();
-            return Intent::None;
-        }
         if self.screen == Screen::Throttle && domain.current_slot_has_loco() {
             return Intent::Action(buttons::ENCODER_BUTTON_ACTION);
         }
         Intent::None
     }
 
+    pub fn tick_text_field(&mut self, now_ms: u64) {
+        match self.screen {
+            Screen::Password | Screen::DeviceNameEdit => self.text_kbd.tick(now_ms),
+            Screen::ServerEntry => self.ip_kbd.tick(now_ms),
+            Screen::IpEdit => self.net_kbd.tick(now_ms),
+            Screen::DeviceIdEdit => self.id_kbd.tick(now_ms),
+            _ => {}
+        }
+    }
+
     pub fn pw_picker_char(&self) -> u8 {
         self.text_kbd
-            .pending
+            .pending()
             .map(|c| c as u8)
             .unwrap_or(i18n::PW_BLANK_CHAR)
     }
@@ -644,6 +592,14 @@ impl MenuFsm {
                 }
             } else {
                 ("", "")
+            }
+        } else if !self.selected_ssid.is_empty() {
+            if !self.pw.is_empty() {
+                (self.selected_ssid.as_str(), self.pw.as_str())
+            } else if let Some(stored) = domain.persist.find_password(self.selected_ssid.as_str()) {
+                (self.selected_ssid.as_str(), stored)
+            } else {
+                (self.selected_ssid.as_str(), "")
             }
         } else if let Some(n) = config::network::NETWORKS.get(self.selected_ssid_idx) {
             (n.ssid, n.password)
@@ -685,27 +641,16 @@ impl MenuFsm {
         self.battery_mode != BatteryMode::None
     }
 
-    pub fn password_preview(&self) -> heapless::String<24> {
-        let mut s = heapless::String::new();
-        let _ = s.push(' ');
-        let preview = self.text_kbd.preview();
-        let _ = s.push_str(preview.as_str());
-        s
+    pub fn password_preview(&self) -> Line {
+        self.text_kbd.preview()
     }
 
-    pub fn device_name_preview(&self) -> heapless::String<36> {
-        let mut s = heapless::String::new();
-        let _ = s.push(' ');
-        let preview = self.text_kbd.preview();
-        let _ = s.push_str(preview.as_str());
-        s
+    pub fn device_name_preview(&self) -> Line {
+        self.text_kbd.preview()
     }
 
-    pub fn format_device_id_display(&self) -> heapless::String<8> {
-        let mut s = heapless::String::new();
-        let preview = self.id_kbd.preview();
-        let _ = s.push_str(preview.as_str());
-        s
+    pub fn format_device_id_display(&self) -> Line {
+        self.id_kbd.preview()
     }
 
     pub fn toggle_hash_functions(&mut self) {
@@ -720,37 +665,18 @@ impl MenuFsm {
         longfred_proto::menu::parse_ip_endpoint(self.ip_digits.as_str())
     }
 
-    pub fn format_ip_display(&self) -> heapless::String<24> {
-        let mut s = heapless::String::new();
-        let d = if self.screen == Screen::ServerEntry {
-            self.ip_kbd.buffer.as_str()
-        } else {
-            self.ip_digits.as_str()
-        };
-        if d.len() >= 3 {
-            let _ = s.push_str(&d[0..3]);
-            let _ = s.push('.');
-        }
-        if d.len() >= 6 {
-            let _ = s.push_str(&d[3..6]);
-            let _ = s.push('.');
-        }
-        if d.len() >= 9 {
-            let _ = s.push_str(&d[6..9]);
-            let _ = s.push('.');
-        }
-        if d.len() >= 12 {
-            let _ = s.push_str(&d[9..12]);
-            let _ = s.push(':');
-        }
-        if d.len() > 12 {
-            let _ = s.push_str(&d[12..]);
-        }
-        s
+    pub fn format_ip_display(&self) -> Line {
+        crate::ui::keyboard::format_grouped_ip(
+            self.ip_kbd.buffer.as_str(),
+            self.ip_kbd.cursor(),
+            self.ip_kbd.slot_char(),
+            true,
+        )
     }
 
     pub fn view(&self, ctx: &ViewCtx<'_>) -> UiView {
         match self.screen {
+            Screen::Splash => UiView::Splash,
             Screen::Throttle => UiView::Throttle(self.build_throttle(ctx)),
             _ => UiView::Grid(self.build_grid(ctx)),
         }
@@ -768,7 +694,7 @@ impl MenuFsm {
             }
         } else if !self.addr_kbd.buffer.is_empty() {
             let _ = loco.push_str("addr:");
-            let preview = self.addr_kbd.preview();
+            let preview = self.addr_kbd.value_preview();
             let _ = loco.push_str(preview.as_str());
         } else {
             let _ = loco.push_str(i18n::tr().msg_no_loco);
@@ -797,7 +723,7 @@ impl MenuFsm {
             footer,
             next_hint: Line::new(),
             battery: if self.battery_visible() {
-                ctx.battery
+                ctx.battery.map(|s| s.percent)
             } else {
                 None
             },
@@ -808,6 +734,11 @@ impl MenuFsm {
     fn build_grid(&self, ctx: &ViewCtx<'_>) -> GridView {
         let mut g = GridView::new();
         g.foot_line = true;
+        if matches!(self.screen, Screen::Password | Screen::DeviceNameEdit)
+            && crate::board::active().has_keypad
+        {
+            g.caps = Some(self.text_kbd.uppercase());
+        }
         match self.screen {
             Screen::Splash => {
                 g.set(0, i18n::APP_NAME, false);
@@ -815,29 +746,22 @@ impl MenuFsm {
                 g.set(5, i18n::tr().msg_booting, false);
             }
             Screen::SsidList => {
-                g.set(0, i18n::tr().msg_ssids_listed, false);
-                for (i, n) in config::network::NETWORKS.iter().enumerate().take(10) {
-                    let mut line = Line::new();
-                    let _ = line.push((b'0' + i as u8) as char);
-                    let _ = line.push(':');
-                    let _ = line.push(' ');
-                    let _ = line.push_str(n.ssid);
-                    g.set(i + 1, line.as_str(), self.cursor == i);
-                }
-                g.set(5, i18n::tr().hint_select_ssids, false);
+                let names = menu_nav::compiled_ssids();
+                self.list
+                    .draw(&mut g, Some(i18n::tr().msg_ssids_listed), &names, true);
             }
             Screen::SsidScan => {
-                g.set(0, i18n::tr().msg_ssids_found, false);
-                for i in 0..5 {
-                    if let Some(s) = ctx.scanned_ssids.get(self.page * 5 + i) {
-                        let mut line = Line::new();
-                        let _ = line.push((b'0' + i as u8) as char);
-                        let _ = line.push(':');
-                        let _ = line.push_str(s.ssid.as_str());
-                        g.set(i + 1, line.as_str(), self.cursor == i);
-                    }
+                let mut names: heapless::Vec<&str, { sizes::MAX_FOUND_SSIDS }> =
+                    heapless::Vec::new();
+                for s in ctx.scanned_ssids {
+                    let _ = names.push(s.ssid.as_str());
                 }
-                g.set(5, i18n::tr().hint_select_found, false);
+                self.list
+                    .draw(&mut g, Some(i18n::tr().msg_ssids_found), &names, true);
+            }
+            Screen::SsidScanning => {
+                g.set(0, i18n::tr().msg_scanning_wifi, false);
+                g.set(5, i18n::tr().hint_scanning_wifi, false);
             }
             Screen::Password => {
                 g.set(0, i18n::tr().msg_enter_password, false);
@@ -845,28 +769,19 @@ impl MenuFsm {
                 g.set(5, i18n::tr().hint_enter_password, false);
             }
             Screen::ServerList => {
-                g.set(0, i18n::tr().msg_services_found, false);
-                for i in 0..5 {
-                    if let Some(s) = ctx.found_servers.get(i) {
-                        let mut line = Line::new();
-                        let _ = line.push((b'0' + i as u8) as char);
-                        let _ = line.push(':');
-                        let _ = line.push_str(s.label.as_str());
-                        let _ = line.push(' ');
-                        let tag = match s.protocol {
-                            Protocol::WiThrottle => 'W',
-                            Protocol::Z21 => 'Z',
-                        };
-                        let _ = line.push(tag);
-                        g.set(i + 1, line.as_str(), self.cursor == i);
-                    }
+                let bufs = menu_nav::server_label_bufs(ctx.found_servers);
+                let mut names: heapless::Vec<&str, { sizes::MAX_FOUND_SERVERS }> =
+                    heapless::Vec::new();
+                for b in &bufs {
+                    let _ = names.push(b.as_str());
                 }
-                g.set(5, i18n::tr().hint_select_wit, false);
+                self.list
+                    .draw(&mut g, Some(i18n::tr().msg_services_found), &names, true);
             }
             Screen::ServerProto => {
                 g.set(0, i18n::tr().msg_select_proto, false);
-                g.set(1, i18n::tr().proto_wit, self.cursor == 0);
-                g.set(2, i18n::tr().proto_z21, self.cursor == 1);
+                g.set(1, i18n::tr().proto_wit, self.list.cursor == 0);
+                g.set(2, i18n::tr().proto_z21, self.list.cursor == 1);
                 g.set(5, i18n::tr().hint_proto, false);
             }
             Screen::ServerEntry => {
@@ -878,41 +793,19 @@ impl MenuFsm {
                 g.set(1, i18n::tr().msg_trying_connect, false);
                 g.set(2, ctx.selected_ssid, false);
             }
+            Screen::WifiFailed => {
+                g.set(0, i18n::tr().msg_wifi_fail_1, false);
+                g.set(1, i18n::tr().msg_wifi_fail_2, false);
+                g.set(5, i18n::tr().hint_wifi_fail, false);
+            }
             Screen::Menu => {
-                let rows = [
-                    ('0', i18n::tr().menu_fn),
-                    ('1', i18n::tr().menu_add),
-                    ('2', i18n::tr().menu_drop),
-                    ('3', i18n::tr().menu_toggle_dir),
-                    ('4', i18n::tr().menu_speed_mult),
-                    ('5', i18n::tr().menu_throw),
-                    ('6', i18n::tr().menu_close),
-                    ('7', i18n::tr().menu_route),
-                    ('8', i18n::tr().menu_power),
-                    ('9', i18n::tr().menu_extras),
-                ];
-                for (i, (k, label)) in rows.iter().enumerate() {
-                    let mut line = Line::new();
-                    let _ = line.push(*k);
-                    let _ = line.push(' ');
-                    let _ = line.push_str(label);
-                    let col = if i < 5 { i + 1 } else { i + 2 };
-                    g.set(col, line.as_str(), false);
-                }
-                g.set(5, i18n::tr().hint_menu, false);
+                let labels = menu_nav::menu_labels();
+                self.list.draw(&mut g, None, &labels, true);
             }
             Screen::Extras => {
-                g.set(0, i18n::tr().extras_net_config, self.cursor == 0);
-                g.set(1, i18n::tr().extras_device, self.cursor == 1);
-                g.set(2, i18n::tr().extras_fnc_key_tgl, self.cursor == 2);
-                g.set(3, i18n::tr().extras_heartbt_tgl, self.cursor == 3);
-                g.set(4, i18n::tr().extras_throttles_plus, self.cursor == 4);
-                g.set(6, i18n::tr().extras_throttles_minus, self.cursor == 5);
-                g.set(7, i18n::tr().extras_off_sleep, self.cursor == 6);
-                g.set(8, i18n::tr().extras_one_loco_tgl, self.cursor == 7);
-                g.set(9, i18n::tr().extras_save_locos, self.cursor == 8);
-                g.set(10, i18n::tr().extras_language, self.cursor == 9);
-                g.set(5, i18n::tr().extras_firmware, self.cursor == 10);
+                g.set(0, i18n::tr().menu_extras, false);
+                let labels = menu_nav::extras_labels();
+                fill_list_page(&mut g, &labels, self.list.page, self.list.cursor, false);
             }
             Screen::FirmwareUpdate => {
                 g.set(0, i18n::tr().msg_fw_update, false);
@@ -978,8 +871,8 @@ impl MenuFsm {
                     let _ = id_line.push_str("----");
                 }
                 g.set(2, id_line.as_str(), false);
-                g.set(3, i18n::tr().device_name_id, self.cursor <= 1);
-                g.set(4, i18n::tr().device_new_id, self.cursor == 2);
+                g.set(3, i18n::tr().device_name_id, self.list.cursor <= 1);
+                g.set(4, i18n::tr().device_new_id, self.list.cursor == 2);
                 g.set(5, i18n::tr().hint_device, false);
             }
             Screen::DeviceNameEdit => {
@@ -993,76 +886,230 @@ impl MenuFsm {
                 g.set(5, i18n::tr().hint_device_id_edit, false);
             }
             Screen::RosterList => {
-                for i in 0..5 {
-                    if let Some(e) = ctx.domain.roster.get(self.page * 5 + i) {
-                        let mut line = Line::new();
-                        let _ = line.push((b'0' + i as u8) as char);
-                        let _ = line.push(':');
-                        let _ = line.push_str(e.name.as_str());
-                        g.set(i + 1, line.as_str(), self.cursor == i);
-                    }
-                }
-                g.set(5, i18n::tr().hint_list, false);
+                g.set(0, i18n::tr().menu_locos, false);
+                let names = menu_nav::roster_names(ctx.domain);
+                fill_list_page(&mut g, &names, self.list.page, self.list.cursor, true);
             }
             Screen::FunctionList => {
+                g.set(0, i18n::tr().menu_fn, false);
                 let slot = ctx.domain.current_slot();
-                for i in 0..10 {
-                    let fi = self.fn_page * 10 + i;
-                    if fi < sizes::MAX_FUNCTIONS {
-                        let mut line = Line::new();
-                        let _ = line.push((b'0' + i as u8) as char);
-                        let _ = line.push(':');
-                        let _ = line.push_str(slot.labels[fi].as_str());
-                        g.set(i + 1, line.as_str(), slot.functions[fi]);
-                    }
+                let mut names: heapless::Vec<&str, { sizes::MAX_FUNCTIONS }> = heapless::Vec::new();
+                for i in 0..sizes::MAX_FUNCTIONS {
+                    let _ = names.push(slot.labels[i].as_str());
                 }
-                g.set(5, i18n::tr().hint_list, false);
-            }
-            Screen::TurnoutList => {
-                for i in 0..10 {
-                    if let Some(e) = ctx.domain.turnouts.get(self.page * 10 + i) {
-                        let mut line = Line::new();
-                        let _ = line.push((b'0' + i as u8) as char);
-                        let _ = line.push(':');
-                        let _ = line.push_str(e.user_name.as_str());
-                        g.set(i + 1, line.as_str(), self.cursor == i);
-                    }
-                }
-                g.set(5, i18n::tr().hint_list, false);
-            }
-            Screen::RouteList => {
-                for i in 0..10 {
-                    if let Some(e) = ctx.domain.routes.get(self.page * 10 + i) {
-                        let mut line = Line::new();
-                        let _ = line.push((b'0' + i as u8) as char);
-                        let _ = line.push(':');
-                        let _ = line.push_str(e.user_name.as_str());
-                        g.set(i + 1, line.as_str(), self.cursor == i);
-                    }
-                }
-                g.set(5, i18n::tr().hint_list, false);
+                fill_list_page_invert(&mut g, &names, self.fn_page, true, |_local, global| {
+                    slot.functions.get(global).copied().unwrap_or(false)
+                });
             }
             Screen::DirectCommands => {
-                g.set(0, i18n::tr().direct_fn, false);
-                g.set(1, i18n::tr().direct_next_thr, false);
-                g.set(2, i18n::tr().direct_spd_mult, false);
-                g.set(3, i18n::tr().direct_rev, false);
-                g.set(4, i18n::tr().direct_estop, false);
-                g.set(5, i18n::tr().direct_back, false);
+                let labels = menu_nav::direct_labels();
+                fill_list_page(&mut g, &labels, self.list.page, self.list.cursor, false);
             }
             Screen::Language => {
-                g.set(0, i18n::tr().msg_language, false);
-                g.set(1, i18n::tr().lang_en, self.cursor == 0);
-                g.set(2, i18n::tr().lang_pl, self.cursor == 1);
-                g.set(3, i18n::tr().lang_de, self.cursor == 2);
-                g.set(5, i18n::tr().hint_language, false);
+                let labels = menu_nav::language_labels();
+                self.list
+                    .draw(&mut g, Some(i18n::tr().msg_language), &labels, false);
             }
+            Screen::Diagnostics => draw_diagnostics(&mut g, self.list.page, ctx),
             _ => {}
+        }
+        if !self.list_num.is_empty() {
+            g.set(0, self.list_num.as_str(), false);
         }
         if let Some(b) = ctx.broadcast {
             g.set(5, b, false);
         }
         g
+    }
+}
+
+fn draw_diagnostics(g: &mut GridView, page: usize, ctx: &ViewCtx<'_>) {
+    use crate::net::PingStatus;
+    use core::fmt::Write;
+
+    g.foot_line = false;
+    let t = i18n::tr();
+    let na = t.diag_na;
+    let mut lines: heapless::Vec<Line, 8> = heapless::Vec::new();
+    let title = match page {
+        0 => t.diag_battery,
+        1 => t.diag_version,
+        2 => t.diag_software,
+        3 => t.diag_range,
+        4 => t.diag_wifi,
+        _ => t.diag_ping,
+    };
+    g.set(0, title, false);
+
+    match page {
+        0 => {
+            if let Some(b) = ctx.battery {
+                let mut l = Line::new();
+                let _ = write!(l, "{}%", b.percent);
+                let _ = lines.push(l);
+                let mut l = Line::new();
+                let _ = write!(l, "{} mV", b.millivolts);
+                let _ = lines.push(l);
+                let mut l = Line::new();
+                let _ = write!(l, "ADC {}", b.raw);
+                let _ = lines.push(l);
+            } else {
+                let mut l = Line::new();
+                let _ = l.push_str(na);
+                let _ = lines.push(l);
+            }
+            let mut l = Line::new();
+            let _ = write!(
+                l,
+                "factor {:.1}",
+                crate::config::power::BATTERY_CONVERSION_FACTOR
+            );
+            let _ = lines.push(l);
+            let mut l = Line::new();
+            let _ = l.push_str("3.2-4.2 V");
+            let _ = lines.push(l);
+        }
+        1 => {
+            let mut l = Line::new();
+            let _ = l.push_str(i18n::APP_NAME);
+            let _ = lines.push(l);
+            let mut l = Line::new();
+            let _ = l.push_str(i18n::FW_VERSION);
+            let _ = lines.push(l);
+        }
+        2 => {
+            let board = crate::board::active();
+            let mut l = Line::new();
+            let _ = l.push_str(board.id);
+            let _ = lines.push(l);
+            let mut l = Line::new();
+            let _ = l.push_str(board.mcu);
+            let _ = lines.push(l);
+            let proto = ctx
+                .server
+                .map(|s| s.protocol)
+                .or_else(|| ctx.domain.persist.last_server.map(|s| s.protocol));
+            let mut l = Line::new();
+            match proto {
+                Some(Protocol::WiThrottle) => {
+                    let _ = l.push_str("WiThrottle");
+                }
+                Some(Protocol::Z21) => {
+                    let _ = l.push_str("Z21");
+                }
+                None => {
+                    let _ = l.push_str(na);
+                }
+            }
+            let _ = lines.push(l);
+        }
+        3 => {
+            if let Some(link) = ctx.wifi_link.as_ref() {
+                let mut l = Line::new();
+                let _ = write!(l, "RSSI {} dB", link.rssi);
+                let _ = lines.push(l);
+                let mut l = Line::new();
+                let _ = write!(l, "ch {}", link.channel);
+                let _ = lines.push(l);
+            } else {
+                let mut l = Line::new();
+                let _ = l.push_str(na);
+                let _ = lines.push(l);
+            }
+        }
+        4 => {
+            if let Some(link) = ctx.wifi_link.as_ref() {
+                let mut l = Line::new();
+                let _ = l.push_str(link.ssid.as_str());
+                let _ = lines.push(l);
+            } else {
+                let mut l = Line::new();
+                let _ = l.push_str(na);
+                let _ = lines.push(l);
+            }
+            if let Some(net) = ctx.sta_net {
+                let mut l = Line::new();
+                write_ip_line(&mut l, net.ip);
+                let _ = write!(l, "/{}", net.prefix);
+                let _ = lines.push(l);
+                let mut l = Line::new();
+                if let Some(gw) = net.gateway {
+                    write_ip_line(&mut l, gw);
+                } else {
+                    let _ = l.push_str(na);
+                }
+                let _ = lines.push(l);
+                let mut l = Line::new();
+                let _ = l.push_str("STA ");
+                write_mac(&mut l, net.mac);
+                let _ = lines.push(l);
+            } else {
+                let mut l = Line::new();
+                let _ = l.push_str(na);
+                let _ = lines.push(l);
+            }
+            let mut l = Line::new();
+            let _ = l.push_str("AP ");
+            if let Some(link) = ctx.wifi_link.as_ref() {
+                write_mac(&mut l, link.bssid);
+            } else {
+                let _ = l.push_str(na);
+            }
+            let _ = lines.push(l);
+        }
+        _ => {
+            let ep = ctx.server.or_else(|| {
+                ctx.domain
+                    .persist
+                    .last_server
+                    .map(|s| crate::net::ServerEndpoint {
+                        ip: s.ip,
+                        port: s.port,
+                        protocol: s.protocol,
+                    })
+            });
+            if let Some(ep) = ep {
+                let mut l = Line::new();
+                write_ip_line(&mut l, ep.ip);
+                let _ = l.push(':');
+                let _ = write!(l, "{}", ep.port);
+                let _ = lines.push(l);
+            } else {
+                let mut l = Line::new();
+                let _ = l.push_str(na);
+                let _ = lines.push(l);
+            }
+            let mut l = Line::new();
+            match ctx.ping {
+                PingStatus::Ms(ms) => {
+                    let _ = write!(l, "{} ms", ms);
+                }
+                PingStatus::Timeout => {
+                    let _ = l.push_str(t.diag_timeout);
+                }
+                PingStatus::Idle => {
+                    let _ = l.push_str(na);
+                }
+            }
+            let _ = lines.push(l);
+        }
+    }
+
+    let mut refs: heapless::Vec<&str, 8> = heapless::Vec::new();
+    for line in &lines {
+        let _ = refs.push(line.as_str());
+    }
+    fill_list_page(g, &refs, 0, usize::MAX, false);
+}
+
+fn write_mac(line: &mut Line, mac: [u8; 6]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for (i, b) in mac.iter().enumerate() {
+        if i > 0 {
+            let _ = line.push(':');
+        }
+        let _ = line.push(HEX[(b >> 4) as usize] as char);
+        let _ = line.push(HEX[(b & 0x0f) as usize] as char);
     }
 }
 

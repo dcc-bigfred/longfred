@@ -9,6 +9,8 @@ pub mod keyboard;
 pub mod led_presenter;
 pub mod menu;
 pub mod nav_profile;
+pub mod paged_list;
+pub mod splash;
 pub mod view;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

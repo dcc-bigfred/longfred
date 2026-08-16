@@ -43,29 +43,6 @@ pub enum ServerEvent {
         address: i32,
         length: char,
     },
-    TurnoutEntriesCount(u16),
-    TurnoutEntry {
-        index: u16,
-        sys_name: ShortText,
-        user_name: ShortText,
-        state: i32,
-    },
-    RouteEntriesCount(u16),
-    RouteEntry {
-        index: u16,
-        sys_name: ShortText,
-        user_name: ShortText,
-        state: i32,
-    },
-
-    TurnoutAction {
-        sys_name: ShortText,
-        state: TurnoutState,
-    },
-    RouteAction {
-        sys_name: ShortText,
-        state: RouteState,
-    },
 
     AddressAdded {
         throttle: char,

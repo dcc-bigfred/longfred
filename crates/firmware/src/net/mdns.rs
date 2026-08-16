@@ -198,11 +198,14 @@ pub async fn ota_announce_task(stack: Stack<'static>) {
             Timer::after(Duration::from_millis(200)).await;
             continue;
         };
-        let hostname = WIFI_HOSTNAME.try_get().filter(|h| !h.is_empty()).unwrap_or_else(|| {
-            let mut s = heapless::String::new();
-            let _ = s.push_str("longfred");
-            s
-        });
+        let hostname = WIFI_HOSTNAME
+            .try_get()
+            .filter(|h| !h.is_empty())
+            .unwrap_or_else(|| {
+                let mut s = heapless::String::new();
+                let _ = s.push_str("longfred");
+                s
+            });
 
         let mut rx_meta = [PacketMetadata::EMPTY; 4];
         let mut rx_buf = [0u8; 512];

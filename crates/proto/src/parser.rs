@@ -26,10 +26,13 @@ pub fn parse(line: &str, mut emit: impl FnMut(ServerEvent)) {
         }
         _ if starts(line, "*") => parse_heartbeat(&line[1..], &mut emit),
         _ if starts(line, "RL") => parse_roster_list(&line[2..], &mut emit),
-        _ if starts(line, "PTL") => parse_named_list(&line[3..], ListKind::Turnout, &mut emit),
-        _ if starts(line, "PRL") => parse_named_list(&line[3..], ListKind::Route, &mut emit),
-        _ if starts(line, "PTA") => parse_turnout_action(&line[3..], &mut emit),
-        _ if starts(line, "PRA") => parse_route_action(&line[3..], &mut emit),
+        _ if starts(line, "PTL")
+            || starts(line, "PRL")
+            || starts(line, "PTA")
+            || starts(line, "PRA") =>
+        {
+            // Turnout/route frames from JMRI — ignored.
+        }
         _ if len > 2 && b[0] == b'M' && b[2] == b'A' => {
             parse_loco_action(b[1] as char, &line[3..], &mut emit);
         }
@@ -45,11 +48,6 @@ pub fn parse(line: &str, mut emit: impl FnMut(ServerEvent)) {
         _ if starts(line, "AT+") => emit(ServerEvent::Unknown(long(line))),
         _ => emit(ServerEvent::Unknown(long(line))),
     }
-}
-
-enum ListKind {
-    Turnout,
-    Route,
 }
 
 fn parse_web_port(s: &str, emit: &mut impl FnMut(ServerEvent)) {
@@ -93,97 +91,6 @@ fn parse_roster_list(s: &str, emit: &mut impl FnMut(ServerEvent)) {
         }
         entry_start = entry_end + ENTRY_SEPARATOR.len();
     }
-}
-
-fn parse_named_list(s: &str, kind: ListKind, emit: &mut impl FnMut(ServerEvent)) {
-    let mut entries: u16 = 0;
-    let mut entry_start = ENTRY_SEPARATOR.len() + 1; // skip leading count + first separator (position 4 in C++)
-    if s.len() <= 3 {
-        match kind {
-            ListKind::Turnout => emit(ServerEvent::TurnoutEntriesCount(0)),
-            ListKind::Route => emit(ServerEvent::RouteEntriesCount(0)),
-        }
-        return;
-    }
-
-    loop {
-        if entry_start >= s.len() {
-            break;
-        }
-        let entry_end = find_from(s, ENTRY_SEPARATOR, entry_start).unwrap_or(s.len());
-        let entry = &s[entry_start..entry_end];
-        if let Some((sys_name, user_name, state)) = parse_three_segments(entry) {
-            let index = entries;
-            entries = entries.saturating_add(1);
-            match kind {
-                ListKind::Turnout => emit(ServerEvent::TurnoutEntry {
-                    index,
-                    sys_name: short(sys_name),
-                    user_name: short(user_name),
-                    state: state.parse().unwrap_or(0),
-                }),
-                ListKind::Route => emit(ServerEvent::RouteEntry {
-                    index,
-                    sys_name: short(sys_name),
-                    user_name: short(user_name),
-                    state: state.parse().unwrap_or(0),
-                }),
-            }
-        }
-        if entry_end >= s.len() {
-            break;
-        }
-        entry_start = entry_end + ENTRY_SEPARATOR.len();
-    }
-
-    match kind {
-        ListKind::Turnout => emit(ServerEvent::TurnoutEntriesCount(entries)),
-        ListKind::Route => emit(ServerEvent::RouteEntriesCount(entries)),
-    }
-}
-
-fn parse_turnout_action(s: &str, emit: &mut impl FnMut(ServerEvent)) {
-    if s.is_empty() {
-        return;
-    }
-    let action = s.as_bytes()[0];
-    let sys_name = if s.len() > 2 {
-        &s[1..s.len() - 1]
-    } else {
-        &s[1..]
-    };
-    let state = match action {
-        b'2' => TurnoutState::Closed,
-        b'4' => TurnoutState::Thrown,
-        b'1' => TurnoutState::Unknown,
-        b'8' => TurnoutState::Inconsistent,
-        _ => TurnoutState::Unknown,
-    };
-    emit(ServerEvent::TurnoutAction {
-        sys_name: short(sys_name),
-        state,
-    });
-}
-
-fn parse_route_action(s: &str, emit: &mut impl FnMut(ServerEvent)) {
-    if s.is_empty() {
-        return;
-    }
-    let action = s.as_bytes()[0];
-    let sys_name = if s.len() > 2 {
-        &s[1..s.len() - 1]
-    } else {
-        &s[1..]
-    };
-    let state = match action {
-        b'2' => RouteState::Active,
-        b'4' => RouteState::Inactive,
-        _ => RouteState::Inconsistent,
-    };
-    emit(ServerEvent::RouteAction {
-        sys_name: short(sys_name),
-        state,
-    });
 }
 
 fn parse_loco_action(throttle: char, s: &str, emit: &mut impl FnMut(ServerEvent)) {

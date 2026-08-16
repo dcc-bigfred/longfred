@@ -131,19 +131,11 @@ fn roster_list() {
 }
 
 #[test]
-fn turnout_list() {
-    let line = "PTL1]\\[IT1}|{Turnout 1}|{2";
-    let events = collect(line);
-    assert!(matches!(events[0], ServerEvent::TurnoutEntry { .. }));
-    assert_eq!(events[1], ServerEvent::TurnoutEntriesCount(1));
-}
-
-#[test]
-fn route_list() {
-    let line = "PRL1]\\[IO:001}|{Main Route}|{4";
-    let events = collect(line);
-    assert!(matches!(events[0], ServerEvent::RouteEntry { .. }));
-    assert_eq!(events[1], ServerEvent::RouteEntriesCount(1));
+fn turnout_and_route_frames_are_ignored() {
+    assert!(collect("PTL1]\\[IT1}|{Turnout 1}|{2").is_empty());
+    assert!(collect("PRL1]\\[IO:001}|{Main Route}|{4").is_empty());
+    assert!(collect("PTACIT12").is_empty());
+    assert!(collect("PRA2IO:001").is_empty());
 }
 
 #[test]

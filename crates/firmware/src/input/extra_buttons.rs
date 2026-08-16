@@ -6,7 +6,7 @@ use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{AnyPin, Input, InputConfig, Pull};
 
 use crate::board::raw::{RawEvent, RawSender};
-use crate::board::variants::markwtech::{EXTRA_BUTTON_MAP, EXTRA_BUTTON_PINS};
+use crate::board::variants::markwtech::{EXTRA_BUTTON_MAP, EXTRA_BUTTON_NAMES, EXTRA_BUTTON_PINS};
 
 const POLL_MS: u64 = 20;
 const DEBOUNCE_TICKS: u8 = 2;
@@ -84,6 +84,12 @@ pub async fn task(pins: Pins, sender: RawSender) {
     loop {
         for i in 0..5 {
             if let Some(pressed) = state[i].update(pins.buttons[i].is_high()) {
+                let edge = if pressed { "press" } else { "release" };
+                log::info!(
+                    "input: {} GPIO {} {edge}",
+                    EXTRA_BUTTON_NAMES[i],
+                    EXTRA_BUTTON_PINS[i]
+                );
                 let _ = sender.try_send(RawEvent::Button(EXTRA_BUTTON_MAP[i], pressed));
             }
         }

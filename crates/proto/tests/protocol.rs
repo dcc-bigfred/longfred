@@ -1,6 +1,6 @@
 //! Integration tests for WiThrottle protocol framing helpers.
 
-use longfred_proto::model::{Direction, TurnoutAction};
+use longfred_proto::model::Direction;
 use longfred_proto::protocol as p;
 
 #[test]
@@ -57,6 +57,14 @@ fn function() {
         p::set_function('T', "L341", 8, true, true).as_str(),
         "MTAL341<;>f18"
     );
+    assert_eq!(
+        p::set_function('0', "*", 1, true, false).as_str(),
+        "M0A*<;>F11"
+    );
+    assert_eq!(
+        p::set_function('0', "*", 1, false, false).as_str(),
+        "M0A*<;>F01"
+    );
 }
 
 #[test]
@@ -86,25 +94,4 @@ fn release_loco() {
 #[test]
 fn steal_loco() {
     assert_eq!(p::steal_loco('T', "L341").as_str(), "MTSL341<;>L341");
-}
-
-#[test]
-fn turnout() {
-    assert_eq!(
-        p::turnout(TurnoutAction::Close, "IT12").as_str(),
-        "PTACIT12"
-    );
-    assert_eq!(
-        p::turnout(TurnoutAction::Throw, "IT12").as_str(),
-        "PTATIT12"
-    );
-    assert_eq!(
-        p::turnout(TurnoutAction::Toggle, "IT12").as_str(),
-        "PTA2IT12"
-    );
-}
-
-#[test]
-fn route() {
-    assert_eq!(p::route("IO:001").as_str(), "PRA2IO:001");
 }

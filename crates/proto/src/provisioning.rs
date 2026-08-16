@@ -19,8 +19,9 @@ pub struct DeviceView<'a> {
 #[derive(Clone, Debug, Serialize)]
 pub struct WifiView<'a> {
     pub hostname: &'a str,
-    /// Saved network SSIDs (passwords are write-only).
+    /// Saved network SSIDs (passwords of the last-used network are also returned).
     pub networks: NetworksView<'a>,
+    pub password: &'a str,
 }
 
 /// Serialize saved SSIDs as a JSON array (variable length).
@@ -40,11 +41,11 @@ impl Serialize for NetworksView<'_> {
     }
 }
 
-/// BigFred credentials in a GET settings response (PIN is write-only).
+/// BigFred credentials in a GET settings response.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct BigfredView<'a> {
     pub login: &'a str,
-    /// Always empty on GET; clients may set via PUT.
+    pub pin: &'a str,
     pub pin_set: bool,
 }
 
@@ -150,9 +151,14 @@ pub fn serialize_settings(
             networks: NetworksView {
                 ssids: network_ssids,
             },
+            password: rec
+                .last_credential()
+                .map(|c| c.password.as_str())
+                .unwrap_or(""),
         },
         bigfred: BigfredView {
             login: rec.bigfred_login.as_str(),
+            pin: rec.bigfred_pin.as_str(),
             pin_set: !rec.bigfred_pin.is_empty(),
         },
         roster: RosterView {
@@ -410,7 +416,8 @@ mod tests {
         assert!(s.contains("\"networks\":[\"Home\"]"));
         assert!(s.contains("\"login\":\"bob\""));
         assert!(s.contains("\"pin_set\":true"));
-        assert!(!s.contains("9999"));
+        assert!(s.contains("\"pin\":\"9999\""));
+        assert!(s.contains("\"password\":\"secret\""));
         assert!(s.contains("\"mode\":\"static\""));
         assert!(s.contains("\"addr\":\"L1\""));
         assert!(s.contains("\"name\":\"One\""));

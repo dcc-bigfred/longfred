@@ -4,14 +4,14 @@ use embassy_time::{Duration, Instant};
 use log::warn;
 use longfred_proto::command::{ClientCommand, LocoId};
 use longfred_proto::events::ServerEvent;
-use longfred_proto::model::{Direction, LocoAddr, LongText, ShortText, TrackPower, TurnoutAction};
+use longfred_proto::model::{Direction, LocoAddr, LongText, ShortText, TrackPower};
 use longfred_proto::persist::{MAX_SAVED_LOCOS, PersistRecord, SavedLoco};
 
 use crate::config::{self, buttons, network, sizes};
 use crate::domain::actions::Action;
 use crate::domain::model::{
-    self, FunctionFollow, MAX_SPEED, NamedEntry, RosterEntry, SHORT_DCC_ADDRESS_LIMIT,
-    ThrottleSlot, throttle_char, throttle_index,
+    self, MAX_SPEED, RosterEntry, SHORT_DCC_ADDRESS_LIMIT, ThrottleSlot, throttle_char,
+    throttle_index,
 };
 use crate::ui::i18n;
 
@@ -26,8 +26,6 @@ pub struct DomainState {
     pub speed_multiplier: u8,
     pub roster: heapless::Vec<RosterEntry, { sizes::MAX_ROSTER }>,
     pub roster_count: u16,
-    pub turnouts: heapless::Vec<NamedEntry, { sizes::MAX_TURNOUT_LIST }>,
-    pub routes: heapless::Vec<NamedEntry, { sizes::MAX_ROUTE_LIST }>,
     message: Option<(LongText, Instant)>,
     pub heartbeat_on: bool,
     pub drop_before_acquire: bool,
@@ -50,8 +48,6 @@ impl DomainState {
             speed_multiplier: 1,
             roster: heapless::Vec::new(),
             roster_count: 0,
-            turnouts: heapless::Vec::new(),
-            routes: heapless::Vec::new(),
             message: None,
             heartbeat_on: buttons::HEARTBEAT_ENABLED,
             drop_before_acquire: buttons::DROP_BEFORE_ACQUIRE,
@@ -103,7 +99,13 @@ impl DomainState {
     ) -> bool {
         match action {
             Action::None => false,
-            Action::Function(f) => self.apply_function_inner(f, pressed, false, out),
+            Action::Function(f) => {
+                if pressed {
+                    self.toggle_function(f, out)
+                } else {
+                    false
+                }
+            }
             Action::SpeedStop => self.speed_set(0, out),
             Action::SpeedUp => self.speed_up(false, out),
             Action::SpeedDown => self.speed_down(false, out),
@@ -174,10 +176,7 @@ impl DomainState {
         if digits.is_empty() {
             return false;
         }
-        let Some(loco) = build_loco_addr(digits) else {
-            return false;
-        };
-        let Some(loco_id) = LocoId::parse(loco.as_str()) else {
+        let Some(loco_id) = parse_acquire_addr(digits) else {
             return false;
         };
         if self.drop_before_acquire {
@@ -189,9 +188,9 @@ impl DomainState {
             );
             self.clear_consist(self.current);
         }
-        let loco_str = loco.as_str();
+        let loco_str = loco_id.to_wire();
         let mut name = ShortText::new();
-        let _ = name.push_str(loco_str);
+        let _ = name.push_str(loco_str.as_str());
         push_cmd(
             out,
             ClientCommand::AddLoco {
@@ -231,82 +230,22 @@ impl DomainState {
         true
     }
 
-    pub fn apply_function(
+    /// Press toggles the function on or off. Key release is ignored by callers.
+    pub fn toggle_function(
         &mut self,
         func: u8,
-        pressed: bool,
         out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
     ) -> bool {
-        self.apply_function_inner(func, pressed, false, out)
+        let on = !self.function_latched(func);
+        self.set_function(func, on, out)
     }
 
-    pub fn turnout_by_addr(
-        &mut self,
-        action: TurnoutAction,
-        addr_digits: &str,
-        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
-    ) -> bool {
-        let prefix = network_prefix_turnout();
-        let mut sys = heapless::String::<32>::new();
-        let _ = sys.push_str(prefix);
-        let _ = sys.push_str(addr_digits);
-        push_cmd(
-            out,
-            ClientCommand::Turnout {
-                action,
-                sys_name: sys,
-            },
-        );
-        true
-    }
-
-    pub fn turnout_by_index(
-        &mut self,
-        action: TurnoutAction,
-        index: usize,
-        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
-    ) -> bool {
-        let Some(entry) = self.turnouts.get(index) else {
-            return false;
-        };
-        push_cmd(
-            out,
-            ClientCommand::Turnout {
-                action,
-                sys_name: entry.sys_name.clone(),
-            },
-        );
-        true
-    }
-
-    pub fn route_by_addr(
-        &mut self,
-        addr_digits: &str,
-        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
-    ) -> bool {
-        let prefix = network_prefix_route();
-        let mut sys = heapless::String::<32>::new();
-        let _ = sys.push_str(prefix);
-        let _ = sys.push_str(addr_digits);
-        push_cmd(out, ClientCommand::Route { sys_name: sys });
-        true
-    }
-
-    pub fn route_by_index(
-        &mut self,
-        index: usize,
-        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
-    ) -> bool {
-        let Some(entry) = self.routes.get(index) else {
-            return false;
-        };
-        push_cmd(
-            out,
-            ClientCommand::Route {
-                sys_name: entry.sys_name.clone(),
-            },
-        );
-        true
+    fn function_latched(&self, func: u8) -> bool {
+        self.current_slot()
+            .functions
+            .get(func as usize)
+            .copied()
+            .unwrap_or(false)
     }
 
     pub fn toggle_heartbeat(&mut self, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
@@ -420,28 +359,6 @@ impl DomainState {
                 address,
                 length,
             } => self.on_roster_entry(index, name, address, length),
-            ServerEvent::TurnoutEntriesCount(n) => {
-                let _ = n;
-                self.turnouts.clear();
-                true
-            }
-            ServerEvent::TurnoutEntry {
-                index,
-                sys_name,
-                user_name,
-                ..
-            } => self.on_turnout_entry(index, sys_name, user_name),
-            ServerEvent::RouteEntriesCount(n) => {
-                let _ = n;
-                self.routes.clear();
-                true
-            }
-            ServerEvent::RouteEntry {
-                index,
-                sys_name,
-                user_name,
-                ..
-            } => self.on_route_entry(index, sys_name, user_name),
             ServerEvent::Message(text) => self.on_broadcast(text),
             ServerEvent::Alert(text) => self.on_alert(text),
             ServerEvent::StealNeeded { throttle, addr, .. } => {
@@ -463,46 +380,8 @@ impl DomainState {
             | ServerEvent::ServerType(_)
             | ServerEvent::ServerDescription(_)
             | ServerEvent::WebPort(_)
-            | ServerEvent::TurnoutAction { .. }
-            | ServerEvent::RouteAction { .. }
             | ServerEvent::Unknown(_) => false,
         }
-    }
-
-    fn on_turnout_entry(
-        &mut self,
-        index: u16,
-        sys_name: longfred_proto::model::ShortText,
-        user_name: longfred_proto::model::ShortText,
-    ) -> bool {
-        let entry = NamedEntry {
-            sys_name,
-            user_name,
-        };
-        if (index as usize) < self.turnouts.len() {
-            self.turnouts[index as usize] = entry;
-        } else if self.turnouts.push(entry).is_err() {
-            warn!("turnout list full");
-        }
-        true
-    }
-
-    fn on_route_entry(
-        &mut self,
-        index: u16,
-        sys_name: longfred_proto::model::ShortText,
-        user_name: longfred_proto::model::ShortText,
-    ) -> bool {
-        let entry = NamedEntry {
-            sys_name,
-            user_name,
-        };
-        if (index as usize) < self.routes.len() {
-            self.routes[index as usize] = entry;
-        } else if self.routes.push(entry).is_err() {
-            warn!("route list full");
-        }
-        true
     }
 
     fn on_broadcast(&mut self, text: LongText) -> bool {
@@ -663,29 +542,26 @@ impl DomainState {
         true
     }
 
-    fn apply_function_inner(
+    fn set_function(
         &mut self,
         func: u8,
-        pressed: bool,
-        force: bool,
+        on: bool,
         out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
     ) -> bool {
         if !self.current_slot().has_loco() {
             return false;
         }
-        let selector = function_loco_selector(self.current_slot(), func);
-        let _ = force;
         push_cmd(
             out,
             ClientCommand::SetFunction {
                 throttle: self.current as u8,
                 func,
-                on: pressed,
-                all: selector == "*",
+                on,
+                all: true,
             },
         );
         if (func as usize) < config::sizes::MAX_FUNCTIONS {
-            self.current_slot_mut().functions[func as usize] = pressed;
+            self.current_slot_mut().functions[func as usize] = on;
         }
         true
     }
@@ -906,33 +782,14 @@ impl DomainState {
     }
 }
 
-fn network_prefix_turnout() -> &'static str {
-    network::NETWORKS
-        .first()
-        .map(|n| n.turnout_prefix)
-        .unwrap_or("NT")
-}
-
-fn network_prefix_route() -> &'static str {
-    network::NETWORKS
-        .first()
-        .map(|n| n.route_prefix)
-        .unwrap_or("IO:AUTO:")
-}
-
 fn opposite_slot_direction(dir: Direction) -> Direction {
     model::opposite(dir)
 }
 
-fn function_loco_selector(slot: &ThrottleSlot, func: u8) -> &'static str {
-    match slot
-        .follow
-        .get(func as usize)
-        .copied()
-        .unwrap_or(FunctionFollow::Lead)
-    {
-        FunctionFollow::All => "*",
-        FunctionFollow::Lead => "",
+fn parse_acquire_addr(digits: &str) -> Option<LocoId> {
+    match digits.as_bytes().first() {
+        Some(b'S' | b's' | b'L' | b'l') => LocoId::parse(digits),
+        _ => LocoId::parse(build_loco_addr(digits)?.as_str()),
     }
 }
 

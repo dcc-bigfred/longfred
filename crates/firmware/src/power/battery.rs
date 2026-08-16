@@ -8,7 +8,15 @@ use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
 use crate::config::power;
 use crate::power::sleep::{SLEEP_CTRL, SleepReason};
 
-pub static BATTERY: Watch<CriticalSectionRawMutex, Option<u8>, 2> = Watch::new();
+/// Latest ADC sample published for the throttle icon and Diagnostics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BatterySample {
+    pub percent: u8,
+    pub millivolts: u16,
+    pub raw: u16,
+}
+
+pub static BATTERY: Watch<CriticalSectionRawMutex, Option<BatterySample>, 2> = Watch::new();
 
 fn volts_to_percent(volts: f32) -> u8 {
     if volts >= 4.2 {
@@ -56,7 +64,12 @@ pub async fn task(
                     "battery: raw={raw} volts={volts:.3} percent={percent} suggested_factor={suggested:.4} (current={current})"
                 );
             }
-            tx.send(Some(percent));
+            let millivolts = (raw as f32 * power::BATTERY_CONVERSION_FACTOR) as u16;
+            tx.send(Some(BatterySample {
+                percent,
+                millivolts,
+                raw: raw as u16,
+            }));
             if power::USE_BATTERY_SLEEP_AT_PERCENT > 0
                 && percent < power::USE_BATTERY_SLEEP_AT_PERCENT
             {

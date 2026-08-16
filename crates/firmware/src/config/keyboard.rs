@@ -1,29 +1,35 @@
-//! Multitap text-entry tables for F0-F10 keys.
+//! Multitap tables and charsets for the shared text-field engine.
 
-/// Multitap character groups per function key (F0..F10).
-pub const MULTITAP: [&str; 11] = [
-    " 0",    // F0
-    "1",     // F1
-    "abc2",  // F2
-    "def3",  // F3
-    "ghi4",  // F4
-    "jkl5",  // F5
-    "mno6",  // F6
-    "pqrs7", // F7
-    "tuv8",  // F8
-    "wxyz9", // F9
-    " @.",   // F10: space, @, period
+/// Idle time after which a pending T9 / alphabet character is committed
+/// and the cursor advances one slot to the right.
+pub const IDLE_COMMIT_MS: u64 = 2_000;
+
+/// Phone-keypad groups indexed by digit 0–9.
+pub const MULTITAP: [&str; 10] = [
+    "0",            // 0
+    "1_-*#@%^&!+=", // 1 — `_` is a typed character, not the caret
+    "2abc",         // 2
+    "3def",         // 3
+    "4ghi",         // 4
+    "5jkl",         // 5
+    "6mno",         // 6
+    "7pqrs",        // 7
+    "8tuv",         // 8
+    "9wxyz",        // 9
 ];
 
-/// Full charset cycled by joystick Up/Down in text mode.
-pub const TEXT_CHARSET: &str =
-    " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.@";
+/// Joystick / encoder charset (letters are cased via Caps Lock).
+pub const TEXT_CHARSET: &str = " abcdefghijklmnopqrstuvwxyz0123456789-_.@";
 
-/// Digits only (IP, device ID, loco address).
+/// Digits only (IP, device ID, net config, loco address).
 pub const DIGIT_CHARSET: &str = "0123456789";
 
+pub fn multitap_group(key: u8) -> Option<&'static str> {
+    MULTITAP.get(key as usize).copied()
+}
+
 pub fn multitap_char(key: u8, tap: u8) -> Option<char> {
-    let group = MULTITAP.get(key as usize)?;
+    let group = multitap_group(key)?;
     if group.is_empty() {
         return None;
     }

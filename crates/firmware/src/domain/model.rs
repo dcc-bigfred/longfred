@@ -8,26 +8,12 @@ pub const MAX_LOCOS: usize = 10;
 pub const MAX_SPEED: u8 = 126;
 pub const SHORT_DCC_ADDRESS_LIMIT: u32 = 127;
 
-/// Turnout/route entry from the server (system name + user label).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NamedEntry {
-    pub sys_name: ShortText,
-    pub user_name: ShortText,
-}
-
 /// Roster entry from the server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RosterEntry {
     pub name: ShortText,
     pub address: i32,
     pub length: char,
-}
-
-/// Whether a DCC function applies to the lead loco or the whole consist.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FunctionFollow {
-    Lead,
-    All,
 }
 
 /// State of one MultiThrottle slot.
@@ -39,22 +25,18 @@ pub struct ThrottleSlot {
     pub facing: heapless::Vec<Direction, MAX_LOCOS>,
     pub functions: [bool; MAX_FUNCTIONS],
     pub labels: [ShortText; MAX_FUNCTIONS],
-    pub follow: [FunctionFollow; MAX_FUNCTIONS],
     pub consist: heapless::Vec<LocoAddr, MAX_LOCOS>,
     pub speed_step: u8,
 }
 
 impl ThrottleSlot {
     pub fn new(speed_step: u8) -> Self {
-        let mut follow = [FunctionFollow::Lead; MAX_FUNCTIONS];
-        follow[0] = FunctionFollow::All;
         Self {
             speed: 0,
             direction: Direction::Forward,
             facing: heapless::Vec::new(),
             functions: [false; MAX_FUNCTIONS],
             labels: core::array::from_fn(|_| ShortText::new()),
-            follow,
             consist: heapless::Vec::new(),
             speed_step,
         }

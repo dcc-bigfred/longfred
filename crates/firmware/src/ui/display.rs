@@ -2,26 +2,27 @@
 
 use embassy_time::{Duration, Timer};
 use embedded_graphics::{
+    image::{Image, ImageRaw},
     mono_font::{MonoTextStyle, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{PrimitiveStyleBuilder, Rectangle},
+    primitives::{PrimitiveStyleBuilder, Rectangle, Triangle},
     text::{Baseline, Text},
 };
 use ssd1306::{I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 
 use crate::board::descriptor::{DisplayGeometry, LAYOUT_128X64};
 use crate::config::board;
+use crate::config::network::PAIRING_HTTP_URL;
 use crate::input::i2c_bus::SharedI2cDevice;
 use crate::ui::view::{GridView, LINE_LEN, ThrottleView, UiView};
-use crate::ui::{UI_VIEW, fonts};
+use crate::ui::{UI_VIEW, fonts, splash};
 
 const BLINK_PERIOD_MS: u64 = 200;
 const GRID_LEFT_X: i32 = 0;
-const GRID_RIGHT_X: i32 = 64;
-/// Content-row Y positions for 128×64 (6 rows × 2 cols).
+/// Content-row Y positions for 128×64 (header at y=0, then 6 full-width lines).
 const GRID_Y_64: [i32; 6] = [10, 20, 30, 40, 50, 60];
-/// Content-row Y positions for 128×32 (3 rows × 2 cols).
+/// Content-row Y positions for 128×32 (header at y=0, then 3 full-width lines).
 const GRID_Y_32: [i32; 3] = [8, 16, 24];
 
 #[cfg(feature = "variant-longfred-mini")]
@@ -46,6 +47,11 @@ fn line_invert(grid: &GridView, idx: usize) -> bool {
     grid.invert.get(idx).copied().unwrap_or(false)
 }
 
+fn col_max_chars(x: i32) -> usize {
+    let right = geometry().width as i32;
+    ((right - x).max(6) / 6) as usize
+}
+
 fn draw_grid_line(
     display: &mut Display,
     x: i32,
@@ -54,7 +60,9 @@ fn draw_grid_line(
     invert: bool,
     style_on: MonoTextStyle<'_, BinaryColor>,
 ) {
-    let w = (text.len().min(LINE_LEN) as u32) * 6;
+    let max = col_max_chars(x).min(LINE_LEN);
+    let shown = if text.len() > max { &text[..max] } else { text };
+    let w = (shown.len() as u32) * 6;
     let h = 10u32;
     if invert {
         Rectangle::new(Point::new(x, y), Size::new(w + 2, h))
@@ -69,20 +77,31 @@ fn draw_grid_line(
             .font(&fonts::TEXT)
             .text_color(BinaryColor::Off)
             .build();
-        Text::with_baseline(text, Point::new(x + 1, y), inv, Baseline::Top)
+        Text::with_baseline(shown, Point::new(x + 1, y), inv, Baseline::Top)
             .draw(display)
             .ok();
     } else {
-        Text::with_baseline(text, Point::new(x, y), style_on, Baseline::Top)
+        Text::with_baseline(shown, Point::new(x, y), style_on, Baseline::Top)
             .draw(display)
             .ok();
     }
 }
 
+fn draw_caps_arrow(display: &mut Display, uppercase: bool) {
+    let style = PrimitiveStyleBuilder::new()
+        .fill_color(BinaryColor::On)
+        .build();
+    let tri = if uppercase {
+        Triangle::new(Point::new(1, 7), Point::new(7, 7), Point::new(4, 1))
+    } else {
+        Triangle::new(Point::new(1, 1), Point::new(7, 1), Point::new(4, 7))
+    };
+    tri.into_styled(style).draw(display).ok();
+}
+
 fn draw_grid(display: &mut Display, grid: &GridView, text_style: MonoTextStyle<'_, BinaryColor>) {
     let geom = geometry();
     let is_mini = geom.height <= 32;
-    let rows = geom.grid_lines / 2;
     let grid_y: &[i32] = if is_mini { &GRID_Y_32 } else { &GRID_Y_64 };
 
     if grid.top_line && !is_mini {
@@ -106,40 +125,30 @@ fn draw_grid(display: &mut Display, grid: &GridView, text_style: MonoTextStyle<'
             .ok();
     }
 
-    for row in 0..rows {
-        let y = grid_y.get(row).copied().unwrap_or(0);
-        let left_idx = row + 1;
-        if left_idx < geom.grid_lines {
-            draw_grid_line(
-                display,
-                GRID_LEFT_X,
-                y,
-                line_text(grid, left_idx),
-                line_invert(grid, left_idx),
-                text_style,
-            );
-        }
-        let right_idx = row + 1 + rows;
-        if right_idx < geom.grid_lines {
-            draw_grid_line(
-                display,
-                GRID_RIGHT_X,
-                y,
-                line_text(grid, right_idx),
-                line_invert(grid, right_idx),
-                text_style,
-            );
-        }
-    }
-    if !grid.lines.is_empty() {
+    for (row, y) in grid_y.iter().copied().enumerate() {
+        let idx = row + 1;
         draw_grid_line(
             display,
             GRID_LEFT_X,
+            y,
+            line_text(grid, idx),
+            line_invert(grid, idx),
+            text_style,
+        );
+    }
+    if !grid.lines.is_empty() {
+        let header_x = if grid.caps.is_some() { 8 } else { GRID_LEFT_X };
+        draw_grid_line(
+            display,
+            header_x,
             0,
             line_text(grid, 0),
             line_invert(grid, 0),
             text_style,
         );
+    }
+    if let Some(upper) = grid.caps {
+        draw_caps_arrow(display, upper);
     }
 }
 
@@ -422,6 +431,91 @@ fn draw_throttle(
     }
 }
 
+fn draw_splash(display: &mut Display) {
+    let geom = geometry();
+    let hint_style = MonoTextStyleBuilder::new()
+        .font(&fonts::FONT_4X6)
+        .text_color(BinaryColor::On)
+        .build();
+    if geom.height <= 32 {
+        let title_style = MonoTextStyleBuilder::new()
+            .font(&fonts::TITLE)
+            .text_color(BinaryColor::On)
+            .build();
+        Text::with_baseline("BigFred", Point::new(4, 0), title_style, Baseline::Top)
+            .draw(display)
+            .ok();
+        let hint = splash::HINT;
+        let w = (hint.len() as i32) * 4;
+        let x = (geom.width as i32 - w).max(0);
+        Text::with_baseline(hint, Point::new(x, 26), hint_style, Baseline::Top)
+            .draw(display)
+            .ok();
+        return;
+    }
+    let raw = ImageRaw::<BinaryColor>::new(splash::SPLASH_RAW, splash::SPLASH_WIDTH);
+    Image::new(&raw, Point::new(0, 0)).draw(display).ok();
+    let hint = splash::HINT;
+    let w = (hint.len() as i32) * 4;
+    let x = (geom.width as i32 - w).max(0);
+    Text::with_baseline(hint, Point::new(x, 58), hint_style, Baseline::Top)
+        .draw(display)
+        .ok();
+}
+
+/// Version-1 (21×21), ECC Low encoding of [`PAIRING_HTTP_URL`].
+/// Regenerated with `qrencode -l L -t ASCII -m 0 'http://192.168.0.1/'`.
+const PAIRING_QR_SIZE: i32 = 21;
+const PAIRING_QR_BITS: [u8; 56] = [
+    0xfe, 0x63, 0xfc, 0x15, 0x90, 0x6e, 0x92, 0xbb, 0x75, 0x85, 0xdb, 0xa3, 0xae, 0xc1, 0x79, 0x07,
+    0xfa, 0xaf, 0xe0, 0x07, 0x00, 0xfb, 0xdd, 0x52, 0x2d, 0x47, 0xe1, 0xd4, 0xac, 0x43, 0x01, 0xc7,
+    0x63, 0x04, 0x80, 0x62, 0xf7, 0xfb, 0x6a, 0xd0, 0x47, 0x9c, 0xba, 0xcc, 0xd5, 0xd6, 0xf5, 0x2e,
+    0xa9, 0x89, 0x05, 0x36, 0x4f, 0xec, 0xf1, 0x00,
+];
+
+fn pairing_qr_dark(x: i32, y: i32) -> bool {
+    if x < 0 || y < 0 || x >= PAIRING_QR_SIZE || y >= PAIRING_QR_SIZE {
+        return false;
+    }
+    let i = (y * PAIRING_QR_SIZE + x) as usize;
+    PAIRING_QR_BITS[i / 8] & (1 << (7 - (i % 8))) != 0
+}
+
+fn draw_pairing_qr(display: &mut Display, text_style: MonoTextStyle<'_, BinaryColor>) {
+    let url = PAIRING_HTTP_URL;
+    let geom = geometry();
+    let text_h = 12i32;
+    let text_y = (geom.height as i32 - text_h).max(0);
+    let n = PAIRING_QR_SIZE;
+    let avail = text_y.max(1);
+    let scale = (avail / n).clamp(1, 3);
+    let qr_px = n * scale;
+    let x0 = (geom.width as i32 - qr_px) / 2;
+    let y0 = ((avail - qr_px) / 2).max(0);
+    for y in 0..n {
+        for x in 0..n {
+            if !pairing_qr_dark(x, y) {
+                continue;
+            }
+            for dy in 0..scale {
+                for dx in 0..scale {
+                    let px = x0 + x * scale + dx;
+                    let py = y0 + y * scale + dy;
+                    if px >= 0 && py >= 0 {
+                        display.set_pixel(px as u32, py as u32, true);
+                    }
+                }
+            }
+        }
+    }
+
+    let w = (url.len() as i32) * 6;
+    let x = ((geom.width as i32 - w) / 2).max(0);
+    Text::with_baseline(url, Point::new(x, text_y), text_style, Baseline::Top)
+        .draw(display)
+        .ok();
+}
+
 #[embassy_executor::task]
 pub async fn task(i2c: SharedI2cDevice) {
     let geom = geometry();
@@ -438,15 +532,9 @@ pub async fn task(i2c: SharedI2cDevice) {
     }
     log::info!("oled: init ok ({}x{})", geom.width, geom.height);
 
-    // Splash so the panel shows something before domain publishes UiView.
-    {
-        let mut splash = crate::ui::view::GridView::new();
-        splash.set(0, "LongFred", false);
-        splash.set(1, "boot...", false);
-        crate::ui::UI_VIEW
-            .sender()
-            .send(crate::ui::view::UiView::Grid(splash));
-    }
+    crate::ui::UI_VIEW
+        .sender()
+        .send(crate::ui::view::UiView::Splash);
 
     let title_style = MonoTextStyleBuilder::new()
         .font(&fonts::TITLE)
@@ -467,18 +555,22 @@ pub async fn task(i2c: SharedI2cDevice) {
     loop {
         display.clear_buffer();
 
-        if !is_mini {
+        let view = ui_rx.as_mut().and_then(|r| r.try_get()).unwrap_or_default();
+        let is_splash = matches!(view, UiView::Splash);
+        let is_pairing_qr = matches!(view, UiView::PairingQr);
+
+        if !is_mini && !is_splash && !is_pairing_qr {
             Rectangle::new(Point::new(0, 0), Size::new(127, 63))
                 .into_styled(frame)
                 .draw(&mut display)
                 .ok();
         }
 
-        let view = ui_rx.as_mut().and_then(|r| r.try_get()).unwrap_or_default();
-
         match &view {
             UiView::Grid(g) => draw_grid(&mut display, g, text_style),
             UiView::Throttle(t) => draw_throttle(&mut display, t, title_style, text_style),
+            UiView::Splash => draw_splash(&mut display),
+            UiView::PairingQr => draw_pairing_qr(&mut display, text_style),
         }
 
         if blink {

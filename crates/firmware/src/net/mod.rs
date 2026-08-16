@@ -2,6 +2,8 @@
 
 pub mod mdns;
 #[cfg(not(feature = "sim"))]
+pub mod ping;
+#[cfg(not(feature = "sim"))]
 pub mod provisioning;
 pub mod session;
 pub mod wifi;
@@ -55,7 +57,7 @@ pub enum ConnState {
 pub static CONN: Watch<CriticalSectionRawMutex, ConnState, 2> =
     Watch::new_with(ConnState::Disconnected);
 
-pub const PROTO_EVENTS_DEPTH: usize = 16;
+pub const PROTO_EVENTS_DEPTH: usize = 32;
 pub const PROTO_COMMANDS_DEPTH: usize = 16;
 pub const WIFI_CTRL_DEPTH: usize = 4;
 
@@ -114,6 +116,39 @@ pub static NET_CONFIG_CTRL: Signal<CriticalSectionRawMutex, StaticIpConfig> = Si
 
 /// STA IPv4 once DHCP/static config is up (UI + mDNS OTA announce).
 pub static STA_IPV4: Watch<CriticalSectionRawMutex, Option<[u8; 4]>, 2> = Watch::new_with(None);
+
+/// STA IPv4 config + MAC (Diagnostics).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StaNet {
+    pub ip: [u8; 4],
+    pub prefix: u8,
+    pub gateway: Option<[u8; 4]>,
+    pub dns: Option<[u8; 4]>,
+    pub mac: [u8; 6],
+}
+
+pub static STA_NET: Watch<CriticalSectionRawMutex, Option<StaNet>, 2> = Watch::new_with(None);
+
+/// Associated AP (RSSI / BSSID / channel), updated ~1 s while connected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WifiLink {
+    pub ssid: String<32>,
+    pub rssi: i8,
+    pub bssid: [u8; 6],
+    pub channel: u8,
+}
+
+pub static WIFI_LINK: Watch<CriticalSectionRawMutex, Option<WifiLink>, 2> = Watch::new_with(None);
+
+/// ICMP echo to the selected command station.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PingStatus {
+    Idle,
+    Ms(u16),
+    Timeout,
+}
+
+pub static PING: Watch<CriticalSectionRawMutex, PingStatus, 2> = Watch::new_with(PingStatus::Idle);
 
 /// User-enabled STA HTTP OTA server (menu screen).
 pub static HTTP_OTA_ENABLE: Watch<CriticalSectionRawMutex, bool, 4> = Watch::new_with(false);

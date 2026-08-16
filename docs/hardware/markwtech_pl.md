@@ -9,14 +9,16 @@ ESP32-C6-DevKitC-1 z klawiaturą 3×4, dodatkowymi przyciskami, enkoderem KY-040
 | Feature Cargo | `variant-markwtech` |
 | Wyświetlacz | SSD1309/SSD1306 128×64 I2C |
 | Ekspandery | brak |
-| Skrót do trybu programowania | **\* (Menu) + Stop** przez 8 s |
+| Skrót do trybu programowania | **\* (Menu) + Stop** przez 8 s, albo **Stop** podczas 2 s splashu |
 
 ## Sterowanie
 
 - Klawiatura 3×4: cyfry, `*` (menu/anuluj), `#` (wybierz)
 - Pięć dodatkowych przycisków na GPIO (w lewo / Stop / w prawo / Cofnij / Menu)
 - Enkoder KY-040 do prędkości i przewijania list
-- Dedykowany Stop do zatrzymania awaryjnego i skrótu programowania
+- Dedykowany Stop do zatrzymania awaryjnego, wejścia w programowanie ze splashu i skrótu z `*`
+- **W lewo / w prawo** przewija strony list (i podstrony Diagnostyki). **Stop** w Diagnostyce przechodzi do następnej podstrony.
+- **Extras → Diagnostyka**: bateria, wersja, oprogramowanie, zasięg Wi‑Fi, IP/MAC, ping do stacji.
 
 ## Mapa pinów
 
@@ -411,6 +413,7 @@ Następnie podłącz według tabeli. *(przewody 25–31)*
 
 | Wyprowadzenie | Gdzie | Klawisze |
 |---|---|---|
+| `-`  | -                | Pierwszy PIN zostawiamy niepodłączony |
 | `R0` | pin `18` (J3-10) | `1` `2` `3` |
 | `R1` | pin `19` (J3-9) | `4` `5` `6` |
 | `R2` | pin `20` (J3-8) | `7` `8` `9` |
@@ -489,4 +492,213 @@ Użyj portu **USB Type-C to UART** (tego wpiętego we wbudowany mostek) — nie 
 
 ## Tryb programowania
 
-Przytrzymaj **\* + Stop** przez 8 sekund. Soft-AP ma DHCP; aktualizacja firmware ze strony parowania albo Extras → Aktualizacja FW w sieci layoutu. Zobacz [provisioning.md](../provisioning.md).
+- **Splash przy starcie (2 s):** **Stop** wchodzi w Soft-AP. W prawym dolnym rogu jest `[STOP - Programming mode]`.
+- **W dowolnym momencie po starcie:** przytrzymaj **\* + Stop** przez 8 sekund.
+- W Soft-AP OLED pyta, czy połączyłeś się z AP (**lewe menu** = anuluj / restart, **prawe menu** = dalej), potem pokazuje kod QR na `http://192.168.0.1/`.
+
+Po splashu (i jednorazowym wyborze języka, zapisanym w NVS; później **Extras → Language**):
+
+1. Jeśli sieć Wi-Fi jest zapisana, urządzenie próbuje jej przez 5 s. Przy porażce pokazuje `Cannot connect` / `choose other network`, potem listę ze skanowaniem. **Cofnij** pomija Wi-Fi i przechodzi do listy serwerów.
+2. Jeśli serwer jest zapisany, próbuje połączenia 5 s i przy sukcesie pomija listę. W przeciwnym razie mDNS wypełnia listę. **Lewe menu** otwiera ręczne IP:port (WiThrottle).
+
+Soft-AP ma DHCP; aktualizacja firmware ze strony parowania albo Extras → Aktualizacja FW w sieci layoutu. Zobacz [provisioning.md](../provisioning.md).
+
+## TODO — Reorganizacja pinów pod modułowe wiązki
+
+> **Jeszcze nie wdrożone.** Sekcje powyżej opisują **obecny** pinout w firmware. Poniżej zapisany plan na później — pogrupowanie sygnałów w krótkie wiązki Dupont/JST i ograniczenie plątaniny kabli.
+
+### Cel
+
+Pogrupować połączenia według fizycznego miejsca na obudowie:
+
+| Grupa wiązki | Elementy |
+|--------------|----------|
+| Klawiatura | matryca 3×4 (7 przewodów) |
+| Lewo / Stop / Prawo | trzy przyciski monostabilne |
+| Wyświetlacz | OLED I2C |
+| Cofnij / Menu | dwa przyciski monostabilne |
+| Regulator prędkości | enkoder KY-040 |
+
+Listwy DevKita mają „dziury” (GPIO 8 = LED RGB, GPIO 9 = BOOT, GPIO 1 = ADC baterii, GPIO 16/17 = UART). Nie każda grupa zmieści się w jednej wtyczce bez przesunięcia enkodera.
+
+### Stan obecny vs docelowy
+
+| Grupa | GPIO dziś | Na listwie dziś |
+|-------|-----------|-----------------|
+| Klawiatura | 18–23 + **10** | sześć w rzędzie na J3, siódmy na **drugiej** stronie |
+| OLED | 6, 7 | razem (J1-5, J1-6) |
+| Enkoder | 2, 3, 0 | A/B razem (J1-12, J1-13), SW osobno (J1-7) |
+| Lewo / Stop / Prawo / Cofnij / Menu | 11, 12, 4, 5, 15 | rozsypane na obu listwach |
+
+Jedyny siedmiopinowy blok GPIO na płytce to **J3-4 … J3-10**: `15, 23, 22, 21, 20, 19, 18`. Klawiatura powinna tam wejść w całości — przenieść **C2 z GPIO 10 na GPIO 15**.
+
+`3V3` jest na J1-1, masa na końcach listew. **Nie wpinaj zasilania OLED i enkodera w tę samą wtyczkę co SDA/SCL** bez użycia `RST` albo `5V`. Zasilanie osobno: dwupin `3V3` + `G`.
+
+### Proponowany układ (wszystkie grupy na wtyczkach)
+
+```text
+J3 (TX/RX)                         J1 (3V3/RST/5V)
+ 1  G                              1  3V3     ── zasilanie OLED+enkoder (2-pin z G)
+ 2  TX  (konsola — zostaw)         2  RST     (nie ruszać)
+ 3  RX  (konsola — zostaw)         3  GPIO4   ┐ enkoder DT
+ 4  GPIO15 ┐                       4  GPIO5   ┘ enkoder CLK     BLS-03
+ 5  GPIO23 │                       5  GPIO6   ┐ OLED SDA
+ 6  GPIO22 │ klawiatura            6  GPIO7   ┘ OLED SCL        BLS-02
+ 7  GPIO21 │ BLS-07                7  GPIO0     enkoder SW      BLS-01 (wybudzanie)
+ 8  GPIO20 │                       8  GPIO1     ADC baterii
+ 9  GPIO19 │                       9  GPIO8     LED — zostaw
+10  GPIO18 ┘                      10  GPIO10  ┐
+11  GPIO9   BOOT — zostaw         11  GPIO11  │ lewo, prawo, stop   BLS-03
+12  G                             12  GPIO2   ┘
+13  GPIO13 ┐ cofnij, menu         13  GPIO3     zapas
+14  GPIO12 ┘ BLS-02               14  5V
+15  G                             15  G
+```
+
+| Wtyczka | Piny listwy (kolejność na goldpinie) | GPIO |
+|---------|--------------------------------------|------|
+| Klawiatura BLS-07 | J3-4 … J3-10 | 15, 23, 22, 21, 20, 19, 18 |
+| Enkoder A/B BLS-03 | J1-3, J1-4 | 4, 5 (+ SW osobno na 0) |
+| OLED BLS-02 | J1-5, J1-6 | 6, 7 |
+| Lewo / prawo / stop BLS-03 | J1-10 … J1-12 | 10, 11, **2** |
+| Cofnij / Menu BLS-02 | J3-13, J3-14 | 13, 12 |
+
+### Proponowane mapowanie funkcji → GPIO
+
+| Funkcja | GPIO | Było |
+|---------|------|------|
+| Klawiatura R0–R3, C0, C1 | 18, 19, 20, 21, 22, 23 | bez zmian |
+| Klawiatura C2 | **15** | 10 |
+| Enkoder DT / CLK | **4, 5** | 2, 3 |
+| Enkoder SW | **0** | bez zmian (wybudzanie z deep sleep) |
+| OLED SDA / SCL | **6, 7** | bez zmian |
+| Menu w lewo / w prawo / Stop | **10, 11, 2** | 11, 4, 12 |
+| Cofnij / Menu | **13, 12** | 5, 15 |
+
+Stop schodzi z `USB_D−` na GPIO 2. Cofnij/Menu zajmują 12/13, więc **natywny USB i tak zostaje martwy**, ale Stop nie siedzi już sam na D−, a dwa przyciski mają jedną wtyczkę.
+
+SW enkodera musi zostać na GPIO 0–7 (domena wybudzania). Pozostawienie go na 0 nie rusza `sleep::task`. A/B nie da się spiąć z SW jedną wtyczką: między nimi jest ADC (1) i LED (8) — stąd BLS-03 na 4+5 i osobny 1-pin na SW.
+
+GPIO **3** zostaje zapasem.
+
+### Czego się nie da
+
+Lewo + prawo + stop jako **trzy sąsiednie piny** przy enkoderze nadal na GPIO 2 i 3 — nie ma trzeciego wolnego bolca obok. Trzeba przesunąć A/B enkodera (jak w proponowanym układzie powyżej).
+
+I2C i enkoder są w globalnym [`config/board.rs`](../../crates/firmware/src/config/board.rs) (wspólne dla wariantów). Przesunięcie DT/CLK na 4 i 5 wymaga stałych **tylko dla `variant-markwtech`**, inaczej rozjedziesz LongFred/Heiko. Klawiatura i pięć przycisków są już w [`markwtech.rs`](../../crates/firmware/src/board/variants/markwtech.rs), więc C2→15 i nowa mapa przycisków to lokalna zmiana.
+
+### Przy wdrożeniu
+
+- [ ] Zaktualizować `KEYPAD_COL_PINS`, `EXTRA_BUTTON_PINS` / `EXTRA_BUTTON_MAP` w `markwtech.rs`
+- [ ] Dodać stałe pinów enkodera tylko dla markwtech (albo nadpisać przy inicjalizacji wariantu)
+- [ ] Odświeżyć tabele pinów i kroki montażu w tym pliku i `markwtech.md`
+- [ ] Przetestować klawiaturę, wszystkie 5 przycisków, enkoder, OLED, ADC baterii, chord `* + Stop`, wybudzanie po naciśnięciu enkodera
+- [ ] Opcjonalnie przed lutowaniem: przełóż klawiaturę na J3-4…10 i sprawdź cyfry (kolejność na wtyczce: 15=C2, potem 23, 22, 21, 20, 19, 18)
+
+## TODO — Modułowe złącza (goldpin + JST / Dupont)
+
+> **Jeszcze nie wdrożone.** Zapisany plan na uporządkowanie okablowania i łatwe zdejmowanie obudowy do debugowania. Łączy się z [reorganizacją pinów](#todo--reorganizacja-pinów-pod-modułowe-wiązki) powyżej — najpierw grupy GPIO, potem jedna wtyczka na wiązkę.
+
+### Problem
+
+Luźne jednopinowe przewody Dupont na listwach DevKita to główne źródło plątaniny i wtyczek, które spadają. Na manipulatorze trzymanym w ręku same tarcie nie wystarczy — Stop, który odpadnie, jest gorszy niż brzydki kabel.
+
+### Goldpin i JST to nie to samo
+
+| Złącze | Raster | Pasuje do |
+|--------|--------|-----------|
+| Goldpin / Dupont (BLS) | 2,54 mm | bolec 0,64 × 0,64 mm na listwie |
+| JST SH | 1,0 mm | tylko własna wtyczka/gniazdo SH |
+| JST XH | 2,54 mm | tylko własna wtyczka/gniazdo XH (ma zamek) |
+| JST PH | 2,0 mm | tylko własna wtyczka/gniazdo PH |
+
+**Nie wpinasz goldpina w gniazdo JST** — inny kształt styku i inna siatka. Każde przejście to osobny przewód: z jednej strony zacisk Dupont, z drugiej zacisk JST.
+
+### Proponowany układ
+
+Duponty zostają na ESP **na stałe**. Serwis i debug to odpięcie wiązek **JST**.
+
+```text
+Listwa ESP (goldpin) ── Dupont (ciasny, nie ruszany)
+                         │
+                         ├── taśma / opaska do ścianki obudowy  ← odciążenie
+                         │
+                      gniazdo JST przyklejone w obudowie
+                         │
+                      wtyczka JST ── kabel ── OLED / klawiatura / enkoder / przyciski
+```
+
+Przy zdejmowaniu obudowy wyciągasz JST. Duponty zostają na DevKicie.
+
+Klej **gniazdo** (strona stała) do obudowy. Od komponentu idzie **wtyczka** z zamkiem. Przy JST XH 2,54 mm: w obudowie wtyk męski (bolce), na kablu komponentu żeńska obudowa z zapadką.
+
+### Co na co
+
+| Zastosowanie | Rekomendacja | Dlaczego |
+|--------------|--------------|----------|
+| Sygnały (OLED, enkoder, klawiatura, przyciski) | **JST XH 2,54 mm** albo **Dupont BLS wielopinowy** | zamek (XH) albo grupa pinów (BLS-07); 1 A wystarczy |
+| Bardzo małe wiązki | JST SH 1,0 mm | najmniejszy, z zamkiem — trudny crimp; lepiej **gotowe pigtailę** |
+| Bateria / ładowarka / przetwornica | **JST PH 2,0 mm** albo **XH** | grubszy styk; **inny kolor lub liczba pinów** niż sygnały |
+| Tylko testy na biurku | luźny Dupont | OK chwilowo; nie rozwiązanie docelowe |
+
+Przy listwie adapterowej w obudowie **JST XH** jest prostszy niż SH: pasuje do płytki uniwersalnej 2,54 mm, tanie obudowy, zacisk na popularnych narzędziach. SH ma sens z gotowymi pigtailami albo dedykowaną płytką.
+
+### Dupont / BLS na DevKicie (strona stała)
+
+Używaj **wielopinowych obudów BLS**, nie BLS-01 na każdy przewód osobno:
+
+| Wiązka | Obudowa BLS | Przewody |
+|--------|-------------|----------|
+| OLED | BLS-04 | VCC, GND, SCL, SDA |
+| KY-040 | BLS-05 | +, GND, DT, CLK, SW |
+| Klawiatura | BLS-07 | 7 wyprowadzeń matrycy |
+| Przyciski | BLS-06 | 5 sygnałów + wspólna masa |
+| Zapas / pojedyncza masa | BLS-01 | według potrzeb |
+
+BLS-01 to tylko **plastikowa obudowa** — dokup **żeńskie styki zaciskane** (open barrel, AWG 28–22, z zapadką). Jedna obudowa 7-pin na klawiaturę trzyma się listwy dużo lepiej niż siedem wtyczek 1-pin.
+
+**Ciasne trzymanie na goldpinie:**
+
+1. Zacisk narzędziem do open barrel (np. **IWISS IWS-2820M**), nie szczypcami uniwersalnymi.
+2. Opcjonalnie lekko zaciśnij blaszki styku po zacisku (wypnij styk z obudowy).
+3. Jeśli kupujesz nowe — **styki toczone** (machine pin) trzymają ciaśniej.
+4. **Odciążenie:** taśmą lub opaską przyklej odcinek Dupont→JST do ścianki; przy odpięciu nie ciągnij za Dupont.
+5. **Nie klej** Dupontów do płytki ESP.
+
+### Narzędzie do zacisku (IWS-2820M)
+
+| Złącze | IWS-2820M |
+|--------|-----------|
+| Dupont / BLS 2,54 mm | **Tak** (AWG 28–20) |
+| JST XH 2,54 mm | **Tak** |
+| JST PH 2,0 mm | Da się, ciaśniej |
+| JST SH 1,0 mm | **Nie** — za mały raster; PA-09 / SN-2549 albo gotowe pigtailę SH |
+
+Jedna IWS-2820M wystarcza na Dupont przy ESP i XH w obudowie.
+
+### Plan wiązek (przy obecnym pinoucie)
+
+| Gniazdo w obudowie | Piny | Idzie do |
+|--------------------|------|----------|
+| OLED | 4 | VCC, GND, SCL, SDA |
+| Enkoder | 5 | +, GND, DT, CLK, SW |
+| Klawiatura | 7 | R0–R3, C0–C2 (opisz kolejność pinów taśmy) |
+| Przyciski | 6 | 5 sygnałów + wspólna masa |
+| Zasilanie | 2–3 | osobna wtyczka, inny kolor obudowy |
+
+**Zasilanie osobno** od sygnałów. Pomyłka polaryzacji przy zamianie wtyczek nadal niszczy sprzęt.
+
+### Czego nie robić
+
+- Nie wpinać goldpina w obudowę JST „bo oba są wtyczkami”.
+- Nie robić klawiatury z siedmiu jednopinowych Dupontów — jedna BLS-07.
+- Nie polegać na tarciu przy Stop i innych krytycznych przyciskach.
+- Nie prowadzić prądu ładowania TP4056 przez Duponty sygnałowe (1 A to limit na logikę, nie na ładowanie).
+
+### Przy wdrożeniu
+
+- [ ] Zacisnąć wiązki Dupont według grup; opisać oba końce (numer GPIO + funkcja).
+- [ ] Zamontować gniazda JST/XH w obudowie epoksydem albo klipsem z nadruku 3D (klej na gładkim PETG czasem puszcza).
+- [ ] Odciążyć każdy przewód adapterowy taśmą/opaską przy ściance przed klejeniem gniazd.
+- [ ] Trzymać spójne kolory przewodów (np. czarny = masa wszędzie).
+- [ ] Po [reorganizacji pinów](#todo--reorganizacja-pinów-pod-modułowe-wiązki) przebudować kolejność pinów w wiązkach pod nowe grupy GPIO.

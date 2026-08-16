@@ -4,13 +4,22 @@ All hardware variants share the same Soft-AP provisioning API. Firmware can also
 
 ## Entering Soft-AP mode
 
-| Variant | Chord (hold 8 s) | Auto if no Wi‑Fi creds |
-|---------|------------------|------------------------|
-| longfred-standard / mini | Shift1 + Stop | no |
-| markwtech | `*` + Stop | no |
-| heiko-wifred | Shift + Stop | **yes** |
+On OLED variants, **Stop during the 2 s boot splash** also enters programming mode (in addition to the 8 s chord).
+
+| Variant | Chord (hold 8 s) | Boot splash Stop | Auto if no Wi‑Fi creds |
+|---------|------------------|------------------|------------------------|
+| longfred-standard / mini | Shift1 + Stop | yes | no |
+| markwtech | `*` + Stop | yes | no |
+| heiko-wifred | Shift + Stop | no (no OLED) | **yes** |
 
 Firmware sets `programming_mode` in NVS and soft-resets (except auto-pair at boot, which skips STA bring-up).
+
+On OLED variants the Soft-AP UI is two steps:
+
+1. SSID (`longfred_prog_XXXXXX`) and “connected?” — **left** cancels (clears the flag and reboots to normal boot), **right** continues.
+2. `http://192.168.0.1/` — 128×64 shows a QR code with the URL under it; 128×32 shows the URL only. **Left** returns to step 1. **Stop** / **E-Stop** exits from either step.
+
+heiko-wifred has no OLED (LED pairing pattern); **Stop** still exits.
 
 ## Network (Soft-AP)
 
@@ -70,7 +79,7 @@ On STA this page is served only while Firmware update HTTP is enabled. `PUT` set
 
 ### `GET /api/v1/settings`
 
-Returns device info (including `device.variant` and `firmware.version`), Wi‑Fi SSID (no password), BigFred login (no PIN), roster, roster mode.
+Returns device info (including `device.variant` and `firmware.version`), Wi‑Fi SSIDs plus the last-used `wifi.password`, BigFred login and PIN (`bigfred.pin`, `pin_set` remains for compatibility), roster, roster mode.
 
 ### `PUT /api/v1/settings`
 
@@ -102,4 +111,4 @@ Soft-AP only. Clears the programming flag, responds 200, soft-resets after ~500 
 
 ## Cancel on device
 
-Press **Stop** / **EStop** while in pairing UI to clear the flag and reboot into normal operation.
+On OLED variants, **left** on the first Soft-AP screen (or **Stop** / **E-Stop** on either screen) clears the flag and reboots into normal operation. **Right** on the first screen shows the URL / QR.

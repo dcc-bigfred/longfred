@@ -134,21 +134,6 @@ pub fn track_power(on: bool) -> Cmd {
     cmd(&["PPA", if on { "1" } else { "0" }])
 }
 
-pub fn turnout(action: TurnoutAction, sys_name: &str) -> Cmd {
-    let mut s = Cmd::new();
-    let _ = s.push_str("PTA");
-    let _ = s.push(action.to_wire());
-    let _ = s.push_str(sys_name);
-    s
-}
-
-pub fn route(sys_name: &str) -> Cmd {
-    let mut s = Cmd::new();
-    let _ = s.push_str("PRA2");
-    let _ = s.push_str(sys_name);
-    s
-}
-
 pub fn send_raw(command: &str) -> Cmd {
     let mut s = Cmd::new();
     let _ = s.push_str(command);

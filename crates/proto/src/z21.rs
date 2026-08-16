@@ -238,10 +238,7 @@ impl Z21Adapter {
             ClientCommand::TrackPower(on) => {
                 put_xbus(out, &[0x21, if *on { 0x81 } else { 0x80 }]);
             }
-            ClientCommand::SetHeartbeat(_)
-            | ClientCommand::Turnout { .. }
-            | ClientCommand::Route { .. }
-            | ClientCommand::Steal { .. } => {}
+            ClientCommand::SetHeartbeat(_) | ClientCommand::Steal { .. } => {}
         }
     }
 

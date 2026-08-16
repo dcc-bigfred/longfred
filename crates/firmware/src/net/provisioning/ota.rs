@@ -1,22 +1,19 @@
 //! Dual-slot OTA via `esp-bootloader-esp-idf` `OtaUpdater`.
 
-use embedded_storage::nor_flash::NorFlash;
 use embassy_net::tcp::TcpSocket;
+use embedded_storage::nor_flash::NorFlash;
 use esp_bootloader_esp_idf::ota::OtaImageState;
 use esp_bootloader_esp_idf::ota_updater::OtaUpdater;
-use esp_bootloader_esp_idf::partitions::FlashRegion;
+use esp_bootloader_esp_idf::partitions::{FlashRegion, PARTITION_TABLE_MAX_LEN};
 use esp_storage::FlashStorage;
 use log::{info, warn};
-use longfred_proto::image::{
-    ESP_IMAGE_HEADER_LEN, ImageError, validate_esp32c6_app_image,
-};
+use longfred_proto::image::{ESP_IMAGE_HEADER_LEN, ImageError, validate_esp32c6_app_image};
 
 const SECTOR: usize = 4096;
-const PT_BUF: usize = 3072;
 
 /// Mark the running slot Valid after a successful OTA boot (no-op if otadata is empty).
 pub fn mark_running_slot_valid(flash: &mut FlashStorage<'_>) {
-    let mut buf = [0u8; PT_BUF];
+    let mut buf = [0u8; PARTITION_TABLE_MAX_LEN];
     let Ok(mut ota) = OtaUpdater::new(flash, &mut buf) else {
         return;
     };
@@ -72,7 +69,7 @@ pub async fn flash_from_socket(
     already: &[u8],
     content_len: usize,
 ) -> Result<(), &'static str> {
-    let mut buf = [0u8; PT_BUF];
+    let mut buf = [0u8; PARTITION_TABLE_MAX_LEN];
     let mut ota = OtaUpdater::new(flash, &mut buf).map_err(|_| "ota partitions missing")?;
 
     let mut header = [0u8; ESP_IMAGE_HEADER_LEN];
@@ -138,7 +135,13 @@ pub async fn flash_from_socket(
             match sock.read(&mut tmp[..want]).await {
                 Ok(0) => return Err("eof body"),
                 Ok(k) => {
-                    write_sector(&mut region, &mut offset, &mut sector, &mut filled, &tmp[..k])?;
+                    write_sector(
+                        &mut region,
+                        &mut offset,
+                        &mut sector,
+                        &mut filled,
+                        &tmp[..k],
+                    )?;
                     written += k;
                 }
                 Err(_) => return Err("read body"),

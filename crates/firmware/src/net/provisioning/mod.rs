@@ -3,6 +3,7 @@
 mod http_server;
 pub mod ota;
 
+use embassy_futures::select::{Either, select};
 use embassy_net::{
     Config as NetConfig, Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4,
 };
@@ -20,10 +21,11 @@ use longfred_proto::persist::PersistRecord;
 use static_cell::StaticCell;
 
 use crate::board;
-use crate::config::sizes;
-use crate::input::{INPUT_CHANNEL, InputEvent};
+use crate::config::{self, sizes};
+use crate::input::{INPUT_CHANNEL, InputEvent, NavDir};
 use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, SharedFlash, StorageCmd};
 use crate::ui::UI_VIEW;
+use crate::ui::i18n;
 use crate::ui::view::{GridView, UiView};
 
 const AP_IP: Ipv4Address = Ipv4Address::new(192, 168, 0, 1);
@@ -93,19 +95,48 @@ pub async fn ap_hold_task(controller: WifiController<'static>) {
     }
 }
 
-/// OLED / LED pairing indication.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PairingPage {
+    Ask,
+    Url,
+}
+
+fn ask_grid(ssid: &str) -> GridView {
+    let mut grid = GridView::new();
+    grid.set(0, ssid, false);
+    grid.set(2, i18n::tr().msg_prog_connected, false);
+    grid.set(5, i18n::tr().hint_prog_ask, false);
+    grid
+}
+
+fn url_grid(ssid: &str) -> GridView {
+    let mut grid = GridView::new();
+    grid.set(0, ssid, false);
+    grid.set(2, config::network::PAIRING_HTTP_URL, false);
+    grid.set(5, i18n::tr().hint_prog_back, false);
+    grid
+}
+
+fn publish_pairing_page(page: PairingPage, ssid: &str, qr_ok: bool) {
+    let view = match page {
+        PairingPage::Ask => UiView::Grid(ask_grid(ssid)),
+        PairingPage::Url if qr_ok => UiView::PairingQr,
+        PairingPage::Url => UiView::Grid(url_grid(ssid)),
+    };
+    UI_VIEW.sender().send(view);
+}
+
+/// OLED wizard + LED pairing; Stop / left-on-ask exits Soft-AP.
 #[embassy_executor::task]
 pub async fn pairing_ui_task(ssid: String<32>) {
     let desc = board::active_variant();
-    let mut pairing_grid = None;
-    if desc.display.is_some() {
-        let mut grid = GridView::new();
-        grid.set(0, "Pairing mode", false);
-        grid.set(1, ssid.as_str(), false);
-        grid.set(2, "192.168.0.1", false);
-        UI_VIEW.sender().send(UiView::Grid(grid.clone()));
-        pairing_grid = Some(grid);
-        info!("programming: display shows Pairing mode");
+    let has_display = desc.display.is_some();
+    let qr_ok = desc.display.is_some_and(|d| d.height > 32);
+    let mut page = PairingPage::Ask;
+
+    if has_display {
+        publish_pairing_page(page, ssid.as_str(), qr_ok);
+        info!("programming: display shows pairing wizard");
     }
     #[cfg(feature = "variant-heiko-wifred")]
     {
@@ -115,37 +146,46 @@ pub async fn pairing_ui_task(ssid: String<32>) {
         info!("programming: LED pairing pattern");
     }
     #[cfg(not(feature = "variant-heiko-wifred"))]
-    if desc.display.is_none() {
+    if !has_display {
         info!("programming: pairing active (no display/LEDs)");
     }
+
+    let rx = INPUT_CHANNEL.receiver();
     let mut was_busy = false;
     loop {
-        Timer::after(Duration::from_millis(250)).await;
-        let busy = crate::net::http_ota_busy();
-        if was_busy && !busy {
-            if let Some(ref g) = pairing_grid {
-                UI_VIEW.sender().send(UiView::Grid(g.clone()));
+        match select(rx.receive(), Timer::after(Duration::from_millis(250))).await {
+            Either::First(ev) => match ev {
+                InputEvent::Stop | InputEvent::EStop => {
+                    info!("programming: cancel via Stop/EStop");
+                    exit_programming_mode(50).await;
+                }
+                InputEvent::Nav(NavDir::Left) => match page {
+                    PairingPage::Ask => {
+                        info!("programming: cancel via left");
+                        exit_programming_mode(50).await;
+                    }
+                    PairingPage::Url => {
+                        page = PairingPage::Ask;
+                        if has_display {
+                            publish_pairing_page(page, ssid.as_str(), qr_ok);
+                        }
+                    }
+                },
+                InputEvent::Nav(NavDir::Right) if page == PairingPage::Ask => {
+                    page = PairingPage::Url;
+                    if has_display {
+                        publish_pairing_page(page, ssid.as_str(), qr_ok);
+                    }
+                }
+                _ => {}
+            },
+            Either::Second(()) => {
+                let busy = crate::net::http_ota_busy();
+                if was_busy && !busy && has_display {
+                    publish_pairing_page(page, ssid.as_str(), qr_ok);
+                }
+                was_busy = busy;
             }
-        }
-        was_busy = busy;
-    }
-}
-
-/// Stop / E-Stop clears programming mode and reboots.
-#[embassy_executor::task]
-pub async fn cancel_task() {
-    let rx = INPUT_CHANNEL.receiver();
-    let tx = STORAGE_CTRL.sender();
-    loop {
-        match rx.receive().await {
-            InputEvent::Stop | InputEvent::EStop => {
-                info!("programming: cancel via Stop/EStop");
-                let _ = tx.try_send(StorageCmd::SetProgrammingMode(false));
-                STORAGE_ACK.wait().await;
-                Timer::after(Duration::from_millis(50)).await;
-                software_reset();
-            }
-            _ => {}
         }
     }
 }
@@ -163,13 +203,11 @@ pub fn spawn_programming_net(
     let mut mac_bytes = [0u8; 6];
     mac_bytes.copy_from_slice(mac.as_bytes());
     let ssid = ap_ssid_from_mac(&mac_bytes);
+    i18n::set_language(initial.language);
 
     let Some((controller, iface)) = start_ap(wifi) else {
         warn!("programming: no Soft-AP interface; HTTP not started");
         if let Ok(token) = pairing_ui_task(ssid) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = cancel_task() {
             spawner.spawn(token);
         }
         return false;
@@ -196,9 +234,6 @@ pub fn spawn_programming_net(
     if let Ok(token) = pairing_ui_task(ssid) {
         spawner.spawn(token);
     }
-    if let Ok(token) = cancel_task() {
-        spawner.spawn(token);
-    }
 
     // Refresh local record if storage republishes.
     if let Ok(token) = sync_persist_task(rec) {
@@ -210,8 +245,12 @@ pub fn spawn_programming_net(
 
 #[embassy_executor::task]
 async fn sync_persist_task(rec: &'static Mutex<CriticalSectionRawMutex, PersistRecord>) {
+    let Some(mut rx) = PERSIST_LOADED.receiver() else {
+        warn!("programming: persist watch has no free receiver");
+        return;
+    };
     loop {
-        let updated = PERSIST_LOADED.wait().await;
+        let updated = rx.changed().await;
         let mut guard = rec.lock().await;
         *guard = updated;
     }
@@ -221,7 +260,9 @@ async fn sync_persist_task(rec: &'static Mutex<CriticalSectionRawMutex, PersistR
 pub async fn exit_programming_mode(delay_ms: u64) -> ! {
     let tx = STORAGE_CTRL.sender();
     let _ = tx.try_send(StorageCmd::SetProgrammingMode(false));
-    STORAGE_ACK.wait().await;
+    if !STORAGE_ACK.wait().await {
+        warn!("programming: persist failed — resetting anyway");
+    }
     Timer::after(Duration::from_millis(delay_ms)).await;
     software_reset();
 }

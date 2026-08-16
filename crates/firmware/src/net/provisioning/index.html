@@ -22,12 +22,12 @@ legend{padding:0 4px;color:#9cf;font-size:12px}
 <fieldset>
 <legend>BigFred</legend>
 <label>Login</label><input id="login" autocomplete="username">
-<label>PIN</label><input id="pin" type="password" autocomplete="current-password">
+<label>PIN</label><input id="pin" type="text" autocomplete="current-password">
 </fieldset>
 <fieldset>
 <legend>Wi‑Fi</legend>
 <label>SSID</label><input id="ssid" autocomplete="off">
-<label>Password</label><input id="wifi_pw" type="password" autocomplete="new-password">
+<label>Password</label><input id="wifi_pw" type="text" autocomplete="new-password">
 </fieldset>
 <fieldset>
 <legend>Roster</legend>
@@ -71,9 +71,9 @@ async function load(){
     if(!r.ok)throw new Error(r.status);
     const j=await r.json();
     $('login').value=(j.bigfred&&j.bigfred.login)||'';
-    $('pin').value='';
+    $('pin').value=(j.bigfred&&j.bigfred.pin)||'';
     $('ssid').value='';
-    $('wifi_pw').value='';
+    $('wifi_pw').value=(j.wifi&&j.wifi.password)||'';
     if(j.wifi&&j.wifi.networks&&j.wifi.networks[0])$('ssid').value=j.wifi.networks[0];
     $('roster_mode').value=(j.roster&&j.roster.mode)||'auto';
     $('roster').value=rosterText(j.roster&&j.roster.entries);

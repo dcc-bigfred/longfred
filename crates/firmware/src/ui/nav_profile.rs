@@ -14,6 +14,8 @@ pub enum NavAction {
     CursorMove(i8),
     CaseToggle,
     Digit(char),
+    PagePrev,
+    PageNext,
     /// Domain / throttle events not remapped by the profile.
     PassThrough(InputEvent),
 }
@@ -46,16 +48,21 @@ impl NavProfile for LongFredNav {
             InputEvent::Nav(NavDir::Left) => Some(if text_entry {
                 NavAction::CursorMove(-1)
             } else {
-                NavAction::PassThrough(InputEvent::Nav(NavDir::Left))
+                NavAction::PagePrev
             }),
             InputEvent::Nav(NavDir::Right) => Some(if text_entry {
                 NavAction::CursorMove(1)
             } else {
-                NavAction::PassThrough(InputEvent::Nav(NavDir::Right))
+                NavAction::PageNext
             }),
             InputEvent::Ok => Some(NavAction::Select),
             InputEvent::Back => Some(NavAction::Cancel),
-            InputEvent::Menu => Some(NavAction::MenuEnter),
+            InputEvent::Menu => Some(if text_entry {
+                NavAction::Select
+            } else {
+                NavAction::MenuEnter
+            }),
+            InputEvent::EncoderButton if text_entry => Some(NavAction::Select),
             InputEvent::CaseToggle => Some(NavAction::CaseToggle),
             InputEvent::Digit(c) => Some(NavAction::Digit(c)),
             InputEvent::CharCycle(d) => Some(NavAction::CharCycle(d)),
@@ -70,10 +77,10 @@ impl NavProfile for LongFredNav {
 ///
 /// - Encoder → ListPrev/ListNext (or CharCycle in text entry)
 /// - `#` → Select
-/// - `*` → MenuEnter on throttle; Cancel / backspace in menus & text
-/// - Digits 0–9 → Digit
-/// - Extra Back → Cancel
-/// - Extra Menu → MenuEnter
+/// - `*` → Caps Lock in text entry; DirectionToggle on throttle; Cancel in menus
+/// - Digits 0–9 → Digit (T9 in text entry)
+/// - Extra Back → Cancel (leave screen, no backspace)
+/// - Extra Menu / encoder SW → Select in text entry; MenuEnter otherwise
 /// - Extra Left/Right → CursorMove in text entry; otherwise list paging
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MarkwtechNav;
@@ -94,25 +101,28 @@ impl NavProfile for MarkwtechNav {
             InputEvent::Nav(NavDir::Left) => Some(if text_entry {
                 NavAction::CursorMove(-1)
             } else {
-                NavAction::PassThrough(InputEvent::Nav(NavDir::Left))
+                NavAction::PagePrev
             }),
             InputEvent::Nav(NavDir::Right) => Some(if text_entry {
                 NavAction::CursorMove(1)
             } else {
-                NavAction::PassThrough(InputEvent::Nav(NavDir::Right))
+                NavAction::PageNext
             }),
             InputEvent::Digit('#') => Some(NavAction::Select),
             InputEvent::Digit('*') => Some(if text_entry {
-                NavAction::Cancel
+                NavAction::CaseToggle
             } else if on_throttle {
-                // On the drive screen, `*` opens the menu.
-                NavAction::MenuEnter
+                NavAction::PassThrough(InputEvent::DirectionToggle)
             } else {
-                // Inside a menu, `*` acts as Cancel / back.
                 NavAction::Cancel
             }),
             InputEvent::Digit(c) => Some(NavAction::Digit(c)),
-            InputEvent::Menu => Some(NavAction::MenuEnter),
+            InputEvent::Menu => Some(if text_entry {
+                NavAction::Select
+            } else {
+                NavAction::MenuEnter
+            }),
+            InputEvent::EncoderButton if text_entry => Some(NavAction::Select),
             InputEvent::Back => Some(NavAction::Cancel),
             InputEvent::Ok => Some(NavAction::Select),
             other => Some(NavAction::PassThrough(other)),

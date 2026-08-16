@@ -47,8 +47,8 @@ impl HeadlessShell {
                 }
             }
             InputEvent::DirectionToggle => Intent::Action(Action::DirectionToggle),
-            InputEvent::FnPress(f) => Intent::Function(f, true),
-            InputEvent::FnRelease(f) => Intent::Function(f, false),
+            InputEvent::FnPress(f) => Intent::Function(f),
+            InputEvent::FnRelease(_) => Intent::None,
             InputEvent::EStop | InputEvent::Stop => Intent::Action(Action::EStop),
             InputEvent::LocoSlot(slot, on) if on => Intent::Action(Action::Throttle(slot)),
             InputEvent::SpeedAbsolute(_)

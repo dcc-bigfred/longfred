@@ -89,3 +89,6 @@ check-size-only:
 
 test:
 	$(CARGO) test -p longfred-proto --target x86_64-unknown-linux-gnu
+
+flash-markwtech:
+	ESPFLASH_PORT=/dev/ttyUSB0 cargo run -p longfred-firmware   --no-default-features --features variant-markwtech   --target-dir target/markwtech

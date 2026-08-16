@@ -15,9 +15,9 @@ use crate::net::provisioning::exit_programming_mode;
 use crate::net::provisioning::ota;
 use crate::net::{self, HTTP_OTA_BUSY};
 use crate::storage::{STORAGE_ACK, STORAGE_CTRL, SharedFlash, StorageCmd};
+use crate::ui::UI_VIEW;
 use crate::ui::i18n;
 use crate::ui::view::{GridView, UiView};
-use crate::ui::UI_VIEW;
 
 const INDEX_HTML: &str = include_str!("index.html");
 
@@ -172,7 +172,9 @@ async fn handle_client(
     };
 
     match (method, path, mode) {
-        ("GET", "/", _) => respond(sock, 200, "text/html; charset=utf-8", INDEX_HTML.as_bytes()).await,
+        ("GET", "/", _) => {
+            respond(sock, 200, "text/html; charset=utf-8", INDEX_HTML.as_bytes()).await
+        }
         ("GET", "/api/v1/settings", _) => {
             let Some(rec) = rec else {
                 return respond(sock, 503, "text/plain", b"no settings").await;
@@ -224,7 +226,9 @@ async fn handle_settings_put(
     if tx.try_send(StorageCmd::ReplaceRecord(snapshot)).is_err() {
         return respond(sock, 503, "text/plain", b"storage busy").await;
     }
-    STORAGE_ACK.wait().await;
+    if !STORAGE_ACK.wait().await {
+        return respond(sock, 500, "text/plain", b"storage persist failed").await;
+    }
     respond(sock, 200, "application/json", b"{\"ok\":true}").await
 }
 

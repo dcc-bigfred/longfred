@@ -1,5 +1,6 @@
 //! WiFi STA: connection task (scan/connect via WIFI_CTRL), stack runner, DHCP/status.
 
+use embassy_futures::select::{Either, select};
 use embassy_net::{ConfigV4, DhcpConfig, Ipv4Address, Ipv4Cidr, Runner, Stack, StaticConfigV4};
 use embassy_time::{Duration, Timer};
 use esp_radio::wifi::{
@@ -11,13 +12,12 @@ use log::{info, warn};
 use crate::config;
 use crate::config::sizes;
 use crate::net::{
-    NET_CONFIG_CTRL, NetStatus, STATE, SsidInfo, WIFI_CTRL, WIFI_HOSTNAME, WIFI_SCAN, WifiCmd,
+    NET_CONFIG_CTRL, NetStatus, STA_NET, STATE, SsidInfo, StaNet, WIFI_CTRL, WIFI_HOSTNAME,
+    WIFI_LINK, WIFI_SCAN, WifiCmd, WifiLink,
 };
 
 /// embassy-net driver type provided by esp-radio (STA).
 pub type NetDriver = Interface;
-
-const RETRY_DELAY: Duration = Duration::from_secs(2);
 
 fn dhcp_config_with_hostname() -> ConfigV4 {
     let mut dhcp = DhcpConfig::default();
@@ -58,7 +58,17 @@ pub async fn connection(mut controller: WifiController<'static>) {
                 match result {
                     Ok(aps) => {
                         for ap in &aps {
-                            if out.push(ap_to_ssid_info(ap)).is_err() {
+                            let info = ap_to_ssid_info(ap);
+                            info!(
+                                "wifi scan ssid='{}' bytes={} rssi={}",
+                                info.ssid.as_str(),
+                                info.ssid.len(),
+                                info.rssi
+                            );
+                            if info.ssid.is_empty() {
+                                continue;
+                            }
+                            if out.push(info).is_err() {
                                 break;
                             }
                         }
@@ -73,40 +83,54 @@ pub async fn connection(mut controller: WifiController<'static>) {
                         .with_ssid(ssid.as_str())
                         .with_password(password.as_str().into()),
                 );
-                loop {
-                    state_tx.send(NetStatus::Connecting);
-                    if let Err(e) = controller.set_config(&cfg) {
-                        warn!("wifi set_config error: {:?}", e);
-                        Timer::after(RETRY_DELAY).await;
-                        continue;
+                state_tx.send(NetStatus::Connecting);
+                if let Err(e) = controller.set_config(&cfg) {
+                    warn!("wifi set_config error: {:?}", e);
+                    state_tx.send(NetStatus::Disconnected);
+                    continue;
+                }
+                if config::network::WIFI_FORCE_POWER_SAVE_NONE {
+                    if let Err(e) = controller.set_power_saving(PowerSaveMode::None) {
+                        warn!("wifi set_power_saving error: {:?}", e);
                     }
-                    if config::network::WIFI_FORCE_POWER_SAVE_NONE {
-                        if let Err(e) = controller.set_power_saving(PowerSaveMode::None) {
-                            warn!("wifi set_power_saving error: {:?}", e);
-                        }
+                }
+                if config::network::WIFI_ENABLE_11AX {
+                    let protocols = Protocols::default()
+                        .with_2_4(Protocol::B | Protocol::G | Protocol::N | Protocol::AX);
+                    if let Err(e) = controller.set_protocols(protocols) {
+                        warn!("wifi set_protocols error: {:?}", e);
                     }
-                    if config::network::WIFI_ENABLE_11AX {
-                        let protocols = Protocols::default()
-                            .with_2_4(Protocol::B | Protocol::G | Protocol::N | Protocol::AX);
-                        if let Err(e) = controller.set_protocols(protocols) {
-                            warn!("wifi set_protocols error: {:?}", e);
+                }
+                info!("wifi connecting to SSID={}", ssid.as_str());
+                let timeout = Duration::from_millis(config::network::SSID_CONNECTION_TIMEOUT_MS);
+                match select(controller.connect_async(), Timer::after(timeout)).await {
+                    Either::First(Ok(_)) => {
+                        info!("wifi connected");
+                        state_tx.send(NetStatus::WifiConnected);
+                        publish_wifi_link(&controller);
+                        loop {
+                            match select(
+                                controller.wait_for_disconnect_async(),
+                                Timer::after(Duration::from_secs(1)),
+                            )
+                            .await
+                            {
+                                Either::First(_) => break,
+                                Either::Second(_) => publish_wifi_link(&controller),
+                            }
                         }
+                        WIFI_LINK.sender().send(None);
+                        warn!("wifi disconnected");
+                        state_tx.send(NetStatus::Disconnected);
                     }
-                    info!("wifi connecting to SSID={}", ssid.as_str());
-                    match controller.connect_async().await {
-                        Ok(_) => {
-                            info!("wifi connected");
-                            state_tx.send(NetStatus::WifiConnected);
-                            controller.wait_for_disconnect_async().await.ok();
-                            warn!("wifi disconnected");
-                            state_tx.send(NetStatus::Disconnected);
-                            break;
-                        }
-                        Err(e) => {
-                            warn!("wifi connect error: {:?}", e);
-                            state_tx.send(NetStatus::Disconnected);
-                            Timer::after(RETRY_DELAY).await;
-                        }
+                    Either::First(Err(e)) => {
+                        warn!("wifi connect error: {:?}", e);
+                        state_tx.send(NetStatus::Disconnected);
+                    }
+                    Either::Second(_) => {
+                        warn!("wifi connect timeout");
+                        let _ = controller.disconnect_async().await;
+                        state_tx.send(NetStatus::Disconnected);
                     }
                 }
             }
@@ -132,10 +156,21 @@ pub async fn status_task(stack: Stack<'static>) {
             sender.send(NetStatus::Ready);
             let oct = cfg.address.address().octets();
             crate::net::STA_IPV4.sender().send(Some(oct));
+            let mac = match stack.hardware_address() {
+                embassy_net::HardwareAddress::Ethernet(addr) => addr.0,
+            };
+            STA_NET.sender().send(Some(StaNet {
+                ip: oct,
+                prefix: cfg.address.prefix_len(),
+                gateway: cfg.gateway.map(|g| g.octets()),
+                dns: cfg.dns_servers.first().map(|d| d.octets()),
+                mac,
+            }));
         }
         stack.wait_link_down().await;
         warn!("net link down");
         crate::net::STA_IPV4.sender().send(None);
+        STA_NET.sender().send(None);
         crate::net::HTTP_OTA_ENABLE.sender().send(false);
     }
 }
@@ -167,6 +202,29 @@ pub async fn config_task(stack: Stack<'static>) {
         };
         stack.set_config_v4(v4);
         info!("net config applied: dhcp={}", cfg.dhcp);
+    }
+}
+
+fn publish_wifi_link(controller: &WifiController<'_>) {
+    let mut link = WifiLink {
+        ssid: heapless::String::new(),
+        rssi: 0,
+        bssid: [0; 6],
+        channel: 0,
+    };
+    if let Ok(ap) = controller.ap_info() {
+        let _ = link.ssid.push_str(ap.ssid.as_str());
+        link.bssid = ap.bssid;
+        link.channel = ap.channel;
+        link.rssi = ap.signal_strength;
+    }
+    if let Ok(rssi) = controller.rssi() {
+        link.rssi = rssi.clamp(i8::MIN as i32, i8::MAX as i32) as i8;
+    }
+    if link.ssid.is_empty() && link.rssi == 0 && link.channel == 0 {
+        WIFI_LINK.sender().send(None);
+    } else {
+        WIFI_LINK.sender().send(Some(link));
     }
 }
 

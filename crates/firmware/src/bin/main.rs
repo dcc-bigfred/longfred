@@ -124,10 +124,13 @@ async fn main(spawner: Spawner) -> ! {
             if let Ok(token) = net::wifi::config_task(stack) {
                 spawner.spawn(token);
             }
-            if let Ok(token) = net::mdns::task(stack, config::network::NETWORKS[0].ssid) {
+            if let Ok(token) = net::mdns::task(stack, "") {
                 spawner.spawn(token);
             }
             if let Ok(token) = net::session::task(stack) {
+                spawner.spawn(token);
+            }
+            if let Ok(token) = net::ping::task(stack) {
                 spawner.spawn(token);
             }
             net::provisioning::spawn_sta_http(&spawner, stack, boot.record.clone(), flash);

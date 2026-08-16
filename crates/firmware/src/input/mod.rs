@@ -4,10 +4,10 @@
 
 pub mod encoder;
 pub mod expander;
-pub mod gpio_nav;
-pub mod i2c_bus;
 #[cfg(feature = "variant-markwtech")]
 pub mod extra_buttons;
+pub mod gpio_nav;
+pub mod i2c_bus;
 #[cfg(feature = "variant-markwtech")]
 pub mod keypad;
 

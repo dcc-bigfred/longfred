@@ -1,11 +1,28 @@
 //! Protocol-agnostic client commands produced by the domain layer.
 
-use crate::model::{Direction, ShortText, TurnoutAction};
+use crate::model::{Direction, ShortText};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Protocol {
     WiThrottle,
     Z21,
+}
+
+impl Protocol {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            Self::WiThrottle => 0,
+            Self::Z21 => 1,
+        }
+    }
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::WiThrottle),
+            1 => Some(Self::Z21),
+            _ => None,
+        }
+    }
 }
 
 /// Numeric DCC loco identity (protocol-neutral).
@@ -89,13 +106,6 @@ pub enum ClientCommand {
     },
     TrackPower(bool),
     SetHeartbeat(bool),
-    Turnout {
-        action: TurnoutAction,
-        sys_name: ShortText,
-    },
-    Route {
-        sys_name: ShortText,
-    },
     Steal {
         throttle: u8,
         loco: LocoId,

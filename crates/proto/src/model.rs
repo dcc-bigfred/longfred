@@ -57,39 +57,6 @@ impl TrackPower {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TurnoutState {
-    Closed,
-    Thrown,
-    Unknown,
-    Inconsistent,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RouteState {
-    Active,
-    Inactive,
-    Inconsistent,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TurnoutAction {
-    Throw,
-    Close,
-    Toggle,
-}
-
-impl TurnoutAction {
-    pub fn to_wire(self) -> char {
-        match self {
-            TurnoutAction::Close => 'C',
-            TurnoutAction::Throw => 'T',
-            TurnoutAction::Toggle => '2',
-        }
-    }
-}
-
 /// Throttle slot index (0..=5) to WiThrottle throttle character (`'0'`..`'5'`).
 pub fn throttle_char(index: usize) -> char {
     (b'0' + index as u8) as char

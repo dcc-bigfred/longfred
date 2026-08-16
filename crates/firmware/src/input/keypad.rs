@@ -6,7 +6,7 @@
 use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{AnyPin, Input, InputConfig, Level, Output, OutputConfig, Pull};
 
-use crate::board::raw::{RawEvent, RawSender};
+use crate::board::raw::{ButtonId, RawEvent, RawSender};
 #[cfg(feature = "variant-markwtech")]
 use crate::board::variants::markwtech::{KEYPAD_COL_PINS, KEYPAD_MAP, KEYPAD_ROW_PINS};
 
@@ -89,6 +89,13 @@ pub async fn task(mut pins: Pins, sender: RawSender) {
                 pressed[r][c] = raw_pressed;
                 debounce[r][c] = 0;
                 let id = KEYPAD_MAP[r][c];
+                let edge = if raw_pressed { "press" } else { "release" };
+                match id {
+                    ButtonId::Star => log::info!("input: keypad * {edge}"),
+                    ButtonId::Hash => log::info!("input: keypad # {edge}"),
+                    ButtonId::KeypadDigit(d) => log::info!("input: keypad {d} {edge}"),
+                    other => log::info!("input: keypad {other:?} {edge}"),
+                }
                 let _ = sender.try_send(RawEvent::Button(id, raw_pressed));
             }
         }

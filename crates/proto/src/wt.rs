@@ -87,15 +87,11 @@ impl WtAdapter {
                 self.push_line(out, &protocol::estop(throttle_char_u8(*throttle), "*"));
             }
             ClientCommand::SetFunction {
-                throttle,
-                func,
-                on,
-                all,
+                throttle, func, on, ..
             } => {
-                let sel = if *all { "*" } else { "" };
                 self.push_line(
                     out,
-                    &protocol::set_function(throttle_char_u8(*throttle), sel, *func, *on, false),
+                    &protocol::set_function(throttle_char_u8(*throttle), "*", *func, *on, false),
                 );
             }
             ClientCommand::TrackPower(on) => {
@@ -104,12 +100,6 @@ impl WtAdapter {
             ClientCommand::SetHeartbeat(on) => {
                 self.heartbeat_enabled = *on;
                 self.push_line(out, &protocol::heartbeat_enable(*on));
-            }
-            ClientCommand::Turnout { action, sys_name } => {
-                self.push_line(out, &protocol::turnout(*action, sys_name.as_str()));
-            }
-            ClientCommand::Route { sys_name } => {
-                self.push_line(out, &protocol::route(sys_name.as_str()));
             }
             ClientCommand::Steal { throttle, loco } => {
                 let a = loco.to_wire();
