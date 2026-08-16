@@ -1,0 +1,91 @@
+//! Screen identifiers and navigation commands issued by a screen.
+
+/// Logical screen (one object; may contain several internal pages).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ScreenId {
+    Splash,
+    SsidList,
+    SsidScan,
+    SsidScanning,
+    Password,
+    ServerList,
+    ServerProto,
+    ServerEntry,
+    Connecting,
+    Throttle,
+    Menu,
+    Extras,
+    RosterList,
+    FunctionList,
+    DirectCommands,
+    IpConfig,
+    IpEdit,
+    Device,
+    DeviceNameEdit,
+    DeviceIdEdit,
+    Language,
+    FirmwareUpdate,
+    WifiFailed,
+    Diagnostics,
+}
+
+/// List cursor step.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Step {
+    Prev,
+    Next,
+}
+
+/// Page / left-right step.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PageDir {
+    Prev,
+    Next,
+}
+
+pub(crate) enum NavCmd {
+    Go(ScreenId),
+    Replace(ScreenId),
+    Back,
+    Root(ScreenId),
+}
+
+/// Injected navigator: screens change route and emit intents without knowing the router.
+pub struct Nav<'a> {
+    cmd: &'a mut Option<NavCmd>,
+    intents: &'a mut heapless::Vec<crate::intent::Intent, 4>,
+}
+
+impl<'a> Nav<'a> {
+    pub(crate) fn new(
+        cmd: &'a mut Option<NavCmd>,
+        intents: &'a mut heapless::Vec<crate::intent::Intent, 4>,
+    ) -> Self {
+        Self { cmd, intents }
+    }
+
+    /// Push the current screen and open `id`.
+    pub fn go(&mut self, id: ScreenId) {
+        *self.cmd = Some(NavCmd::Go(id));
+    }
+
+    /// Switch to `id` without leaving a back-stack entry.
+    pub fn replace(&mut self, id: ScreenId) {
+        *self.cmd = Some(NavCmd::Replace(id));
+    }
+
+    /// Pop the back stack (or go to throttle if empty).
+    pub fn back(&mut self) {
+        *self.cmd = Some(NavCmd::Back);
+    }
+
+    /// Clear the stack and open `id` (typical: throttle after connect).
+    pub fn root(&mut self, id: ScreenId) {
+        *self.cmd = Some(NavCmd::Root(id));
+    }
+
+    /// Queue a side-effect for the firmware interpreter.
+    pub fn emit(&mut self, intent: crate::intent::Intent) {
+        let _ = self.intents.push(intent);
+    }
+}

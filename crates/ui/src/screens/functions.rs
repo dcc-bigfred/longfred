@@ -1,0 +1,117 @@
+//! DCC function list (ON functions inverted).
+
+use longfred_proto::model::MAX_FUNCTIONS;
+
+use super::helpers::{height, page_list, step_list};
+use crate::context::ScreenCtx;
+use crate::intent::Intent;
+use crate::nav::{Nav, PageDir, ScreenId, Step};
+use crate::screen::{KeyBindings, Screen};
+use crate::view::{UiView, fill_list_page_invert};
+use crate::widgets::PagedList;
+
+pub struct FunctionListScreen {
+    list: PagedList,
+}
+
+impl FunctionListScreen {
+    /// Numbered function picker for the current loco.
+    pub fn new() -> Self {
+        Self {
+            list: PagedList::new(true),
+        }
+    }
+
+    /// Function labels from the current throttle slot.
+    fn names<'a>(cx: &'a ScreenCtx<'_>) -> heapless::Vec<&'a str, MAX_FUNCTIONS> {
+        let mut v = heapless::Vec::new();
+        if let Some(slot) = cx.drive.slots.get(cx.drive.current) {
+            for label in &slot.labels {
+                if v.push(label.as_str()).is_err() {
+                    break;
+                }
+            }
+        }
+        v
+    }
+}
+
+impl Default for FunctionListScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Screen for FunctionListScreen {
+    fn id(&self) -> ScreenId {
+        ScreenId::FunctionList
+    }
+
+    fn key_bindings(&self, _cx: &ScreenCtx<'_>) -> KeyBindings {
+        KeyBindings::NAVIGATION
+    }
+
+    /// Numbered labels; rows whose DCC function is ON are drawn inverted.
+    fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
+        let mut g = crate::view::GridView::new();
+        g.set(0, cx.s.menu_fn, false);
+        let names = Self::names(cx);
+        let ons = cx
+            .drive
+            .slots
+            .get(cx.drive.current)
+            .map(|s| s.functions)
+            .unwrap_or([false; MAX_FUNCTIONS]);
+        fill_list_page_invert(
+            &mut g,
+            &names,
+            self.list.page,
+            true,
+            height(cx),
+            |_local, global| ons.get(global).copied().unwrap_or(false),
+        );
+        UiView::Grid(g)
+    }
+
+    /// Move the highlighted function row.
+    fn on_list_step(&mut self, d: Step, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
+        let names = Self::names(cx);
+        step_list(&mut self.list, d, &names, true, height(cx));
+    }
+
+    /// Page the function list.
+    fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
+        let names = Self::names(cx);
+        page_list(&mut self.list, d, &names, true, height(cx));
+    }
+
+    /// Digit jumps to that row and toggles it.
+    fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if let Some(d) = c.to_digit(10) {
+            let hit = {
+                let names = Self::names(cx);
+                self.list
+                    .select_digit(d as u8, &names, true, height(cx))
+                    .is_some()
+            };
+            if hit {
+                self.on_select(cx, nav);
+            }
+        }
+    }
+
+    /// Toggle the highlighted DCC function.
+    fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let names = Self::names(cx);
+        let idx = self
+            .list
+            .global_index(&names, true, height(cx))
+            .min(MAX_FUNCTIONS.saturating_sub(1));
+        nav.emit(Intent::Function(idx as u8));
+    }
+
+    /// Skip Menu and return to throttle.
+    fn on_cancel(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        nav.root(ScreenId::Throttle);
+    }
+}

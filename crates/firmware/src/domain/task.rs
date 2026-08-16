@@ -1,4 +1,4 @@
-//! Domain task: menu FSM + state + network + UI_VIEW publication.
+//! Domain task: screen router + state + network + UI_VIEW publication.
 
 use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -6,8 +6,11 @@ use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
 use log::{info, warn};
 use longfred_proto::command::ClientCommand;
+use longfred_proto::menu::parse_ip_endpoint;
 use longfred_proto::model::Direction;
 use longfred_proto::persist::{PersistRecord, SavedServer};
+use longfred_ui::nav::ScreenId;
+use longfred_ui::{AppEvent, Intent, Router, UiEnv, UiSession};
 
 use crate::config::{self, power, sizes};
 use crate::domain::actions::Action;
@@ -21,8 +24,7 @@ use crate::net::{
 use crate::power::battery::{BATTERY, BatterySample};
 use crate::power::sleep::{SLEEP_CTRL, SleepReason};
 use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, StorageCmd};
-use crate::ui::menu::{Intent, MenuFsm, Screen};
-use crate::ui::view::ViewCtx;
+use crate::ui::adapter;
 use crate::ui::{UI_VIEW, i18n};
 
 async fn flush_cmds(
@@ -47,48 +49,6 @@ async fn flush_cmds(
     }
 }
 
-fn publish_view(
-    fsm: &MenuFsm,
-    state: &DomainState,
-    net_status: NetStatus,
-    conn: ConnState,
-    server: Option<ServerEndpoint>,
-    scanned: &heapless::Vec<net::SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
-    servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
-    pw_preview: &str,
-    ip_formatted: &str,
-    battery: Option<BatterySample>,
-    ui_tx: &embassy_sync::watch::Sender<
-        'static,
-        CriticalSectionRawMutex,
-        crate::ui::view::UiView,
-        2,
-    >,
-) {
-    let (ssid, _) = fsm.ssid_for_connect(scanned, state);
-    let ctx = ViewCtx {
-        domain: state,
-        net_status,
-        conn,
-        server,
-        scanned_ssids: scanned,
-        found_servers: servers,
-        selected_ssid: ssid,
-        password_preview: pw_preview,
-        pw_picker_char: fsm.pw_picker_char(),
-        ip_formatted,
-        broadcast: state.active_broadcast(),
-        battery,
-        wifi_link: net::WIFI_LINK.try_get().flatten(),
-        sta_net: net::STA_NET.try_get().flatten(),
-        ping: net::PING.try_get().unwrap_or(net::PingStatus::Idle),
-        sta_ipv4: net::sta_ipv4(),
-        http_ota: net::http_ota_enabled(),
-        http_ota_busy: net::http_ota_busy(),
-    };
-    ui_tx.send(fsm.view(&ctx));
-}
-
 fn apply_persist(state: &mut DomainState, rec: PersistRecord) {
     let net = rec.network;
     let net_changed = net != state.persist.network;
@@ -101,20 +61,18 @@ fn apply_persist(state: &mut DomainState, rec: PersistRecord) {
     if !hostname.is_empty() {
         WIFI_HOSTNAME.sender().send(hostname);
     }
-    // Re-applying DHCP/static tears down IPv4 and kills the protocol socket.
     if net_changed && let Some(cfg) = net {
         NET_CONFIG_CTRL.signal(cfg);
     }
 }
 
 fn interpret(
-    fsm: &mut MenuFsm,
+    session: &mut UiSession,
+    screen: ScreenId,
     state: &mut DomainState,
     intent: Intent,
     spdt_direction: Direction,
     out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
-    scanned: &heapless::Vec<net::SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
-    servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
     wifi_tx: &embassy_sync::channel::Sender<
         'static,
         CriticalSectionRawMutex,
@@ -128,10 +86,11 @@ fn interpret(
         2,
     >,
     storage_tx: &embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, StorageCmd, 4>,
+    servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
 ) {
     match intent {
         Intent::None => {}
-        Intent::Action(Action::ShowHideBattery) => fsm.cycle_battery_mode(),
+        Intent::Action(Action::ShowHideBattery) => session.cycle_battery_mode(),
         Intent::Action(Action::Sleep) => {
             net::set_http_ota_enabled(false);
             SLEEP_CTRL.signal(SleepReason::Command);
@@ -140,8 +99,8 @@ fn interpret(
             let _ = state.apply_action(a, true, out);
         }
         Intent::AcquireAddr => {
-            let _ = state.acquire_addr(fsm.addr.as_str(), out);
-            fsm.addr.clear();
+            let _ = state.acquire_addr(session.addr.as_str(), out);
+            session.addr.clear();
             if state.current_slot_has_loco() {
                 let dir_action = if spdt_direction == Direction::Forward {
                     Action::DirectionForward
@@ -173,12 +132,11 @@ fn interpret(
         }
         Intent::WifiSelect(_, _) => {}
         Intent::WifiConnect => {
-            let (ssid, pw) = fsm.ssid_for_connect(scanned, state);
-            if !ssid.is_empty() {
+            if !session.selected_ssid.is_empty() {
                 let mut ss = String::<32>::new();
                 let mut pp = String::<64>::new();
-                let _ = ss.push_str(ssid);
-                let _ = pp.push_str(pw);
+                let _ = ss.push_str(session.selected_ssid.as_str());
+                let _ = pp.push_str(session.password.as_str());
                 let _ = wifi_tx.try_send(WifiCmd::Connect {
                     ssid: ss,
                     password: pp,
@@ -186,36 +144,36 @@ fn interpret(
             }
         }
         Intent::ServerSelect(i) => {
-            if let Some(s) = servers.get(i) {
-                if let Some(ip) = s.ipv4 {
-                    let ep = ServerEndpoint {
-                        ip,
-                        port: s.port,
-                        protocol: s.protocol,
-                    };
-                    persist_last_server(storage_tx, state, ep);
-                    srv_tx.send(Some(ep));
-                    fsm.screen = Screen::Throttle;
-                }
-            }
-        }
-        Intent::ServerManual => {
-            if let Some((ip, port)) = fsm.ip_endpoint() {
+            if let Some(s) = servers.get(i)
+                && let Some(ip) = s.ipv4
+            {
                 let ep = ServerEndpoint {
                     ip,
-                    port,
-                    protocol: fsm.manual_protocol(),
+                    port: s.port,
+                    protocol: s.protocol,
                 };
                 persist_last_server(storage_tx, state, ep);
                 srv_tx.send(Some(ep));
-                fsm.screen = Screen::Throttle;
+            }
+        }
+        Intent::ServerManual => {
+            if let Some((ip, port)) = parse_ip_endpoint(session.server_digits.as_str()) {
+                let ep = ServerEndpoint {
+                    ip,
+                    port,
+                    protocol: session.manual_protocol,
+                };
+                persist_last_server(storage_tx, state, ep);
+                srv_tx.send(Some(ep));
             }
         }
         Intent::HeartbeatToggle => {
             let _ = state.toggle_heartbeat(out);
         }
         Intent::DropBeforeAcquireToggle => state.toggle_drop_before_acquire(),
-        Intent::HashFunctionsToggle => fsm.toggle_hash_functions(),
+        Intent::HashFunctionsToggle => {
+            session.hash_functions = !session.hash_functions;
+        }
         Intent::Sleep => {
             net::set_http_ota_enabled(false);
             SLEEP_CTRL.signal(SleepReason::Command);
@@ -223,9 +181,7 @@ fn interpret(
         Intent::RequestMdns => {
             let _ = MDNS_CTRL.try_send(());
         }
-        Intent::NetConfig => {
-            fsm.screen = Screen::IpConfig;
-        }
+        Intent::NetConfig => {}
         Intent::SaveNetwork(cfg) => {
             let _ = storage_tx.try_send(StorageCmd::SaveNetwork(cfg));
             NET_CONFIG_CTRL.signal(cfg);
@@ -246,17 +202,54 @@ fn interpret(
             let _ = storage_tx.try_send(StorageCmd::SaveLanguage(lang));
             state.persist.language = lang;
             state.persist.language_chosen = true;
-            if fsm.screen != Screen::Language {
+            if screen != ScreenId::Language {
                 state.show_message(i18n::tr().saved_language);
             }
         }
         Intent::EnterProgrammingMode => {
-            // Handled eagerly in the input loop (persist + software_reset).
             log::info!("domain: EnterProgrammingMode intent (already applied)");
         }
         Intent::SetHttpOta(on) => {
             net::set_http_ota_enabled(on);
         }
+    }
+}
+
+fn run_intents(
+    session: &mut UiSession,
+    screen: ScreenId,
+    state: &mut DomainState,
+    intents: heapless::Vec<Intent, 4>,
+    spdt_direction: Direction,
+    out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    wifi_tx: &embassy_sync::channel::Sender<
+        'static,
+        CriticalSectionRawMutex,
+        WifiCmd,
+        { net::WIFI_CTRL_DEPTH },
+    >,
+    srv_tx: &embassy_sync::watch::Sender<
+        'static,
+        CriticalSectionRawMutex,
+        Option<ServerEndpoint>,
+        2,
+    >,
+    storage_tx: &embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, StorageCmd, 4>,
+    servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
+) {
+    for intent in intents {
+        interpret(
+            session,
+            screen,
+            state,
+            intent,
+            spdt_direction,
+            out,
+            wifi_tx,
+            srv_tx,
+            storage_tx,
+            servers,
+        );
     }
 }
 
@@ -300,10 +293,24 @@ fn endpoint_from_saved(s: SavedServer) -> ServerEndpoint {
     }
 }
 
+fn on_wifi_wizard(id: ScreenId) -> bool {
+    matches!(
+        id,
+        ScreenId::Connecting
+            | ScreenId::Password
+            | ScreenId::SsidList
+            | ScreenId::SsidScan
+            | ScreenId::SsidScanning
+            | ScreenId::WifiFailed
+    )
+}
+
 #[embassy_executor::task]
 pub async fn task() {
     let mut state = DomainState::new();
-    let mut fsm = MenuFsm::new();
+    let env: UiEnv = adapter::ui_env();
+    let mut session = adapter::init_session();
+    let mut router = Router::new(adapter::nav_profile(), ScreenId::Splash);
     let input_rx = input::INPUT_CHANNEL.receiver();
     let events_rx = PROTO_EVENTS.receiver();
     let cmd_tx = PROTO_COMMANDS.sender();
@@ -313,7 +320,6 @@ pub async fn task() {
     let ui_tx = UI_VIEW.sender();
 
     let mut out: heapless::Vec<ClientCommand, CMD_BUF> = heapless::Vec::new();
-    // Epoch: do not use `now - 1s` — Instant wraps/panics when uptime < 1s (Wokwi, cold boot).
     let mut last_cmd = Instant::from_ticks(0);
 
     let mut net_status = NetStatus::Disconnected;
@@ -333,9 +339,6 @@ pub async fn task() {
     let mut srv_rx = SERVER.receiver();
     let mut battery_rx = BATTERY.receiver();
     let mut persist_rx = PERSIST_LOADED.receiver();
-
-    let mut pw_buf = heapless::String::<36>::new();
-    let mut ip_buf = heapless::String::<24>::new();
 
     if let Some(rx) = persist_rx.as_mut() {
         if let Some(rec) = rx.try_get() {
@@ -367,8 +370,23 @@ pub async fn task() {
 
     if crate::board::active_variant().display.is_none() {
         let ssid = last_ssid_owned(&state);
-        let follow = fsm.begin_wifi_setup(ssid.as_deref());
-        if follow == Intent::WifiConnect {
+        let strings = adapter::strings_for(&state);
+        let mut cx = adapter::screen_ctx(
+            &state,
+            &mut session,
+            &env,
+            &strings,
+            net_status,
+            conn,
+            server,
+            &scanned,
+            &servers,
+            battery,
+            Instant::now().as_millis(),
+        );
+        let intents = adapter::begin_wifi_setup(&mut router, &mut cx, ssid.as_deref());
+        let follow_wifi = intents.iter().any(|i| *i == Intent::WifiConnect);
+        if follow_wifi {
             boot_wait = BootWait::WifiConnect;
             phase_until = Some(
                 Instant::now() + Duration::from_millis(config::network::SSID_CONNECTION_TIMEOUT_MS),
@@ -377,31 +395,33 @@ pub async fn task() {
             boot_wait = BootWait::Done;
             phase_until = None;
         }
-        interpret(
-            &mut fsm,
+        run_intents(
+            &mut session,
+            router.screen_id(),
             &mut state,
-            follow,
+            intents,
             spdt_direction,
             &mut out,
-            &scanned,
-            &servers,
             &wifi_tx,
             &srv_tx,
             &storage_tx,
+            &servers,
         );
     }
 
-    publish_view(
-        &fsm,
+    adapter::publish(
+        &router,
         &state,
+        &mut session,
+        &env,
+        &adapter::strings_for(&state),
         net_status,
         conn,
         server,
         &scanned,
         &servers,
-        pw_buf.as_str(),
-        ip_buf.as_str(),
         battery,
+        Instant::now().as_millis(),
         &ui_tx,
     );
 
@@ -415,7 +435,8 @@ pub async fn task() {
         {
             Either3::First(ev) => {
                 last_activity = Instant::now();
-                let splash_active = boot_wait == BootWait::Splash || fsm.screen == Screen::Splash;
+                let splash_active =
+                    boot_wait == BootWait::Splash || router.screen_id() == ScreenId::Splash;
                 if splash_active {
                     if matches!(
                         ev,
@@ -460,25 +481,39 @@ pub async fn task() {
                     spdt_direction = dir;
                 }
                 out.clear();
-                if net::http_ota_busy() {
-                    // Ignore navigation while an image is streaming to flash.
-                } else {
-                    let intent = fsm.handle(ev, &state, &scanned, &servers);
-                    let wifi_after_lang =
-                        matches!(intent, Intent::SetLanguage(_)) && fsm.screen == Screen::Language;
-                    interpret(
-                        &mut fsm,
-                        &mut state,
-                        intent,
-                        spdt_direction,
-                        &mut out,
+                if !net::http_ota_busy() {
+                    let strings = adapter::strings_for(&state);
+                    let mut cx = adapter::screen_ctx(
+                        &state,
+                        &mut session,
+                        &env,
+                        &strings,
+                        net_status,
+                        conn,
+                        server,
                         &scanned,
                         &servers,
+                        battery,
+                        Instant::now().as_millis(),
+                    );
+                    let intents = router.handle(adapter::map_input(ev), &mut cx);
+                    let screen_after = router.screen_id();
+                    let wifi_after_lang =
+                        intents.iter().any(|i| matches!(i, Intent::SetLanguage(_)))
+                            && screen_after == ScreenId::Language;
+                    run_intents(
+                        &mut session,
+                        screen_after,
+                        &mut state,
+                        intents,
+                        spdt_direction,
+                        &mut out,
                         &wifi_tx,
                         &srv_tx,
                         &storage_tx,
+                        &servers,
                     );
-                    if matches!(fsm.screen, Screen::ServerList)
+                    if router.screen_id() == ScreenId::ServerList
                         && boot_wait != BootWait::ServerConnect
                     {
                         boot_wait = BootWait::Done;
@@ -486,8 +521,23 @@ pub async fn task() {
                     }
                     if wifi_after_lang {
                         let ssid = last_ssid_owned(&state);
-                        let follow = fsm.begin_wifi_setup(ssid.as_deref());
-                        if follow == Intent::WifiConnect {
+                        let strings = adapter::strings_for(&state);
+                        let mut cx = adapter::screen_ctx(
+                            &state,
+                            &mut session,
+                            &env,
+                            &strings,
+                            net_status,
+                            conn,
+                            server,
+                            &scanned,
+                            &servers,
+                            battery,
+                            Instant::now().as_millis(),
+                        );
+                        let follow =
+                            adapter::begin_wifi_setup(&mut router, &mut cx, ssid.as_deref());
+                        if follow.iter().any(|i| *i == Intent::WifiConnect) {
                             boot_wait = BootWait::WifiConnect;
                             saw_wifi_connecting = false;
                             phase_until = Some(
@@ -500,17 +550,17 @@ pub async fn task() {
                             boot_wait = BootWait::Done;
                             phase_until = None;
                         }
-                        interpret(
-                            &mut fsm,
+                        run_intents(
+                            &mut session,
+                            router.screen_id(),
                             &mut state,
                             follow,
                             spdt_direction,
                             &mut out,
-                            &scanned,
-                            &servers,
                             &wifi_tx,
                             &srv_tx,
                             &storage_tx,
+                            &servers,
                         );
                     }
                 }
@@ -525,13 +575,44 @@ pub async fn task() {
                 match boot_wait {
                     BootWait::Splash if timed_out => {
                         if !state.persist.language_chosen {
-                            fsm.begin_language_wizard();
+                            session.splash_done = true;
+                            session.boot_language = true;
+                            let strings = adapter::strings_for(&state);
+                            let mut cx = adapter::screen_ctx(
+                                &state,
+                                &mut session,
+                                &env,
+                                &strings,
+                                net_status,
+                                conn,
+                                server,
+                                &scanned,
+                                &servers,
+                                battery,
+                                now.as_millis(),
+                            );
+                            let _ = router.replace_screen(ScreenId::Language, &mut cx);
                             boot_wait = BootWait::Language;
                             phase_until = None;
                         } else {
                             let ssid = last_ssid_owned(&state);
-                            let follow = fsm.begin_wifi_setup(ssid.as_deref());
-                            if follow == Intent::WifiConnect {
+                            let strings = adapter::strings_for(&state);
+                            let mut cx = adapter::screen_ctx(
+                                &state,
+                                &mut session,
+                                &env,
+                                &strings,
+                                net_status,
+                                conn,
+                                server,
+                                &scanned,
+                                &servers,
+                                battery,
+                                now.as_millis(),
+                            );
+                            let follow =
+                                adapter::begin_wifi_setup(&mut router, &mut cx, ssid.as_deref());
+                            if follow.iter().any(|i| *i == Intent::WifiConnect) {
                                 boot_wait = BootWait::WifiConnect;
                                 saw_wifi_connecting = false;
                                 phase_until = Some(
@@ -543,61 +624,103 @@ pub async fn task() {
                                 boot_wait = BootWait::Done;
                                 phase_until = None;
                             }
-                            interpret(
-                                &mut fsm,
+                            run_intents(
+                                &mut session,
+                                router.screen_id(),
                                 &mut state,
                                 follow,
                                 spdt_direction,
                                 &mut out,
-                                &scanned,
-                                &servers,
                                 &wifi_tx,
                                 &srv_tx,
                                 &storage_tx,
+                                &servers,
                             );
                         }
                     }
                     BootWait::WifiConnect if timed_out => {
                         info!("domain: Wi-Fi connect timed out");
-                        fsm.show_wifi_failed();
+                        let strings = adapter::strings_for(&state);
+                        let mut cx = adapter::screen_ctx(
+                            &state,
+                            &mut session,
+                            &env,
+                            &strings,
+                            net_status,
+                            conn,
+                            server,
+                            &scanned,
+                            &servers,
+                            battery,
+                            now.as_millis(),
+                        );
+                        let _ = router.replace_screen(ScreenId::WifiFailed, &mut cx);
                         boot_wait = BootWait::WifiFailed;
                         phase_until =
                             Some(now + Duration::from_millis(config::network::WIFI_FAIL_MSG_MS));
                     }
                     BootWait::WifiFailed if timed_out => {
-                        let follow = fsm.show_ssid_scan();
+                        let strings = adapter::strings_for(&state);
+                        let mut cx = adapter::screen_ctx(
+                            &state,
+                            &mut session,
+                            &env,
+                            &strings,
+                            net_status,
+                            conn,
+                            server,
+                            &scanned,
+                            &servers,
+                            battery,
+                            now.as_millis(),
+                        );
+                        let follow = router.replace_screen(ScreenId::SsidScanning, &mut cx);
                         boot_wait = BootWait::Done;
                         phase_until = None;
-                        interpret(
-                            &mut fsm,
+                        run_intents(
+                            &mut session,
+                            router.screen_id(),
                             &mut state,
                             follow,
                             spdt_direction,
                             &mut out,
-                            &scanned,
-                            &servers,
                             &wifi_tx,
                             &srv_tx,
                             &storage_tx,
+                            &servers,
                         );
                     }
                     BootWait::ServerConnect if timed_out => {
                         info!("domain: server connect timed out");
                         srv_tx.send(None);
-                        let follow = fsm.show_server_list();
+                        let strings = adapter::strings_for(&state);
+                        let mut cx = adapter::screen_ctx(
+                            &state,
+                            &mut session,
+                            &env,
+                            &strings,
+                            net_status,
+                            conn,
+                            server,
+                            &scanned,
+                            &servers,
+                            battery,
+                            now.as_millis(),
+                        );
+                        let follow = router.replace_screen(ScreenId::ServerList, &mut cx);
                         boot_wait = BootWait::Done;
                         phase_until = None;
-                        interpret(
-                            &mut fsm,
+                        run_intents(
+                            &mut session,
+                            router.screen_id(),
                             &mut state,
                             follow,
                             spdt_direction,
                             &mut out,
-                            &scanned,
-                            &servers,
                             &wifi_tx,
                             &srv_tx,
                             &storage_tx,
+                            &servers,
                         );
                     }
                     _ => {}
@@ -621,22 +744,28 @@ pub async fn task() {
                     saw_wifi_connecting = true;
                 }
                 if s == NetStatus::Ready {
-                    if let Some((ssid, pw)) = fsm.take_pending_password_save() {
+                    if let Some((ssid, pw)) = adapter::take_pending_password_save(&mut session) {
                         let _ =
                             storage_tx.try_send(StorageCmd::SavePassword { ssid, password: pw });
                     }
-                    if matches!(
-                        fsm.screen,
-                        Screen::Connecting
-                            | Screen::Password
-                            | Screen::SsidList
-                            | Screen::SsidScan
-                            | Screen::SsidScanning
-                            | Screen::WifiFailed
-                    ) {
+                    if on_wifi_wizard(router.screen_id()) {
                         if let Some(saved) = state.persist.last_server {
                             srv_tx.send(Some(endpoint_from_saved(saved)));
-                            fsm.screen = Screen::Connecting;
+                            let strings = adapter::strings_for(&state);
+                            let mut cx = adapter::screen_ctx(
+                                &state,
+                                &mut session,
+                                &env,
+                                &strings,
+                                net_status,
+                                conn,
+                                server,
+                                &scanned,
+                                &servers,
+                                battery,
+                                Instant::now().as_millis(),
+                            );
+                            let _ = router.replace_screen(ScreenId::Connecting, &mut cx);
                             boot_wait = BootWait::ServerConnect;
                             phase_until = Some(
                                 Instant::now()
@@ -645,25 +774,65 @@ pub async fn task() {
                                     ),
                             );
                         } else {
-                            let follow = fsm.show_server_list();
+                            let strings = adapter::strings_for(&state);
+                            let mut cx = adapter::screen_ctx(
+                                &state,
+                                &mut session,
+                                &env,
+                                &strings,
+                                net_status,
+                                conn,
+                                server,
+                                &scanned,
+                                &servers,
+                                battery,
+                                Instant::now().as_millis(),
+                            );
+                            let follow = router.replace_screen(ScreenId::ServerList, &mut cx);
                             boot_wait = BootWait::Done;
                             phase_until = None;
-                            interpret(
-                                &mut fsm,
+                            run_intents(
+                                &mut session,
+                                router.screen_id(),
                                 &mut state,
                                 follow,
                                 spdt_direction,
                                 &mut out,
-                                &scanned,
-                                &servers,
                                 &wifi_tx,
                                 &srv_tx,
                                 &storage_tx,
+                                &servers,
                             );
                         }
                     } else {
-                        fsm.on_wifi_ready();
-                        if fsm.screen == Screen::ServerList {
+                        let strings = adapter::strings_for(&state);
+                        let mut cx = adapter::screen_ctx(
+                            &state,
+                            &mut session,
+                            &env,
+                            &strings,
+                            net_status,
+                            conn,
+                            server,
+                            &scanned,
+                            &servers,
+                            battery,
+                            Instant::now().as_millis(),
+                        );
+                        let follow = router.on_app_event(AppEvent::WifiReady, &mut cx);
+                        run_intents(
+                            &mut session,
+                            router.screen_id(),
+                            &mut state,
+                            follow,
+                            spdt_direction,
+                            &mut out,
+                            &wifi_tx,
+                            &srv_tx,
+                            &storage_tx,
+                            &servers,
+                        );
+                        if router.screen_id() == ScreenId::ServerList {
                             let _ = MDNS_CTRL.try_send(());
                         }
                     }
@@ -671,7 +840,21 @@ pub async fn task() {
                     && boot_wait == BootWait::WifiConnect
                     && saw_wifi_connecting
                 {
-                    fsm.show_wifi_failed();
+                    let strings = adapter::strings_for(&state);
+                    let mut cx = adapter::screen_ctx(
+                        &state,
+                        &mut session,
+                        &env,
+                        &strings,
+                        net_status,
+                        conn,
+                        server,
+                        &scanned,
+                        &servers,
+                        battery,
+                        Instant::now().as_millis(),
+                    );
+                    let _ = router.replace_screen(ScreenId::WifiFailed, &mut cx);
                     boot_wait = BootWait::WifiFailed;
                     phase_until = Some(
                         Instant::now() + Duration::from_millis(config::network::WIFI_FAIL_MSG_MS),
@@ -687,7 +870,33 @@ pub async fn task() {
                     last_activity = Instant::now();
                     boot_wait = BootWait::Done;
                     phase_until = None;
-                    fsm.on_server_connected();
+                    let strings = adapter::strings_for(&state);
+                    let mut cx = adapter::screen_ctx(
+                        &state,
+                        &mut session,
+                        &env,
+                        &strings,
+                        net_status,
+                        conn,
+                        server,
+                        &scanned,
+                        &servers,
+                        battery,
+                        Instant::now().as_millis(),
+                    );
+                    let follow = router.on_app_event(AppEvent::ServerConnected, &mut cx);
+                    run_intents(
+                        &mut session,
+                        router.screen_id(),
+                        &mut state,
+                        follow,
+                        spdt_direction,
+                        &mut out,
+                        &wifi_tx,
+                        &srv_tx,
+                        &storage_tx,
+                        &servers,
+                    );
                     if let Some(ep) = SERVER.sender().try_get().flatten() {
                         persist_last_server(&storage_tx, &mut state, ep);
                     }
@@ -708,7 +917,33 @@ pub async fn task() {
 
         if let Some(v) = WIFI_SCAN.try_take() {
             scanned = v;
-            fsm.on_scan_done();
+            let strings = adapter::strings_for(&state);
+            let mut cx = adapter::screen_ctx(
+                &state,
+                &mut session,
+                &env,
+                &strings,
+                net_status,
+                conn,
+                server,
+                &scanned,
+                &servers,
+                battery,
+                Instant::now().as_millis(),
+            );
+            let follow = router.on_app_event(AppEvent::ScanDone, &mut cx);
+            run_intents(
+                &mut session,
+                router.screen_id(),
+                &mut state,
+                follow,
+                spdt_direction,
+                &mut out,
+                &wifi_tx,
+                &srv_tx,
+                &storage_tx,
+                &servers,
+            );
         }
 
         if let Some(v) = FOUND_SERVERS.try_take() {
@@ -723,36 +958,51 @@ pub async fn task() {
             battery = b;
         }
 
-        fsm.tick_text_field(Instant::now().as_millis());
-
-        pw_buf.clear();
-        if fsm.screen == Screen::DeviceNameEdit {
-            let _ = pw_buf.push_str(fsm.device_name_preview().as_str());
-        } else {
-            let _ = pw_buf.push_str(fsm.password_preview().as_str());
+        {
+            let strings = adapter::strings_for(&state);
+            let mut cx = adapter::screen_ctx(
+                &state,
+                &mut session,
+                &env,
+                &strings,
+                net_status,
+                conn,
+                server,
+                &scanned,
+                &servers,
+                battery,
+                Instant::now().as_millis(),
+            );
+            let follow = router.tick(&mut cx);
+            run_intents(
+                &mut session,
+                router.screen_id(),
+                &mut state,
+                follow,
+                spdt_direction,
+                &mut out,
+                &wifi_tx,
+                &srv_tx,
+                &storage_tx,
+                &servers,
+            );
         }
-        ip_buf.clear();
-        if fsm.screen == Screen::IpEdit {
-            let _ = ip_buf.push_str(fsm.format_net_display().as_str());
-        } else if fsm.screen == Screen::DeviceIdEdit {
-            let _ = ip_buf.push_str(fsm.format_device_id_display().as_str());
-        } else {
-            let _ = ip_buf.push_str(fsm.format_ip_display().as_str());
-        };
 
         state.flush_pending_speed(&mut out);
 
-        publish_view(
-            &fsm,
+        adapter::publish(
+            &router,
             &state,
+            &mut session,
+            &env,
+            &adapter::strings_for(&state),
             net_status,
             conn,
             server,
             &scanned,
             &servers,
-            pw_buf.as_str(),
-            ip_buf.as_str(),
             battery,
+            Instant::now().as_millis(),
             &ui_tx,
         );
 

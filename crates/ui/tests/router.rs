@@ -1,0 +1,252 @@
+//! Host tests for router, language, menu, keyboard idle commit, nav profiles.
+
+use longfred_proto::action::Action;
+use longfred_proto::model::{RosterEntry, ThrottleSlot, TrackPower};
+use longfred_proto::net_status::{ConnState, NetStatus, PingStatus};
+use longfred_proto::persist::{Language, PersistRecord};
+
+use longfred_ui::i18n::{HintSet, strings};
+use longfred_ui::input::{InputEvent, NavDir};
+use longfred_ui::intent::Intent;
+use longfred_ui::nav::ScreenId;
+use longfred_ui::nav_profile::{LONGFRED, MARKWTECH, NavAction, NavProfile};
+use longfred_ui::view::UiView;
+use longfred_ui::widgets::{KeyboardMode, TextKeyboard};
+use longfred_ui::{DriveInfo, LAYOUT_128X64, NetInfo, Router, ScreenCtx, UiEnv, UiSession};
+
+struct Fixture {
+    slots: [ThrottleSlot; 1],
+    roster: heapless::Vec<RosterEntry, 4>,
+    persist: PersistRecord,
+    scanned: heapless::Vec<longfred_proto::net_status::SsidInfo, 60>,
+    servers: heapless::Vec<longfred_proto::mdns::WitServer, 5>,
+    session: UiSession,
+    env: UiEnv,
+    strings: longfred_ui::i18n::Strings,
+}
+
+impl Fixture {
+    fn new() -> Self {
+        Self {
+            slots: [ThrottleSlot::new(4)],
+            roster: heapless::Vec::new(),
+            persist: PersistRecord::default(),
+            scanned: heapless::Vec::new(),
+            servers: heapless::Vec::new(),
+            session: UiSession::new(),
+            env: UiEnv {
+                geometry: LAYOUT_128X64,
+                has_keypad: false,
+                hint_set: HintSet::Joystick,
+                app_name: "LongFred",
+                fw_version: "0.1.0",
+                fn_to_dcc: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                hash_shows_functions: false,
+                compiled_networks: &[],
+                default_wit_ip: [192, 168, 4, 1],
+                default_wit_port: 2560,
+                default_z21_ip: [192, 168, 0, 111],
+                default_z21_port: 21105,
+                default_prefix_len: 24,
+                board_id: "test",
+                board_mcu: "host",
+                battery_factor: 1.7,
+            },
+            strings: strings(Language::En, HintSet::Joystick),
+        }
+    }
+
+    fn ctx(&mut self) -> ScreenCtx<'_> {
+        ScreenCtx {
+            drive: DriveInfo {
+                slots: &self.slots,
+                current: 0,
+                roster: &self.roster,
+                track_power: TrackPower::Unknown,
+                persist: &self.persist,
+                message: None,
+                speed_multiplier: 1,
+                heartbeat_on: true,
+                drop_before_acquire: false,
+            },
+            net: NetInfo {
+                status: NetStatus::Disconnected,
+                conn: ConnState::Disconnected,
+                server: None,
+                scanned_ssids: &self.scanned,
+                found_servers: &self.servers,
+                wifi_link: None,
+                sta_net: None,
+                ping: PingStatus::Idle,
+                sta_ipv4: None,
+                http_ota: false,
+                http_ota_busy: false,
+            },
+            env: &self.env,
+            s: &self.strings,
+            now_ms: 0,
+            battery: None,
+            session: &mut self.session,
+        }
+    }
+}
+
+#[test]
+fn splash_select_goes_to_connecting() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Splash);
+    assert_eq!(router.screen_id(), ScreenId::Splash);
+    {
+        let mut cx = fx.ctx();
+        assert!(matches!(router.view(&cx), UiView::Splash));
+        let _ = router.handle(InputEvent::Ok, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Connecting);
+}
+
+#[test]
+fn language_select_emits_and_leaves_boot_wizard() {
+    let mut fx = Fixture::new();
+    fx.session.boot_language = true;
+    let mut router = Router::new(&LONGFRED, ScreenId::Language);
+    let intents = {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
+        router.handle(InputEvent::Ok, &mut cx)
+    };
+    assert!(
+        intents
+            .iter()
+            .any(|i| *i == Intent::SetLanguage(Language::Pl))
+    );
+    assert_eq!(router.screen_id(), ScreenId::Language);
+    assert!(!fx.session.boot_language);
+}
+
+#[test]
+fn menu_back_returns_to_throttle() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Throttle);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Menu, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Menu);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Back, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+}
+
+#[test]
+fn menu_extras_pushes_stack() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Menu);
+    {
+        let mut cx = fx.ctx();
+        // items are 1-based numbered: 5 = Extras (index 4)
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Back, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Menu);
+}
+
+#[test]
+fn keyboard_idle_commit_uses_injected_now_ms() {
+    let mut kbd = TextKeyboard::<8>::new(KeyboardMode::Text);
+    let _ = kbd.key_press(2, 1_000);
+    let _ = kbd.key_press(2, 1_100);
+    assert!(kbd.pending().is_some());
+    kbd.tick(1_500);
+    assert!(kbd.pending().is_some());
+    kbd.tick(3_200);
+    assert!(kbd.pending().is_none());
+    assert_eq!(kbd.buffer.as_str(), "a");
+}
+
+#[test]
+fn markwtech_star_is_cancel_off_throttle() {
+    let p = MARKWTECH;
+    assert_eq!(
+        p.map(InputEvent::Digit('*'), false, false),
+        Some(NavAction::Cancel)
+    );
+    assert_eq!(
+        p.map(InputEvent::Digit('*'), true, false),
+        Some(NavAction::CaseToggle)
+    );
+    assert_eq!(
+        p.map(InputEvent::Digit('*'), false, true),
+        Some(NavAction::PassThrough(InputEvent::DirectionToggle))
+    );
+}
+
+#[test]
+fn throttle_estop_passthrough() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Throttle);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::EStop, &mut cx)
+    };
+    assert!(intents.iter().any(|i| *i == Intent::Action(Action::EStop)));
+}
+
+#[test]
+fn extras_ok_opens_ip_config() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Ok, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::IpConfig);
+}
+
+#[test]
+fn wifi_scan_page_opens_scanning_then_scan_list() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::SsidList);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Nav(NavDir::Right), &mut cx)
+    };
+    assert_eq!(router.screen_id(), ScreenId::SsidScanning);
+    assert!(intents.iter().any(|i| *i == Intent::WifiScan));
+    {
+        let mut cx = fx.ctx();
+        let _ = router.on_app_event(longfred_ui::AppEvent::ScanDone, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::SsidScan);
+}
+
+#[test]
+fn server_list_page_right_opens_proto() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::ServerList);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::ServerProto);
+}
+
+#[test]
+fn diagnostics_pages_wrap() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Diagnostics);
+    for _ in 0..6 {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Diagnostics);
+    {
+        let cx = fx.ctx();
+        assert!(matches!(router.view(&cx), UiView::Grid(_)));
+    }
+}

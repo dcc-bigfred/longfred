@@ -13,46 +13,24 @@ use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use heapless::String;
-use longfred_proto::command::{ClientCommand, Protocol};
+use longfred_proto::command::ClientCommand;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::mdns::WitServer;
 use longfred_proto::persist::{DeviceIdentity, StaticIpConfig};
 
 use crate::config::sizes;
 
-/// Network connection status published to UI / logs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NetStatus {
-    Disconnected,
-    Connecting,
-    WifiConnected,
-    /// Stack has an IPv4 address (DHCP complete).
-    Ready,
-}
+pub use longfred_proto::net_status::{
+    ConnState, NetStatus, PingStatus, ServerEndpoint, SsidInfo, StaNet, WifiLink,
+};
 
 /// Single source of truth for network status. Two subscribers: UI + mDNS task.
 pub static STATE: Watch<CriticalSectionRawMutex, NetStatus, 2> =
     Watch::new_with(NetStatus::Disconnected);
 
-/// Selected command-station endpoint (address + port + protocol).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ServerEndpoint {
-    pub ip: [u8; 4],
-    pub port: u16,
-    pub protocol: Protocol,
-}
-
 /// Published selected server. Two subscribers: session client + domain task.
 pub static SERVER: Watch<CriticalSectionRawMutex, Option<ServerEndpoint>, 2> =
     Watch::new_with(None);
-
-/// Command-station session connection status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConnState {
-    Disconnected,
-    Connecting,
-    Connected,
-}
 
 pub static CONN: Watch<CriticalSectionRawMutex, ConnState, 2> =
     Watch::new_with(ConnState::Disconnected);
@@ -80,14 +58,6 @@ pub enum WifiCmd {
 }
 
 pub static WIFI_CTRL: Channel<CriticalSectionRawMutex, WifiCmd, WIFI_CTRL_DEPTH> = Channel::new();
-
-/// WiFi scan results (WiFi task → domain).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SsidInfo {
-    pub ssid: String<32>,
-    pub rssi: i8,
-    pub open: bool,
-}
 
 pub static WIFI_SCAN: Signal<
     CriticalSectionRawMutex,
@@ -117,36 +87,9 @@ pub static NET_CONFIG_CTRL: Signal<CriticalSectionRawMutex, StaticIpConfig> = Si
 /// STA IPv4 once DHCP/static config is up (UI + mDNS OTA announce).
 pub static STA_IPV4: Watch<CriticalSectionRawMutex, Option<[u8; 4]>, 2> = Watch::new_with(None);
 
-/// STA IPv4 config + MAC (Diagnostics).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StaNet {
-    pub ip: [u8; 4],
-    pub prefix: u8,
-    pub gateway: Option<[u8; 4]>,
-    pub dns: Option<[u8; 4]>,
-    pub mac: [u8; 6],
-}
-
 pub static STA_NET: Watch<CriticalSectionRawMutex, Option<StaNet>, 2> = Watch::new_with(None);
 
-/// Associated AP (RSSI / BSSID / channel), updated ~1 s while connected.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WifiLink {
-    pub ssid: String<32>,
-    pub rssi: i8,
-    pub bssid: [u8; 6],
-    pub channel: u8,
-}
-
 pub static WIFI_LINK: Watch<CriticalSectionRawMutex, Option<WifiLink>, 2> = Watch::new_with(None);
-
-/// ICMP echo to the selected command station.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PingStatus {
-    Idle,
-    Ms(u16),
-    Timeout,
-}
 
 pub static PING: Watch<CriticalSectionRawMutex, PingStatus, 2> = Watch::new_with(PingStatus::Idle);
 

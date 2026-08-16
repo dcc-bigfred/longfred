@@ -5,6 +5,7 @@
 //! same reason. Prefer documenting new public API when adding it.
 #![allow(missing_docs)]
 
+pub mod action;
 pub mod adapter;
 pub mod command;
 pub mod events;
@@ -13,6 +14,7 @@ pub mod input_map;
 pub mod mdns;
 pub mod menu;
 pub mod model;
+pub mod net_status;
 pub mod parser;
 pub mod persist;
 pub mod protocol;
@@ -20,6 +22,7 @@ pub mod provisioning;
 pub mod wt;
 pub mod z21;
 
+pub use action::Action;
 pub use command::{ClientCommand, LocoId, Protocol};
 pub use events::ServerEvent;
 pub use model::{Direction, TrackPower};

@@ -2,11 +2,7 @@
 //! NOTE: this is a sample file with placeholders. Real SSID/passwords must NOT
 //! be committed to the repository (see TODO below).
 
-/// Predefined WiFi network.
-pub struct WifiNetwork {
-    pub ssid: &'static str,
-    pub password: &'static str,
-}
+pub use longfred_ui::CompiledNetwork as WifiNetwork;
 
 // TODO: replace with real data; eventually via file/override outside VCS.
 pub const NETWORKS: &[WifiNetwork] = &[];

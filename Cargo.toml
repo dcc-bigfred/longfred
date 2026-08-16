@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/firmware", "crates/proto"]
-default-members = ["crates/proto"]
+members = ["crates/firmware", "crates/proto", "crates/ui"]
+default-members = ["crates/proto", "crates/ui"]
 
 [workspace.package]
 edition = "2024"

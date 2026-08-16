@@ -1,11 +1,10 @@
 //! Collection capacities (heapless) — single source of truth for sizes.
 
-pub use longfred_proto::model::{MAX_FUNCTIONS, MAX_THROTTLES};
+pub use longfred_proto::model::{
+    MAX_FOUND_SERVERS, MAX_FOUND_SSIDS, MAX_FUNCTIONS, MAX_ROSTER, MAX_THROTTLES,
+};
 
-pub const MAX_FOUND_SSIDS: usize = 60;
-pub const MAX_FOUND_SERVERS: usize = 5;
 pub const MAX_FOUND_WIT_SERVERS: usize = MAX_FOUND_SERVERS;
-pub const MAX_ROSTER: usize = 70;
 
 pub const MAX_SSID_LEN: usize = 32;
 pub const MAX_PASSWORD_LEN: usize = 64;

@@ -41,7 +41,7 @@ help:
 	@echo "  size / check-size       - release-build all variants + ESP32-C6 flash/RAM report"
 	@echo "  check-size-only         - check existing dist/*.elf (no cargo; used by CI)"
 	@echo "  build-wokwi             - build + copy ELF to wokwi/longfred"
-	@echo "  test                    - cargo test -p longfred-proto (host)"
+	@echo "  test                    - cargo test -p longfred-proto and longfred-ui (host)"
 	@echo "  all                     - build + test (default)"
 	@echo ""
 	@echo "VARIANT (default: $(VARIANT)): $(VARIANTS)"
@@ -89,6 +89,7 @@ check-size-only:
 
 test:
 	$(CARGO) test -p longfred-proto --target x86_64-unknown-linux-gnu
+	$(CARGO) test -p longfred-ui --target x86_64-unknown-linux-gnu
 
 flash-markwtech:
 	ESPFLASH_PORT=/dev/ttyUSB0 cargo run -p longfred-firmware   --no-default-features --features variant-markwtech   --target-dir target/markwtech

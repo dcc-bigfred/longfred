@@ -1,10 +1,9 @@
 //! Shared text-field engine: in-buffer caret `_`, T9, alphabet cycle, 2 s idle commit.
 
-use embassy_time::Instant;
 use heapless::String;
 
-use crate::config::keyboard as kbd_cfg;
-use crate::ui::view::{LINE_LEN, Line};
+use crate::view::{LINE_LEN, Line};
+use crate::widgets::charset as kbd_cfg;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum KeyboardMode {
@@ -101,8 +100,8 @@ impl<const N: usize> TextKeyboard<N> {
         self.buffer.len() < self.cap()
     }
 
-    fn note_edit(&mut self) {
-        self.last_edit_ms = Some(Instant::now().as_millis());
+    fn note_edit(&mut self, now_ms: u64) {
+        self.last_edit_ms = Some(now_ms);
     }
 
     fn apply_case(&self, c: char) -> char {
@@ -160,7 +159,7 @@ impl<const N: usize> TextKeyboard<N> {
     }
 
     /// Joystick / encoder: cycle the character in the caret slot.
-    pub fn char_cycle(&mut self, delta: i8) -> KeyboardAction {
+    pub fn char_cycle(&mut self, delta: i8, now_ms: u64) -> KeyboardAction {
         if delta == 0 {
             return KeyboardAction::None;
         }
@@ -187,7 +186,7 @@ impl<const N: usize> TextKeyboard<N> {
         self.charset_idx = next;
         self.pending = kbd_cfg::charset_char(set, next);
         self.last_key = None;
-        self.note_edit();
+        self.note_edit(now_ms);
         KeyboardAction::Changed
     }
 
@@ -199,12 +198,12 @@ impl<const N: usize> TextKeyboard<N> {
         KeyboardAction::Changed
     }
 
-    pub fn nav_up(&mut self) -> KeyboardAction {
-        self.char_cycle(-1)
+    pub fn nav_up(&mut self, now_ms: u64) -> KeyboardAction {
+        self.char_cycle(-1, now_ms)
     }
 
-    pub fn nav_down(&mut self) -> KeyboardAction {
-        self.char_cycle(1)
+    pub fn nav_down(&mut self, now_ms: u64) -> KeyboardAction {
+        self.char_cycle(1, now_ms)
     }
 
     pub fn nav_right(&mut self) -> KeyboardAction {
@@ -241,18 +240,19 @@ impl<const N: usize> TextKeyboard<N> {
     }
 
     /// Phone keypad digit 0–9 (T9 in Text, immediate insert in Digits).
-    pub fn key_press(&mut self, key: u8) -> KeyboardAction {
+    pub fn key_press(&mut self, key: u8, now_ms: u64) -> KeyboardAction {
         if key > 9 {
             return KeyboardAction::None;
         }
         match self.mode {
             KeyboardMode::Digits => self.insert_digit_immediate(key),
-            KeyboardMode::Text => self.multitap(key),
+            KeyboardMode::Text => self.multitap(key, now_ms),
         }
     }
 
     /// LongFred F-keys: digits only (F0–F9). No T9 on function keys.
-    pub fn fn_press(&mut self, key: u8) -> KeyboardAction {
+    pub fn fn_press(&mut self, key: u8, now_ms: u64) -> KeyboardAction {
+        let _ = now_ms;
         if self.mode == KeyboardMode::Digits && key <= 9 {
             self.insert_digit_immediate(key)
         } else {
@@ -270,7 +270,7 @@ impl<const N: usize> TextKeyboard<N> {
         }
     }
 
-    fn multitap(&mut self, key: u8) -> KeyboardAction {
+    fn multitap(&mut self, key: u8, now_ms: u64) -> KeyboardAction {
         let Some(group) = kbd_cfg::multitap_group(key) else {
             return KeyboardAction::None;
         };
@@ -294,7 +294,7 @@ impl<const N: usize> TextKeyboard<N> {
             self.multitap_tap = 0;
         }
         self.pending = kbd_cfg::multitap_char(key, self.multitap_tap);
-        self.note_edit();
+        self.note_edit(now_ms);
         KeyboardAction::Changed
     }
 
@@ -368,11 +368,11 @@ fn push_digit_slot(out: &mut heapless::String<32>, digit_index: usize, ch: char,
 fn window_around(s: &str, focus: usize) -> Line {
     let mut line = Line::new();
     if s.len() <= LINE_LEN {
-        crate::ui::view::push_oled(&mut line, s);
+        crate::view::push_oled(&mut line, s);
         return line;
     }
     let max_start = s.len().saturating_sub(LINE_LEN);
     let start = focus.saturating_sub(LINE_LEN / 2).min(max_start);
-    crate::ui::view::push_oled(&mut line, s.get(start..start + LINE_LEN).unwrap_or(s));
+    crate::view::push_oled(&mut line, s.get(start..start + LINE_LEN).unwrap_or(s));
     line
 }
