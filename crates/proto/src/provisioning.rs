@@ -47,6 +47,10 @@ pub struct BigfredView<'a> {
     pub login: &'a str,
     pub pin: &'a str,
     pub pin_set: bool,
+    #[serde(rename = "pairingCode")]
+    pub pairing_code: &'a str,
+    #[serde(rename = "pairingCodeSet")]
+    pub pairing_code_set: bool,
 }
 
 /// One static roster entry for GET.
@@ -163,6 +167,8 @@ pub fn serialize_settings(
             login: rec.bigfred_login.as_str(),
             pin: rec.bigfred_pin.as_str(),
             pin_set: !rec.bigfred_pin.is_empty(),
+            pairing_code: rec.bigfred_pairing_code.as_str(),
+            pairing_code_set: !rec.bigfred_pairing_code.is_empty(),
         },
         roster: RosterView {
             mode: rec.roster_mode.into(),
@@ -215,6 +221,10 @@ pub struct BigfredPut<'a> {
     #[serde(default)]
     #[serde(borrow)]
     pub pin: Option<&'a str>,
+    #[serde(default)]
+    #[serde(borrow)]
+    #[serde(rename = "pairingCode")]
+    pub pairing_code: Option<&'a str>,
 }
 
 /// One roster entry in a PUT body.
@@ -298,6 +308,8 @@ pub enum ApplyError {
     LoginTooLong,
     /// `bigfred.pin` longer than `MAX_BIGFRED_PIN_LEN`.
     PinTooLong,
+    /// Pairing code is non-empty and not exactly six ASCII digits.
+    PairingCodeInvalid,
     /// A roster `addr` longer than the entry capacity.
     RosterAddrTooLong,
     /// A roster `name` longer than `MAX_STATIC_ROSTER_NAME_LEN`.
@@ -339,6 +351,16 @@ pub fn apply_settings_put(
             if rec.bigfred_pin.push_str(pin).is_err() {
                 return Err(ApplyError::PinTooLong);
             }
+        }
+        if let Some(code) = bf.pairing_code {
+            if !code.is_empty()
+                && (code.len() != crate::persist::MAX_BIGFRED_PAIRING_CODE_LEN
+                    || !code.as_bytes().iter().all(u8::is_ascii_digit))
+            {
+                return Err(ApplyError::PairingCodeInvalid);
+            }
+            rec.bigfred_pairing_code.clear();
+            let _ = rec.bigfred_pairing_code.push_str(code);
         }
     }
 
@@ -403,6 +425,7 @@ mod tests {
         rec.set_password("Home", "secret");
         let _ = rec.bigfred_login.push_str("bob");
         let _ = rec.bigfred_pin.push_str("9999");
+        let _ = rec.bigfred_pairing_code.push_str("120945");
         rec.programming_mode = true;
         rec.roster_mode = RosterMode::Static;
         let mut e = StaticRosterEntry::default();
@@ -420,6 +443,8 @@ mod tests {
         assert!(s.contains("\"login\":\"bob\""));
         assert!(s.contains("\"pin_set\":true"));
         assert!(s.contains("\"pin\":\"9999\""));
+        assert!(s.contains("\"pairingCode\":\"120945\""));
+        assert!(s.contains("\"pairingCodeSet\":true"));
         assert!(s.contains("\"password\":\"secret\""));
         assert!(s.contains("\"mode\":\"static\""));
         assert!(s.contains("\"addr\":\"L1\""));
@@ -469,6 +494,20 @@ mod tests {
         let n = serialize_settings_from_record(&mut buf, &rec, "0.1.0").unwrap();
         let s = core::str::from_utf8(&buf[..n]).unwrap();
         assert!(s.contains("\"mode\":\"address\""));
+    }
+
+    #[test]
+    fn deserialize_and_apply_pairing_code() {
+        let put = deserialize_settings_put(br#"{"bigfred":{"pairingCode":"120945"}}"#).unwrap();
+        let mut rec = PersistRecord::default();
+        assert!(apply_settings_put(&mut rec, &put).is_ok());
+        assert_eq!(rec.bigfred_pairing_code.as_str(), "120945");
+
+        let invalid = deserialize_settings_put(br#"{"bigfred":{"pairingCode":"12x"}}"#).unwrap();
+        assert_eq!(
+            apply_settings_put(&mut rec, &invalid),
+            Err(ApplyError::PairingCodeInvalid)
+        );
     }
 
     #[test]

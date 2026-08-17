@@ -213,6 +213,7 @@ async fn handle_settings_put(
         Err(longfred_proto::provisioning::ApplyError::HostnameTooLong) => "hostname too long",
         Err(longfred_proto::provisioning::ApplyError::LoginTooLong) => "login too long",
         Err(longfred_proto::provisioning::ApplyError::PinTooLong) => "pin too long",
+        Err(longfred_proto::provisioning::ApplyError::PairingCodeInvalid) => "pairing code invalid",
         Err(longfred_proto::provisioning::ApplyError::RosterAddrTooLong) => "roster addr too long",
         Err(longfred_proto::provisioning::ApplyError::RosterNameTooLong) => "roster name too long",
         Err(longfred_proto::provisioning::ApplyError::RosterFull) => "roster full",

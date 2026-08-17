@@ -95,6 +95,7 @@ impl Router {
             AppEvent::PairingRequired | AppEvent::PairingFailed => {
                 Some(NavCmd::Replace(ScreenId::Pairing))
             }
+            AppEvent::PairingStarted => Some(NavCmd::Replace(ScreenId::PairingWait)),
             AppEvent::PairingSucceeded => Some(NavCmd::Root(ScreenId::Throttle)),
             AppEvent::WifiReady
             | AppEvent::ScanDone

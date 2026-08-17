@@ -30,6 +30,7 @@ impl Screen for ConnectingScreen {
             AppEvent::ServerConnected => nav.root(ScreenId::Throttle),
             AppEvent::ScanDone
             | AppEvent::PairingRequired
+            | AppEvent::PairingStarted
             | AppEvent::PairingSucceeded
             | AppEvent::PairingFailed => {}
         }

@@ -4,13 +4,14 @@ use crate::caps::LocoSource;
 use crate::command::Protocol;
 
 pub const MAGIC: u32 = 0x4C46_5031; // "LFP1"
-pub const VERSION: u16 = 4;
+pub const VERSION: u16 = 5;
 pub const MAX_CREDENTIALS: usize = 8;
 pub const MAX_SAVED_LOCOS: usize = 12;
 pub const MAX_DEVICE_NAME_LEN: usize = 32;
 pub const MAX_WIFI_HOSTNAME_LEN: usize = 16;
 pub const MAX_BIGFRED_LOGIN_LEN: usize = 32;
 pub const MAX_BIGFRED_PIN_LEN: usize = 16;
+pub const MAX_BIGFRED_PAIRING_CODE_LEN: usize = 6;
 pub const MAX_STATIC_ROSTER_NAME_LEN: usize = 32;
 pub const WIFI_HOSTNAME_PREFIX: &str = "longred_";
 pub const WIFI_HOSTNAME_SUFFIX_LEN: usize = 6;
@@ -250,6 +251,7 @@ pub struct PersistRecord {
     pub programming_mode: bool,
     pub bigfred_login: heapless::String<MAX_BIGFRED_LOGIN_LEN>,
     pub bigfred_pin: heapless::String<MAX_BIGFRED_PIN_LEN>,
+    pub bigfred_pairing_code: heapless::String<MAX_BIGFRED_PAIRING_CODE_LEN>,
     pub static_roster: heapless::Vec<StaticRosterEntry, MAX_SAVED_LOCOS>,
     pub roster_mode: RosterMode,
 }
@@ -268,6 +270,7 @@ impl Default for PersistRecord {
             programming_mode: false,
             bigfred_login: heapless::String::new(),
             bigfred_pin: heapless::String::new(),
+            bigfred_pairing_code: heapless::String::new(),
             static_roster: heapless::Vec::new(),
             roster_mode: RosterMode::default(),
         }
@@ -386,14 +389,20 @@ impl PersistRecord {
         off = write_u8(buf, off, TAG_PROG)?;
         off = write_u8(buf, off, self.programming_mode as u8)?;
 
-        if !self.bigfred_login.is_empty() || !self.bigfred_pin.is_empty() {
+        if !self.bigfred_login.is_empty()
+            || !self.bigfred_pin.is_empty()
+            || !self.bigfred_pairing_code.is_empty()
+        {
             off = write_u8(buf, off, TAG_BIGFRED)?;
             let login_len = self.bigfred_login.len() as u8;
             let pin_len = self.bigfred_pin.len() as u8;
+            let code_len = self.bigfred_pairing_code.len() as u8;
             off = write_u8(buf, off, login_len)?;
             off = write_u8(buf, off, pin_len)?;
             off = write_bytes(buf, off, self.bigfred_login.as_bytes())?;
             off = write_bytes(buf, off, self.bigfred_pin.as_bytes())?;
+            off = write_u8(buf, off, code_len)?;
+            off = write_bytes(buf, off, self.bigfred_pairing_code.as_bytes())?;
         }
 
         off = write_u8(buf, off, TAG_ROSTER)?;
@@ -423,7 +432,7 @@ impl PersistRecord {
             return None;
         }
         let version = read_u16(buf, &mut off)?;
-        if version != 1 && version != 2 && version != 3 && version != 4 {
+        if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 {
             return None;
         }
         let cred_count = read_u16(buf, &mut off)? as usize;
@@ -558,6 +567,20 @@ impl PersistRecord {
                     let _ = rec
                         .bigfred_pin
                         .push_str(core::str::from_utf8(pin_bytes).ok()?);
+                    if version >= 5 {
+                        let code_len = read_u8(buf, &mut off)? as usize;
+                        if code_len > MAX_BIGFRED_PAIRING_CODE_LEN {
+                            return None;
+                        }
+                        let code_bytes = read_slice(buf, &mut off, code_len)?;
+                        if !code_bytes.iter().all(u8::is_ascii_digit) {
+                            return None;
+                        }
+                        rec.bigfred_pairing_code.clear();
+                        let _ = rec
+                            .bigfred_pairing_code
+                            .push_str(core::str::from_utf8(code_bytes).ok()?);
+                    }
                 }
                 TAG_ROSTER => {
                     let mode = read_u8(buf, &mut off)?;
@@ -880,11 +903,34 @@ mod tests {
         let mut rec = PersistRecord::default();
         let _ = rec.bigfred_login.push_str("operator");
         let _ = rec.bigfred_pin.push_str("1234");
+        let _ = rec.bigfred_pairing_code.push_str("120945");
         let mut buf = [0u8; 512];
         let n = rec.encode(&mut buf).unwrap();
         let decoded = PersistRecord::decode(&buf[..n]).unwrap();
         assert_eq!(decoded.bigfred_login.as_str(), "operator");
         assert_eq!(decoded.bigfred_pin.as_str(), "1234");
+        assert_eq!(decoded.bigfred_pairing_code.as_str(), "120945");
+    }
+
+    #[test]
+    fn decode_v4_bigfred_defaults_pairing_code() {
+        let mut buf = [0u8; 128];
+        let mut off = 0;
+        off = write_u32(&mut buf, off, MAGIC).unwrap();
+        off = write_u16(&mut buf, off, 4).unwrap();
+        off = write_u16(&mut buf, off, 0).unwrap();
+        off = write_u16(&mut buf, off, 0).unwrap();
+        off = write_u8(&mut buf, off, TAG_BIGFRED).unwrap();
+        off = write_u8(&mut buf, off, 3).unwrap();
+        off = write_u8(&mut buf, off, 4).unwrap();
+        off = write_bytes(&mut buf, off, b"ops").unwrap();
+        off = write_bytes(&mut buf, off, b"1234").unwrap();
+        let crc = crc32(&buf[..off]);
+        off = write_u32(&mut buf, off, crc).unwrap();
+        let decoded = PersistRecord::decode(&buf[..off]).unwrap();
+        assert_eq!(decoded.bigfred_login.as_str(), "ops");
+        assert_eq!(decoded.bigfred_pin.as_str(), "1234");
+        assert!(decoded.bigfred_pairing_code.is_empty());
     }
 
     #[test]

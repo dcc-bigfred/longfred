@@ -132,6 +132,8 @@ fn interpret(
             }
         }
         Intent::Pair(code) => {
+            state.persist.bigfred_pairing_code = code.clone();
+            let _ = storage_tx.try_send(StorageCmd::SavePairingCode(code.clone()));
             if out.push(ClientCommand::Pair { code }).is_err() {
                 warn!("domain: pairing command queue full");
             }
@@ -521,11 +523,26 @@ pub async fn task() {
             Either3::Second(sev) => {
                 out.clear();
                 let app_event = match &sev {
+                    longfred_proto::ServerEvent::PairingRequired
+                        if !ui.state.persist.bigfred_pairing_code.is_empty() =>
+                    {
+                        let code = ui.state.persist.bigfred_pairing_code.clone();
+                        let _ = out.push(ClientCommand::Pair { code });
+                        Some(AppEvent::PairingStarted)
+                    }
                     longfred_proto::ServerEvent::PairingRequired => Some(AppEvent::PairingRequired),
                     longfred_proto::ServerEvent::PairingSucceeded(_) => {
+                        ui.state.persist.bigfred_pairing_code.clear();
+                        let _ = storage_tx
+                            .try_send(StorageCmd::SavePairingCode(heapless::String::new()));
                         Some(AppEvent::PairingSucceeded)
                     }
-                    longfred_proto::ServerEvent::PairingFailed => Some(AppEvent::PairingFailed),
+                    longfred_proto::ServerEvent::PairingFailed => {
+                        ui.state.persist.bigfred_pairing_code.clear();
+                        let _ = storage_tx
+                            .try_send(StorageCmd::SavePairingCode(heapless::String::new()));
+                        Some(AppEvent::PairingFailed)
+                    }
                     _ => None,
                 };
                 let _ = ui.state.apply_event(sev, &mut out);

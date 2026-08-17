@@ -43,6 +43,7 @@ pub enum StorageCmd {
     RegenerateDeviceId,
     SaveLanguage(Language),
     SaveRosterMode(RosterMode),
+    SavePairingCode(String<6>),
     SaveServer(SavedServer),
     SetProgrammingMode(bool),
     ReplaceRecord(PersistRecord),
@@ -256,6 +257,11 @@ pub async fn task(flash: &'static SharedFlash, boot_entropy: u32) {
             }
             StorageCmd::SaveRosterMode(mode) => {
                 rec.roster_mode = mode;
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
+            }
+            StorageCmd::SavePairingCode(code) => {
+                rec.bigfred_pairing_code = code;
                 let _ = persist_shared(flash, &rec).await;
                 publish_persist(&rec);
             }

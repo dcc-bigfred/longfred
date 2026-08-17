@@ -70,6 +70,8 @@ pub enum AppEvent {
     WifiFailed,
     /// `BigFred` advertised its sentinel roster entry.
     PairingRequired,
+    /// A stored code started pairing without opening the editor.
+    PairingStarted,
     /// `BigFred` accepted the function-digit sequence.
     PairingSucceeded,
     /// Pairing timed out or the code was invalid.
