@@ -251,6 +251,7 @@ pub fn screen_ctx<'a>(
             slots: state.throttles.as_slice(),
             current: state.current,
             roster: state.roster.as_slice(),
+            effective_loco_source: state.effective_loco_source,
             track_power: state.track_power,
             persist: &state.persist,
             message: state.active_broadcast(),

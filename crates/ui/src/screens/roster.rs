@@ -26,7 +26,11 @@ impl RosterListScreen {
     }
 
     fn catalog<'a>(cx: &'a ScreenCtx<'_>) -> Catalog<'a> {
-        Catalog::prefer_live(cx.drive.roster, &cx.drive.persist.static_roster)
+        Catalog::for_source(
+            cx.drive.effective_loco_source,
+            cx.drive.roster,
+            &cx.drive.persist.static_roster,
+        )
     }
 
     fn names<'a>(cx: &'a ScreenCtx<'_>) -> heapless::Vec<&'a str, MAX_ROSTER> {

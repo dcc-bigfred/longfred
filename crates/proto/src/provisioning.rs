@@ -95,6 +95,7 @@ impl Serialize for RosterEntriesView<'_> {
 pub enum RosterModeName {
     Auto,
     Static,
+    Address,
 }
 
 impl From<RosterMode> for RosterModeName {
@@ -102,6 +103,7 @@ impl From<RosterMode> for RosterModeName {
         match m {
             RosterMode::Auto => Self::Auto,
             RosterMode::Static => Self::Static,
+            RosterMode::AddressOnly => Self::Address,
         }
     }
 }
@@ -111,6 +113,7 @@ impl From<RosterModeName> for RosterMode {
         match m {
             RosterModeName::Auto => Self::Auto,
             RosterModeName::Static => Self::Static,
+            RosterModeName::Address => Self::AddressOnly,
         }
     }
 }
@@ -453,6 +456,19 @@ mod tests {
         assert!(rec.static_roster[1].name.is_empty());
         assert_eq!(rec.bigfred_login.as_str(), "ops");
         assert_eq!(rec.bigfred_pin.as_str(), "1234");
+    }
+
+    #[test]
+    fn deserialize_and_apply_address_roster_mode() {
+        let json = br#"{"roster_mode":"address"}"#;
+        let put = deserialize_settings_put(json).unwrap();
+        let mut rec = PersistRecord::default();
+        assert!(apply_settings_put(&mut rec, &put).is_ok());
+        assert_eq!(rec.roster_mode, RosterMode::AddressOnly);
+        let mut buf = [0u8; 512];
+        let n = serialize_settings_from_record(&mut buf, &rec, "0.1.0").unwrap();
+        let s = core::str::from_utf8(&buf[..n]).unwrap();
+        assert!(s.contains("\"mode\":\"address\""));
     }
 
     #[test]

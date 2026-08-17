@@ -2,6 +2,8 @@
 
 use embassy_time::{Duration, Instant};
 use log::warn;
+use longfred_proto::caps::{LocoSource, LocoSourceMask, ProtocolCaps};
+use longfred_proto::catalog::{self, resolve_effective};
 use longfred_proto::command::{ClientCommand, LocoId};
 use longfred_proto::events::ServerEvent;
 use longfred_proto::model::{Direction, LocoAddr, LongText, ShortText, TrackPower};
@@ -30,6 +32,11 @@ pub struct DomainState {
     pub heartbeat_on: bool,
     pub drop_before_acquire: bool,
     pub persist: PersistRecord,
+    /// Session catalogue after connect-time resolution (not written to NVS).
+    pub effective_loco_source: LocoSource,
+    session_caps: Option<ProtocolCaps>,
+    roster_settled: bool,
+    roster_wait_until: Option<Instant>,
     last_speed_sent: u8,
     last_speed_throttle: usize,
     last_speed_sent_at: Option<Instant>,
@@ -52,6 +59,10 @@ impl DomainState {
             heartbeat_on: buttons::HEARTBEAT_ENABLED,
             drop_before_acquire: buttons::DROP_BEFORE_ACQUIRE,
             persist: PersistRecord::default(),
+            effective_loco_source: LocoSource::AddressOnly,
+            session_caps: None,
+            roster_settled: true,
+            roster_wait_until: None,
             last_speed_sent: 0,
             last_speed_throttle: 0,
             last_speed_sent_at: None,
@@ -267,6 +278,72 @@ impl DomainState {
 
     pub fn load_persist(&mut self, rec: PersistRecord) {
         self.persist = rec;
+        self.refresh_effective_source();
+    }
+
+    /// Start (or restart) catalogue resolution for a live protocol session.
+    pub fn ensure_session(&mut self, caps: ProtocolCaps) {
+        if self.session_caps == Some(caps) {
+            return;
+        }
+        self.session_caps = Some(caps);
+        self.roster.clear();
+        self.roster_count = 0;
+        let pref = self.persist.roster_mode.as_source();
+        let wait = pref == LocoSource::ServerRoster && caps.supports_source(pref);
+        self.roster_settled = !wait;
+        self.roster_wait_until =
+            wait.then(|| Instant::now() + Duration::from_millis(catalog::ROSTER_BURST_TIMEOUT_MS));
+        self.refresh_effective_source();
+    }
+
+    /// Drop session caps; preference stays in NVS.
+    pub fn end_session(&mut self) {
+        if self.session_caps.is_none() && self.roster_settled {
+            return;
+        }
+        self.session_caps = None;
+        self.roster.clear();
+        self.roster_count = 0;
+        self.roster_settled = true;
+        self.roster_wait_until = None;
+        self.refresh_effective_source();
+    }
+
+    pub fn poll_roster_timeout(&mut self, now: Instant) {
+        if let Some(until) = self.roster_wait_until
+            && now >= until
+        {
+            self.roster_settled = true;
+            self.roster_wait_until = None;
+            self.refresh_effective_source();
+        }
+    }
+
+    pub fn refresh_effective_source(&mut self) {
+        let pref = self.persist.roster_mode.as_source();
+        let supported = self
+            .session_caps
+            .map_or(LocoSourceMask::SHARED, |c| c.loco_sources);
+        self.effective_loco_source = resolve_effective(
+            pref,
+            supported,
+            self.roster.len(),
+            self.persist.static_roster.len(),
+            self.roster_settled,
+        );
+    }
+
+    fn note_roster_progress(&mut self) {
+        if self.roster_settled {
+            self.refresh_effective_source();
+            return;
+        }
+        if self.roster_count == 0 || !self.roster.is_empty() {
+            self.roster_settled = true;
+            self.roster_wait_until = None;
+        }
+        self.refresh_effective_source();
     }
 
     pub fn collect_saved_locos(&self) -> heapless::Vec<SavedLoco, MAX_SAVED_LOCOS> {
@@ -352,6 +429,7 @@ impl DomainState {
             ServerEvent::RosterEntriesCount(n) => {
                 self.roster_count = n;
                 self.roster.clear();
+                self.note_roster_progress();
                 true
             }
             ServerEvent::RosterEntry {
@@ -359,7 +437,11 @@ impl DomainState {
                 name,
                 address,
                 length,
-            } => self.on_roster_entry(index, name, address, length),
+            } => {
+                let changed = self.on_roster_entry(index, name, address, length);
+                self.note_roster_progress();
+                changed
+            }
             ServerEvent::Message(text) => self.on_broadcast(text),
             ServerEvent::Alert(text) => self.on_alert(text),
             ServerEvent::StealNeeded { throttle, addr, .. } => {

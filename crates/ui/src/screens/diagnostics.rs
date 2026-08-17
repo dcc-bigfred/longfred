@@ -127,6 +127,14 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
                 }
             }
             let _ = lines.push(l);
+            let mut l = Line::new();
+            let _ = l.push_str("pref ");
+            let _ = l.push_str(cx.drive.persist.roster_mode.as_source().label());
+            let _ = lines.push(l);
+            let mut l = Line::new();
+            let _ = l.push_str("eff ");
+            let _ = l.push_str(cx.drive.effective_loco_source.label());
+            let _ = lines.push(l);
         }
         3 => {
             if let Some(link) = cx.net.wifi_link.as_ref() {

@@ -1,5 +1,6 @@
 //! NVS persistence record serialization (host-testable).
 
+use crate::caps::LocoSource;
 use crate::command::Protocol;
 
 pub const MAGIC: u32 = 0x4C46_5031; // "LFP1"
@@ -65,12 +66,16 @@ pub struct SavedLoco {
     pub addr: heapless::String<8>,
 }
 
-/// How the device obtains its loco roster.
+/// Preferred locomotive source (NVS `TAG_ROSTER`). Maps to [`LocoSource`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum RosterMode {
+    /// Prefer the station's live roster ([`LocoSource::ServerRoster`]).
     #[default]
     Auto = 0,
+    /// Prefer `persist.static_roster` ([`LocoSource::StaticRoster`]).
     Static = 1,
+    /// Manual DCC address ([`LocoSource::AddressOnly`]).
+    AddressOnly = 2,
 }
 
 impl RosterMode {
@@ -82,7 +87,28 @@ impl RosterMode {
         match v {
             0 => Some(Self::Auto),
             1 => Some(Self::Static),
+            2 => Some(Self::AddressOnly),
             _ => None,
+        }
+    }
+
+    /// Cycle Auto → Static → AddressOnly → Auto (Extras row).
+    #[must_use]
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::Static,
+            Self::Static => Self::AddressOnly,
+            Self::AddressOnly => Self::Auto,
+        }
+    }
+
+    /// NVS preference as a [`LocoSource`]. Effective source is resolved separately.
+    #[must_use]
+    pub const fn as_source(self) -> LocoSource {
+        match self {
+            Self::Auto => LocoSource::ServerRoster,
+            Self::Static => LocoSource::StaticRoster,
+            Self::AddressOnly => LocoSource::AddressOnly,
         }
     }
 }
@@ -881,6 +907,25 @@ mod tests {
         assert_eq!(decoded.static_roster[0].name.as_str(), "Pacific");
         assert_eq!(decoded.static_roster[1].addr.as_str(), "S99");
         assert!(decoded.static_roster[1].name.is_empty());
+    }
+
+    #[test]
+    fn roundtrip_roster_mode_address_only() {
+        let mut rec = PersistRecord::default();
+        rec.roster_mode = RosterMode::AddressOnly;
+        let mut buf = [0u8; 512];
+        let n = rec.encode(&mut buf).unwrap();
+        let decoded = PersistRecord::decode(&buf[..n]).unwrap();
+        assert_eq!(decoded.roster_mode, RosterMode::AddressOnly);
+        assert_eq!(
+            decoded.roster_mode.as_source(),
+            crate::caps::LocoSource::AddressOnly
+        );
+        assert_eq!(RosterMode::from_u8(2), Some(RosterMode::AddressOnly));
+        assert_eq!(RosterMode::from_u8(3), None);
+        assert_eq!(RosterMode::Auto.next(), RosterMode::Static);
+        assert_eq!(RosterMode::Static.next(), RosterMode::AddressOnly);
+        assert_eq!(RosterMode::AddressOnly.next(), RosterMode::Auto);
     }
 
     #[test]

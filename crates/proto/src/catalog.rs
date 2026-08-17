@@ -1,9 +1,13 @@
 //! Protocol-agnostic locomotive catalogues (live roster, static list, address-only).
 
-use crate::caps::LocoSource;
+use crate::caps::{LocoSource, LocoSourceMask, ProtocolCaps};
 use crate::command::LocoId;
 use crate::model::RosterEntry;
 use crate::persist::StaticRosterEntry;
+
+/// Wait this long after connect for a live roster burst before treating
+/// [`LocoSource::ServerRoster`] as unavailable (ARCHITECTURE.md §3.4).
+pub const ROSTER_BURST_TIMEOUT_MS: u64 = 3_000;
 
 /// One row in a [`LocoCatalog`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,19 +125,67 @@ pub enum Catalog<'a> {
 }
 
 impl<'a> Catalog<'a> {
-    /// Today's heuristic: live roster if non-empty, else static, else address-only.
-    ///
-    /// Preference + connect-time fallback (ARCHITECTURE.md §3.4) replaces this.
+    /// Catalogue for an already-resolved effective source.
     #[must_use]
-    pub fn prefer_live(live: &'a [RosterEntry], static_roster: &'a [StaticRosterEntry]) -> Self {
-        if !live.is_empty() {
-            Self::Server(ServerCatalog::new(live))
-        } else if !static_roster.is_empty() {
-            Self::Static(StaticCatalog::new(static_roster))
-        } else {
-            Self::Address(AddressCatalog)
+    pub fn for_source(
+        source: LocoSource,
+        live: &'a [RosterEntry],
+        static_roster: &'a [StaticRosterEntry],
+    ) -> Self {
+        match source {
+            LocoSource::ServerRoster => Self::Server(ServerCatalog::new(live)),
+            LocoSource::StaticRoster => Self::Static(StaticCatalog::new(static_roster)),
+            LocoSource::AddressOnly => Self::Address(AddressCatalog),
         }
     }
+}
+
+/// Whether `src` currently has data (ARCHITECTURE.md §3.4 availability).
+#[must_use]
+pub fn source_available(src: LocoSource, live_len: usize, static_len: usize) -> bool {
+    match src {
+        LocoSource::ServerRoster => live_len > 0,
+        LocoSource::StaticRoster => static_len > 0,
+        LocoSource::AddressOnly => true,
+    }
+}
+
+/// Effective source for this session. Fallback is one step to [`LocoSource::AddressOnly`].
+///
+/// `live_settled` is true after the first roster burst or
+/// [`ROSTER_BURST_TIMEOUT_MS`], and immediately when `supported` cannot honour
+/// a live roster. Until then a [`LocoSource::ServerRoster`] preference stays
+/// preferred even if the live list is still empty.
+#[must_use]
+pub fn resolve_effective(
+    pref: LocoSource,
+    supported: LocoSourceMask,
+    live_len: usize,
+    static_len: usize,
+    live_settled: bool,
+) -> LocoSource {
+    let waiting_for_burst =
+        pref == LocoSource::ServerRoster && supported.contains(pref) && !live_settled;
+    if waiting_for_burst {
+        return pref;
+    }
+    if supported.contains(pref) && source_available(pref, live_len, static_len) {
+        pref
+    } else {
+        LocoSource::AddressOnly
+    }
+}
+
+/// Convenience: [`resolve_effective`] from a protocol's caps.
+#[must_use]
+pub fn resolve_effective_caps(
+    pref: LocoSource,
+    caps: ProtocolCaps,
+    live_len: usize,
+    static_len: usize,
+    live_settled: bool,
+) -> LocoSource {
+    resolve_effective(pref, caps.loco_sources, live_len, static_len, live_settled)
 }
 
 impl LocoCatalog for Catalog<'_> {
@@ -199,32 +251,67 @@ mod tests {
     }
 
     #[test]
-    fn prefer_live_over_static() {
+    fn for_source_picks_the_named_catalogue() {
         let live = [live("A", 3, 'S')];
         let st = [stat("L1", "Pacific")];
-        let c = Catalog::prefer_live(&live, &st);
+        let c = Catalog::for_source(LocoSource::ServerRoster, &live, &st);
         assert_eq!(c.source(), LocoSource::ServerRoster);
-        assert_eq!(c.len(), 1);
-        let e = c.entry(0).unwrap();
-        assert_eq!(e.name, "A");
-        assert_eq!(e.addr.as_str(), "S3");
-    }
-
-    #[test]
-    fn prefer_static_when_live_empty() {
-        let st = [stat("L1234", ""), stat("S99", "Switch")];
-        let c = Catalog::prefer_live(&[], &st);
-        assert_eq!(c.source(), LocoSource::StaticRoster);
-        assert_eq!(c.entry(0).unwrap().name, "L1234");
-        assert_eq!(c.entry(1).unwrap().name, "Switch");
-        assert_eq!(c.entry(1).unwrap().addr.as_str(), "S99");
-    }
-
-    #[test]
-    fn both_empty_is_address_only() {
-        let c = Catalog::prefer_live(&[], &[]);
-        assert_eq!(c.source(), LocoSource::AddressOnly);
+        assert_eq!(c.entry(0).unwrap().addr.as_str(), "S3");
+        let c = Catalog::for_source(LocoSource::StaticRoster, &live, &st);
+        assert_eq!(c.entry(0).unwrap().name, "Pacific");
+        let c = Catalog::for_source(LocoSource::AddressOnly, &live, &st);
         assert!(!c.allows_pick());
-        assert!(c.entry(0).is_none());
+    }
+
+    #[test]
+    fn wit_auto_waits_then_honours_live_roster() {
+        let caps = crate::command::Protocol::WiThrottle.caps();
+        let pref = LocoSource::ServerRoster;
+        assert_eq!(
+            resolve_effective_caps(pref, caps, 0, 1, false),
+            LocoSource::ServerRoster
+        );
+        assert_eq!(
+            resolve_effective_caps(pref, caps, 1, 1, true),
+            LocoSource::ServerRoster
+        );
+        assert_eq!(
+            resolve_effective_caps(pref, caps, 0, 1, true),
+            LocoSource::AddressOnly
+        );
+    }
+
+    #[test]
+    fn fallback_is_address_only_not_static() {
+        let caps = crate::command::Protocol::WiThrottle.caps();
+        assert_eq!(
+            resolve_effective_caps(LocoSource::ServerRoster, caps, 0, 1, true),
+            LocoSource::AddressOnly
+        );
+        assert_eq!(
+            resolve_effective_caps(LocoSource::StaticRoster, caps, 5, 0, true),
+            LocoSource::AddressOnly
+        );
+    }
+
+    #[test]
+    fn z21_auto_falls_back_immediately() {
+        let caps = crate::command::Protocol::Z21.caps();
+        assert_eq!(
+            resolve_effective_caps(LocoSource::ServerRoster, caps, 0, 2, false),
+            LocoSource::AddressOnly
+        );
+        assert_eq!(
+            resolve_effective_caps(LocoSource::StaticRoster, caps, 0, 2, true),
+            LocoSource::StaticRoster
+        );
+    }
+
+    #[test]
+    fn disconnected_mask_cannot_honour_server_roster() {
+        assert_eq!(
+            resolve_effective(LocoSource::ServerRoster, LocoSourceMask::SHARED, 0, 0, true),
+            LocoSource::AddressOnly
+        );
     }
 }

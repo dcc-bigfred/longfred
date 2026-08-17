@@ -203,6 +203,12 @@ fn interpret(
                 state.show_message(i18n::tr().saved_language);
             }
         }
+        Intent::SetRosterMode(mode) => {
+            state.persist.roster_mode = mode;
+            let _ = storage_tx.try_send(StorageCmd::SaveRosterMode(mode));
+            state.refresh_effective_source();
+            state.show_message(i18n::tr().saved_roster);
+        }
         Intent::EnterProgrammingMode => {
             log::info!("domain: EnterProgrammingMode intent (already applied)");
         }
@@ -691,6 +697,7 @@ pub async fn task() {
                     );
                     if let Some(ep) = SERVER.sender().try_get().flatten() {
                         persist_last_server(&storage_tx, &mut ui.state, ep);
+                        ui.state.ensure_session(ep.protocol.caps());
                     }
                     if !restored_this_session {
                         out.clear();
@@ -698,6 +705,7 @@ pub async fn task() {
                         restored_this_session = true;
                     }
                 } else if w == ConnState::Disconnected {
+                    ui.state.end_session();
                     restored_this_session = false;
                 }
             }
@@ -705,6 +713,11 @@ pub async fn task() {
 
         if let Some(ep) = srv_rx.as_mut().and_then(|r| r.try_get()) {
             ui.server = ep;
+            if ui.conn == ConnState::Connected
+                && let Some(ep) = ep
+            {
+                ui.state.ensure_session(ep.protocol.caps());
+            }
         }
 
         if let Some(v) = WIFI_SCAN.try_take() {
@@ -734,6 +747,8 @@ pub async fn task() {
         if let Some(b) = battery_rx.as_mut().and_then(|r| r.try_get()) {
             ui.battery = b;
         }
+
+        ui.state.poll_roster_timeout(Instant::now());
 
         {
             let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| router.tick(cx));

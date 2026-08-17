@@ -1,5 +1,6 @@
 //! Borrowed render / input context (no `DomainState`, no embassy).
 
+use longfred_proto::LocoSource;
 use longfred_proto::mdns::WitServer;
 use longfred_proto::model::{
     MAX_FOUND_SERVERS, MAX_FOUND_SSIDS, RosterEntry, ThrottleSlot, TrackPower,
@@ -19,8 +20,10 @@ pub struct DriveInfo<'a> {
     pub slots: &'a [ThrottleSlot],
     /// Active throttle slot index.
     pub current: usize,
-    /// WIT roster (empty → static roster from persist).
+    /// WIT / static roster slice; which one the UI reads is [`Self::effective_loco_source`].
     pub roster: &'a [RosterEntry],
+    /// Session-resolved catalogue source (ARCHITECTURE.md §3.4). Not written back to NVS.
+    pub effective_loco_source: LocoSource,
     /// Track power as last reported by the station.
     pub track_power: TrackPower,
     /// Persisted settings.

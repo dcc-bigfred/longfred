@@ -14,6 +14,16 @@ pub enum LocoSource {
 }
 
 impl LocoSource {
+    /// Short diagnostics / log label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::ServerRoster => "server",
+            Self::StaticRoster => "static",
+            Self::AddressOnly => "address",
+        }
+    }
+
     const fn bit(self) -> u8 {
         match self {
             Self::ServerRoster => 1 << 0,

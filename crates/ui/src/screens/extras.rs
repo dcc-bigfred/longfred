@@ -1,6 +1,7 @@
 //! Extras menu.
 
 use longfred_proto::action::Action;
+use longfred_proto::persist::RosterMode;
 
 use super::helpers::{digit_key, height, page_list, step_list};
 use crate::context::ScreenCtx;
@@ -22,12 +23,13 @@ enum ExtrasItem {
     Sleep,
     OneLoco,
     Language,
+    RosterSource,
     Firmware,
     Diagnostics,
 }
 
 impl ExtrasItem {
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 12] = [
         Self::NetConfig,
         Self::Device,
         Self::HashFunctions,
@@ -37,11 +39,12 @@ impl ExtrasItem {
         Self::Sleep,
         Self::OneLoco,
         Self::Language,
+        Self::RosterSource,
         Self::Firmware,
         Self::Diagnostics,
     ];
 
-    fn label(self, s: &Strings) -> &'static str {
+    fn label(self, s: &Strings, roster_mode: RosterMode) -> &'static str {
         match self {
             Self::NetConfig => s.extras_net_config,
             Self::Device => s.extras_device,
@@ -52,12 +55,17 @@ impl ExtrasItem {
             Self::Sleep => s.extras_off_sleep,
             Self::OneLoco => s.extras_one_loco_tgl,
             Self::Language => s.extras_language,
+            Self::RosterSource => match roster_mode {
+                RosterMode::Auto => s.extras_roster_auto,
+                RosterMode::Static => s.extras_roster_static,
+                RosterMode::AddressOnly => s.extras_roster_address,
+            },
             Self::Firmware => s.extras_firmware,
             Self::Diagnostics => s.extras_diag,
         }
     }
 
-    fn activate(self, nav: &mut Nav<'_>) {
+    fn activate(self, cx: &ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match self {
             Self::NetConfig => nav.go(ScreenId::IpConfig),
             Self::Device => nav.go(ScreenId::Device),
@@ -86,6 +94,9 @@ impl ExtrasItem {
                 nav.root(ScreenId::Throttle);
             }
             Self::Language => nav.go(ScreenId::Language),
+            Self::RosterSource => {
+                nav.emit(Intent::SetRosterMode(cx.drive.persist.roster_mode.next()));
+            }
             Self::Firmware => nav.go(ScreenId::FirmwareUpdate),
             Self::Diagnostics => nav.go(ScreenId::Diagnostics),
         }
@@ -106,8 +117,8 @@ impl ExtrasScreen {
         }
     }
 
-    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 11] {
-        ExtrasItem::ALL.map(|item| item.label(cx.s))
+    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 12] {
+        ExtrasItem::ALL.map(|item| item.label(cx.s, cx.drive.persist.roster_mode))
     }
 
     fn current_at(&self, labels: &[&str], h: u16) -> Option<ExtrasItem> {
@@ -165,14 +176,14 @@ impl Screen for ExtrasScreen {
         if self.list.select_digit(d, &labels, h).is_some()
             && let Some(item) = self.current_at(&labels, h)
         {
-            item.activate(nav);
+            item.activate(cx, nav);
         }
     }
 
     /// Open a settings screen, or emit a toggle and return to throttle.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if let Some(item) = self.current(cx) {
-            item.activate(nav);
+            item.activate(cx, nav);
         }
     }
 }

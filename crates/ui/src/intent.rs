@@ -1,7 +1,7 @@
 //! UI intents (effects) and inbound app events.
 
 use longfred_proto::action::Action;
-use longfred_proto::persist::{DeviceIdentity, Language, StaticIpConfig};
+use longfred_proto::persist::{DeviceIdentity, Language, RosterMode, StaticIpConfig};
 
 /// Side-effect requested by a screen. Firmware interprets these; the UI crate
 /// does not talk to Wi-Fi, storage, or the command station itself.
@@ -43,6 +43,8 @@ pub enum Intent {
     RegenerateDeviceId,
     /// Persist UI language.
     SetLanguage(Language),
+    /// Persist preferred locomotive source (`TAG_ROSTER`).
+    SetRosterMode(RosterMode),
     /// Enter programming mode.
     EnterProgrammingMode,
     /// Enable or disable HTTP OTA.

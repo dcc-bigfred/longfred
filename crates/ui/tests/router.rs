@@ -65,6 +65,7 @@ impl Fixture {
                 slots: &self.slots,
                 current: 0,
                 roster: &self.roster,
+                effective_loco_source: longfred_proto::LocoSource::AddressOnly,
                 track_power: TrackPower::Unknown,
                 persist: &self.persist,
                 message: None,
@@ -215,7 +216,7 @@ fn extras_ok_opens_ip_config() {
 fn extras_last_row_opens_diagnostics() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
-    for _ in 0..10 {
+    for _ in 0..11 {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
     }
@@ -224,6 +225,27 @@ fn extras_last_row_opens_diagnostics() {
         let _ = router.handle(InputEvent::Ok, &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Diagnostics);
+}
+
+#[test]
+fn extras_roster_row_cycles_preference() {
+    use longfred_proto::persist::RosterMode;
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    for _ in 0..9 {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
+    }
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Ok, &mut cx)
+    };
+    assert!(
+        intents
+            .iter()
+            .any(|i| *i == Intent::SetRosterMode(RosterMode::Static))
+    );
+    assert_eq!(router.screen_id(), ScreenId::Extras);
 }
 
 #[test]
