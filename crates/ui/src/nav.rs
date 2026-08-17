@@ -33,6 +33,10 @@ pub enum ScreenId {
     RosterList,
     /// Manual DCC address (menu row when the effective source is address-only).
     AddrEdit,
+    /// Manual six-digit `BigFred` code.
+    Pairing,
+    /// `BigFred` pairing sequence in progress.
+    PairingWait,
     /// DCC function list.
     FunctionList,
     /// Direct command list (`MarkWTech` extra keys).

@@ -90,6 +90,21 @@ impl Router {
         e: AppEvent,
         cx: &mut ScreenCtx<'_>,
     ) -> heapless::Vec<Intent, 4> {
+        let mut intents = heapless::Vec::new();
+        let nav = match e {
+            AppEvent::PairingRequired | AppEvent::PairingFailed => {
+                Some(NavCmd::Replace(ScreenId::Pairing))
+            }
+            AppEvent::PairingSucceeded => Some(NavCmd::Root(ScreenId::Throttle)),
+            AppEvent::WifiReady
+            | AppEvent::ScanDone
+            | AppEvent::ServerConnected
+            | AppEvent::WifiFailed => None,
+        };
+        if let Some(cmd) = nav {
+            self.apply(cmd, cx, &mut intents);
+            return intents;
+        }
         self.with_nav(cx, |s, cx, nav| s.on_app_event(e, cx, nav))
     }
 

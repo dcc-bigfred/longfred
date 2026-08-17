@@ -28,7 +28,10 @@ impl Screen for ConnectingScreen {
             AppEvent::WifiReady => nav.replace(ScreenId::ServerList),
             AppEvent::WifiFailed => nav.replace(ScreenId::WifiFailed),
             AppEvent::ServerConnected => nav.root(ScreenId::Throttle),
-            AppEvent::ScanDone => {}
+            AppEvent::ScanDone
+            | AppEvent::PairingRequired
+            | AppEvent::PairingSucceeded
+            | AppEvent::PairingFailed => {}
         }
     }
 }

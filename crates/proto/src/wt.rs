@@ -108,6 +108,7 @@ impl WtAdapter {
                     &protocol::steal_loco(throttle_char_u8(*throttle), a.as_str()),
                 );
             }
+            ClientCommand::Pair { .. } => {}
         }
     }
 

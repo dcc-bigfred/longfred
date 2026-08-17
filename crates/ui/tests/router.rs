@@ -411,6 +411,41 @@ fn addr_edit_ok_acquires_typed_address() {
 }
 
 #[test]
+fn pairing_screen_submits_six_digits_and_waits() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Pairing);
+    let intents = {
+        let mut cx = fx.ctx();
+        for digit in "120945".chars() {
+            let _ = router.handle(InputEvent::Digit(digit), &mut cx);
+        }
+        router.handle(InputEvent::Ok, &mut cx)
+    };
+    assert!(
+        intents
+            .iter()
+            .any(|i| matches!(i, Intent::Pair(code) if code.as_str() == "120945"))
+    );
+    assert_eq!(router.screen_id(), ScreenId::PairingWait);
+}
+
+#[test]
+fn pairing_lifecycle_routes_globally() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Throttle);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.on_app_event(longfred_ui::AppEvent::PairingRequired, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Pairing);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.on_app_event(longfred_ui::AppEvent::PairingSucceeded, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+}
+
+#[test]
 fn back_with_empty_stack_goes_to_throttle() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);

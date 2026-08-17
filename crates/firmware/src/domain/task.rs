@@ -131,6 +131,11 @@ fn interpret(
                 let _ = state.apply_action(dir_action, true, out);
             }
         }
+        Intent::Pair(code) => {
+            if out.push(ClientCommand::Pair { code }).is_err() {
+                warn!("domain: pairing command queue full");
+            }
+        }
         Intent::ReleaseAll => {
             let _ = state.release_all(out);
         }
@@ -515,7 +520,29 @@ pub async fn task() {
             }
             Either3::Second(sev) => {
                 out.clear();
+                let app_event = match &sev {
+                    longfred_proto::ServerEvent::PairingRequired => Some(AppEvent::PairingRequired),
+                    longfred_proto::ServerEvent::PairingSucceeded(_) => {
+                        Some(AppEvent::PairingSucceeded)
+                    }
+                    longfred_proto::ServerEvent::PairingFailed => Some(AppEvent::PairingFailed),
+                    _ => None,
+                };
                 let _ = ui.state.apply_event(sev, &mut out);
+                if let Some(event) = app_event {
+                    let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                        router.on_app_event(event, cx)
+                    });
+                    run_intents(
+                        &mut ui,
+                        follow,
+                        spdt_direction,
+                        &mut out,
+                        &wifi_tx,
+                        &srv_tx,
+                        &storage_tx,
+                    );
+                }
             }
             Either3::Third(_) => {
                 let now = Instant::now();

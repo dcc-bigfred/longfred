@@ -60,5 +60,12 @@ pub enum ServerEvent {
         entry: LongText,
     },
 
+    /// BigFred sentinel roster entry requests a six-digit pairing code.
+    PairingRequired,
+    /// BigFred accepted the pairing sequence.
+    PairingSucceeded(ShortText),
+    /// Pairing timed out; UI should ask for a fresh code.
+    PairingFailed,
+
     Unknown(LongText),
 }

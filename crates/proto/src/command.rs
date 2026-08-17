@@ -114,6 +114,10 @@ pub enum ClientCommand {
         throttle: u8,
         loco: LocoId,
     },
+    /// Pair a BigFred handset using exactly six function digits.
+    Pair {
+        code: heapless::String<6>,
+    },
 }
 
 #[cfg(test)]

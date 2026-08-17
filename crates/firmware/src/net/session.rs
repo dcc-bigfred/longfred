@@ -7,6 +7,7 @@ use embassy_net::{IpAddress, IpEndpoint, Stack};
 use embassy_time::{Duration, Instant, Timer};
 use log::{info, warn};
 use longfred_proto::adapter::{Adapter, WireBuf};
+use longfred_proto::bigfred::BigFredAdapter;
 use longfred_proto::command::Protocol;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::persist::DeviceIdentity;
@@ -111,7 +112,14 @@ fn make_adapter(ep: ServerEndpoint) -> Adapter {
         .unwrap_or_else(DeviceIdentity::empty);
     let id = dev.id_wire();
     match ep.protocol {
-        Protocol::WiThrottle | Protocol::BigFred => Adapter::Wt(WtAdapter::new(
+        Protocol::WiThrottle => Adapter::Wt(WtAdapter::new(
+            dev.name.as_str(),
+            id.as_str(),
+            config::buttons::DEFAULT_HEARTBEAT_PERIOD_S,
+            config::network::SEND_LEADING_CR_LF,
+            config::buttons::HEARTBEAT_ENABLED,
+        )),
+        Protocol::BigFred => Adapter::BigFred(BigFredAdapter::new(
             dev.name.as_str(),
             id.as_str(),
             config::buttons::DEFAULT_HEARTBEAT_PERIOD_S,
@@ -165,6 +173,11 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                 }
             }
             Either3::Third(_) => {
+                let mut out = WireBuf::new();
+                let polled = adapter.poll(&mut out, &mut |ev| emit_event(ev));
+                if polled && !out.is_empty() && !tr.send(&out).await {
+                    return true;
+                }
                 if hb_last.elapsed() >= hb_period {
                     let mut out = WireBuf::new();
                     if adapter.on_tick(&mut out) && !out.is_empty() && !tr.send(&out).await {

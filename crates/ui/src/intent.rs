@@ -17,6 +17,8 @@ pub enum Intent {
     AcquireRoster(usize),
     /// Walk the effective catalogue inside the current throttle slot.
     SelectLoco(PageDir),
+    /// Submit a pairing code.
+    Pair(heapless::String<6>),
     /// Release every acquired loco on this throttle.
     ReleaseAll,
     /// Toggle DCC function `0..=31`.
@@ -66,4 +68,10 @@ pub enum AppEvent {
     ServerConnected,
     /// STA join failed; show the retry screen.
     WifiFailed,
+    /// `BigFred` advertised its sentinel roster entry.
+    PairingRequired,
+    /// `BigFred` accepted the function-digit sequence.
+    PairingSucceeded,
+    /// Pairing timed out or the code was invalid.
+    PairingFailed,
 }

@@ -7,6 +7,7 @@
 
 pub mod action;
 pub mod adapter;
+pub mod bigfred;
 pub mod caps;
 pub mod catalog;
 pub mod command;

@@ -14,6 +14,8 @@ mod ip_config;
 mod ip_edit;
 mod language;
 mod menu;
+mod pairing;
+mod pairing_wait;
 mod roster;
 mod server_entry;
 mod server_list;
@@ -46,6 +48,8 @@ pub use ip_config::IpConfigScreen;
 pub use ip_edit::IpEditScreen;
 pub use language::LanguageScreen;
 pub use menu::MenuScreen;
+pub use pairing::PairingScreen;
+pub use pairing_wait::PairingWaitScreen;
 pub use roster::RosterListScreen;
 pub use server_entry::ServerEntryScreen;
 pub use server_list::ServerListScreen;
@@ -76,6 +80,8 @@ pub enum ScreenState {
     Extras(ExtrasScreen),
     RosterList(RosterListScreen),
     AddrEdit(AddrEditScreen),
+    Pairing(PairingScreen),
+    PairingWait(PairingWaitScreen),
     FunctionList(FunctionListScreen),
     DirectCommands(DirectCommandsScreen),
     IpConfig(IpConfigScreen),
@@ -107,6 +113,8 @@ pub fn new_screen(id: ScreenId) -> ScreenState {
         ScreenId::Extras => ScreenState::Extras(ExtrasScreen::new()),
         ScreenId::RosterList => ScreenState::RosterList(RosterListScreen::new()),
         ScreenId::AddrEdit => ScreenState::AddrEdit(AddrEditScreen::new()),
+        ScreenId::Pairing => ScreenState::Pairing(PairingScreen::new()),
+        ScreenId::PairingWait => ScreenState::PairingWait(PairingWaitScreen),
         ScreenId::FunctionList => ScreenState::FunctionList(FunctionListScreen::new()),
         ScreenId::DirectCommands => ScreenState::DirectCommands(DirectCommandsScreen::new()),
         ScreenId::IpConfig => ScreenState::IpConfig(IpConfigScreen),
@@ -139,6 +147,8 @@ macro_rules! dispatch_screen {
             ScreenState::Extras(s) => s.$method($($arg),*),
             ScreenState::RosterList(s) => s.$method($($arg),*),
             ScreenState::AddrEdit(s) => s.$method($($arg),*),
+            ScreenState::Pairing(s) => s.$method($($arg),*),
+            ScreenState::PairingWait(s) => s.$method($($arg),*),
             ScreenState::FunctionList(s) => s.$method($($arg),*),
             ScreenState::DirectCommands(s) => s.$method($($arg),*),
             ScreenState::IpConfig(s) => s.$method($($arg),*),
