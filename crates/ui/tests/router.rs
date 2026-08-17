@@ -118,11 +118,7 @@ fn language_select_emits_and_leaves_boot_wizard() {
         let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
         router.handle(InputEvent::Ok, &mut cx)
     };
-    assert!(
-        intents
-            .iter()
-            .any(|i| *i == Intent::SetLanguage(Language::Pl))
-    );
+    assert!(intents.contains(&Intent::SetLanguage(Language::Pl)));
     assert_eq!(router.screen_id(), ScreenId::Language);
     assert!(!fx.session.boot_language);
 }
@@ -198,7 +194,7 @@ fn throttle_estop_passthrough() {
         let mut cx = fx.ctx();
         router.handle(InputEvent::EStop, &mut cx)
     };
-    assert!(intents.iter().any(|i| *i == Intent::Action(Action::EStop)));
+    assert!(intents.contains(&Intent::Action(Action::EStop)));
 }
 
 #[test]
@@ -240,11 +236,7 @@ fn extras_roster_row_cycles_preference() {
         let mut cx = fx.ctx();
         router.handle(InputEvent::Ok, &mut cx)
     };
-    assert!(
-        intents
-            .iter()
-            .any(|i| *i == Intent::SetRosterMode(RosterMode::Static))
-    );
+    assert!(intents.contains(&Intent::SetRosterMode(RosterMode::Static)));
     assert_eq!(router.screen_id(), ScreenId::Extras);
 }
 
@@ -267,11 +259,7 @@ fn loco_slot_emits_throttle_action() {
         let mut cx = fx.ctx();
         router.handle(InputEvent::LocoSlot(2, true), &mut cx)
     };
-    assert!(
-        intents
-            .iter()
-            .any(|i| *i == Intent::Action(Action::Throttle(2)))
-    );
+    assert!(intents.contains(&Intent::Action(Action::Throttle(2))));
 }
 
 #[test]
@@ -283,11 +271,7 @@ fn throttle_page_walks_catalogue() {
         let mut cx = fx.ctx();
         cx.drive.effective_loco_source = longfred_proto::LocoSource::ServerRoster;
         let intents = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
-        assert!(
-            intents
-                .iter()
-                .any(|i| *i == Intent::SelectLoco(PageDir::Next))
-        );
+        assert!(intents.contains(&Intent::SelectLoco(PageDir::Next)));
     }
     {
         let mut cx = fx.ctx();
@@ -307,11 +291,7 @@ fn speed_absolute_emits_speed_set_when_loco_acquired() {
         let mut cx = fx.ctx();
         router.handle(InputEvent::SpeedAbsolute(40), &mut cx)
     };
-    assert!(
-        intents
-            .iter()
-            .any(|i| *i == Intent::Action(Action::SpeedSet(40)))
-    );
+    assert!(intents.contains(&Intent::Action(Action::SpeedSet(40))));
 }
 
 #[test]
@@ -405,7 +385,7 @@ fn addr_edit_ok_acquires_typed_address() {
         let _ = router.handle(InputEvent::Digit('2'), &mut cx);
         router.handle(InputEvent::Ok, &mut cx)
     };
-    assert!(intents.iter().any(|i| *i == Intent::AcquireAddr));
+    assert!(intents.contains(&Intent::AcquireAddr));
     assert_eq!(fx.session.addr.as_str(), "42");
     assert_eq!(router.screen_id(), ScreenId::Throttle);
 }
