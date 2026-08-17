@@ -2,7 +2,7 @@
 
 use core::fmt::Write as _;
 
-use longfred_proto::net_status::{PingStatus, ServerEndpoint};
+use longfred_proto::network::{PingStatus, ServerEndpoint};
 
 use super::helpers::{write_ip_line, write_mac};
 use crate::context::ScreenCtx;

@@ -1,10 +1,10 @@
 //! WiThrottle protocol adapter (wraps `protocol` builders + line parser).
 
+use super::{parser, protocol};
 use crate::adapter::WireBuf;
 use crate::command::ClientCommand;
 use crate::events::ServerEvent;
 use crate::model::throttle_char_u8;
-use crate::{parser, protocol};
 
 pub struct WtAdapter {
     name: heapless::String<32>,

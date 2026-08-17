@@ -1,7 +1,7 @@
 //! Integration tests for WiThrottle mDNS discovery helpers.
 
 use longfred_proto::command::Protocol;
-use longfred_proto::mdns::{WITHROTTLE_SERVICE, build_ptr_query, collect_servers};
+use longfred_proto::network::{WITHROTTLE_SERVICE, build_ptr_query, collect_servers};
 
 fn push_label(pkt: &mut Vec<u8>, label: &str) {
     pkt.push(label.len() as u8);

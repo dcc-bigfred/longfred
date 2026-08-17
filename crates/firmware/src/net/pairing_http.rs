@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, with_timeout};
 use log::info;
-use longfred_proto::pairing_http::{
+use longfred_proto::bigfred::pairing_http::{
     HANDSET_PAIRING_PATH, encode_request, parse_response, response_body,
 };
 

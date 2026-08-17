@@ -4,7 +4,7 @@ use crate::adapter::WireBuf;
 use crate::command::{ClientCommand, LocoId};
 use crate::events::ServerEvent;
 use crate::model::ShortText;
-use crate::wt::WtAdapter;
+use crate::withrottle::WtAdapter;
 
 pub const PAIRING_SENTINEL_NAME: &str = "Pair with BigFred";
 pub const PAIRING_SENTINEL_ADDR: u16 = 3;

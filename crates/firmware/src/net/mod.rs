@@ -16,12 +16,12 @@ use embassy_sync::watch::Watch;
 use heapless::String;
 use longfred_proto::command::ClientCommand;
 use longfred_proto::events::ServerEvent;
-use longfred_proto::mdns::WitServer;
+use longfred_proto::network::WitServer;
 use longfred_proto::persist::{DeviceIdentity, StaticIpConfig};
 
 use crate::config::sizes;
 
-pub use longfred_proto::net_status::{
+pub use longfred_proto::network::{
     ConnState, NetStatus, PingStatus, ServerEndpoint, SsidInfo, StaNet, WifiLink,
 };
 

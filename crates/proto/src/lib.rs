@@ -1,5 +1,5 @@
 #![cfg_attr(not(test), no_std)]
-//! LongFred WiThrottle protocol: wire parser + command builder (pure, host-testable).
+//! LongFred protocol crate: wire adapters, catalogues, persist, network DTOs.
 //!
 //! Public item docs are filled incrementally; CI clippy allows `missing_docs` for the
 //! same reason. Prefer documenting new public API when adding it.
@@ -14,16 +14,11 @@ pub mod command;
 pub mod events;
 pub mod image;
 pub mod input_map;
-pub mod mdns;
 pub mod menu;
 pub mod model;
-pub mod net_status;
-pub mod pairing_http;
-pub mod parser;
+pub mod network;
 pub mod persist;
-pub mod protocol;
-pub mod provisioning;
-pub mod wt;
+pub mod withrottle;
 pub mod z21;
 
 pub use action::Action;

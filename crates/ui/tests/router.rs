@@ -2,7 +2,7 @@
 
 use longfred_proto::action::Action;
 use longfred_proto::model::{RosterEntry, ThrottleSlot, TrackPower};
-use longfred_proto::net_status::{ConnState, NetStatus, PingStatus};
+use longfred_proto::network::{ConnState, NetStatus, PingStatus};
 use longfred_proto::persist::{Language, PersistRecord, StaticIpConfig};
 
 use longfred_ui::i18n::{HintSet, strings};
@@ -21,8 +21,8 @@ struct Fixture {
     slots: [ThrottleSlot; 1],
     roster: heapless::Vec<RosterEntry, 4>,
     persist: PersistRecord,
-    scanned: heapless::Vec<longfred_proto::net_status::SsidInfo, 60>,
-    servers: heapless::Vec<longfred_proto::mdns::WitServer, 5>,
+    scanned: heapless::Vec<longfred_proto::network::SsidInfo, 60>,
+    servers: heapless::Vec<longfred_proto::network::WitServer, 5>,
     session: UiSession,
     env: UiEnv,
     strings: &'static longfred_ui::i18n::Strings,

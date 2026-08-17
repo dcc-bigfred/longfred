@@ -89,7 +89,7 @@ fn interpret(
         2,
     >,
     storage_tx: &embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, StorageCmd, 4>,
-    servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
+    servers: &heapless::Vec<longfred_proto::network::WitServer, { sizes::MAX_FOUND_SERVERS }>,
 ) {
     match intent {
         Intent::Action(Action::ShowHideBattery) => session.cycle_battery_mode(),

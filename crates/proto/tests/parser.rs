@@ -2,7 +2,7 @@
 
 use longfred_proto::ServerEvent;
 use longfred_proto::model::{Direction, TrackPower};
-use longfred_proto::parser::parse;
+use longfred_proto::withrottle::parser::parse;
 
 fn collect(line: &str) -> Vec<ServerEvent> {
     let mut events = Vec::new();

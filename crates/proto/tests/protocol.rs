@@ -1,7 +1,7 @@
 //! Integration tests for WiThrottle protocol framing helpers.
 
 use longfred_proto::model::Direction;
-use longfred_proto::protocol as p;
+use longfred_proto::withrottle::protocol as p;
 
 #[test]
 fn handshake_name() {

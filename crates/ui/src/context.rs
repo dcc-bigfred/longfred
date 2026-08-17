@@ -1,11 +1,11 @@
 //! Borrowed render / input context (no `DomainState`, no embassy).
 
 use longfred_proto::LocoSource;
-use longfred_proto::mdns::WitServer;
 use longfred_proto::model::{
     MAX_FOUND_SERVERS, MAX_FOUND_SSIDS, RosterEntry, ThrottleSlot, TrackPower,
 };
-use longfred_proto::net_status::{
+use longfred_proto::network::WitServer;
+use longfred_proto::network::{
     ConnState, NetStatus, PingStatus, ServerEndpoint, SsidInfo, StaNet, WifiLink,
 };
 use longfred_proto::persist::PersistRecord;

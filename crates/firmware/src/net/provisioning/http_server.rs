@@ -6,10 +6,10 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use log::{info, warn};
-use longfred_proto::persist::PersistRecord;
-use longfred_proto::provisioning::{
+use longfred_proto::network::provisioning::{
     apply_settings_put, deserialize_settings_put, serialize_settings_from_record,
 };
+use longfred_proto::persist::PersistRecord;
 
 use crate::net::provisioning::exit_programming_mode;
 use crate::net::provisioning::ota;
@@ -210,13 +210,21 @@ async fn handle_settings_put(
     let apply_err = apply_settings_put(&mut *guard, &put);
     let msg: &'static str = match apply_err {
         Ok(()) => "",
-        Err(longfred_proto::provisioning::ApplyError::HostnameTooLong) => "hostname too long",
-        Err(longfred_proto::provisioning::ApplyError::LoginTooLong) => "login too long",
-        Err(longfred_proto::provisioning::ApplyError::PinTooLong) => "pin too long",
-        Err(longfred_proto::provisioning::ApplyError::PairingCodeInvalid) => "pairing code invalid",
-        Err(longfred_proto::provisioning::ApplyError::RosterAddrTooLong) => "roster addr too long",
-        Err(longfred_proto::provisioning::ApplyError::RosterNameTooLong) => "roster name too long",
-        Err(longfred_proto::provisioning::ApplyError::RosterFull) => "roster full",
+        Err(longfred_proto::network::provisioning::ApplyError::HostnameTooLong) => {
+            "hostname too long"
+        }
+        Err(longfred_proto::network::provisioning::ApplyError::LoginTooLong) => "login too long",
+        Err(longfred_proto::network::provisioning::ApplyError::PinTooLong) => "pin too long",
+        Err(longfred_proto::network::provisioning::ApplyError::PairingCodeInvalid) => {
+            "pairing code invalid"
+        }
+        Err(longfred_proto::network::provisioning::ApplyError::RosterAddrTooLong) => {
+            "roster addr too long"
+        }
+        Err(longfred_proto::network::provisioning::ApplyError::RosterNameTooLong) => {
+            "roster name too long"
+        }
+        Err(longfred_proto::network::provisioning::ApplyError::RosterFull) => "roster full",
     };
     if !msg.is_empty() {
         return respond(sock, 400, "text/plain", msg.as_bytes()).await;

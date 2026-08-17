@@ -1,8 +1,8 @@
 //! Bridge: firmware watches / config → `longfred-ui` context.
 
-use longfred_proto::mdns::WitServer;
 use longfred_proto::model::{MAX_FOUND_SERVERS, MAX_FOUND_SSIDS};
-use longfred_proto::net_status::SsidInfo;
+use longfred_proto::network::SsidInfo;
+use longfred_proto::network::WitServer;
 use longfred_ui::i18n::{HintSet, Strings, strings};
 use longfred_ui::nav::ScreenId;
 use longfred_ui::nav_profile::NavProfile;

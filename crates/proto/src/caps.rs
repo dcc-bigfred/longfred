@@ -134,7 +134,7 @@ const WIT_CAPS: ProtocolCaps = ProtocolCaps {
     pairing: false,
     transport: Transport::Tcp,
     default_port: 12090,
-    mdns_service: crate::mdns::WITHROTTLE_SERVICE,
+    mdns_service: crate::network::WITHROTTLE_SERVICE,
 };
 
 const Z21_CAPS: ProtocolCaps = ProtocolCaps {
@@ -145,7 +145,7 @@ const Z21_CAPS: ProtocolCaps = ProtocolCaps {
     pairing: false,
     transport: Transport::Udp,
     default_port: 21105,
-    mdns_service: crate::mdns::Z21_SERVICE,
+    mdns_service: crate::network::Z21_SERVICE,
 };
 
 const BIGFRED_CAPS: ProtocolCaps = ProtocolCaps {

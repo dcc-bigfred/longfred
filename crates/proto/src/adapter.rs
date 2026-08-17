@@ -6,7 +6,7 @@ use crate::events::ServerEvent;
 pub type WireBuf = heapless::Vec<u8, 256>;
 
 pub enum Adapter {
-    Wt(crate::wt::WtAdapter),
+    Wt(crate::withrottle::WtAdapter),
     Z21(crate::z21::Z21Adapter),
     BigFred(crate::bigfred::BigFredAdapter),
 }

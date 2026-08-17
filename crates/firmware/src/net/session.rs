@@ -12,7 +12,7 @@ use longfred_proto::caps::{Probe, http_probe_matches};
 use longfred_proto::command::Protocol;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::persist::DeviceIdentity;
-use longfred_proto::wt::WtAdapter;
+use longfred_proto::withrottle::WtAdapter;
 use longfred_proto::z21::Z21Adapter;
 
 use crate::config;

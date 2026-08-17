@@ -6,7 +6,7 @@ use embassy_net::{IpAddress, IpEndpoint, Stack};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use log::{info, warn};
 use longfred_proto::command::Protocol;
-use longfred_proto::mdns::{
+use longfred_proto::network::{
     MDNS_MULTICAST_V4, MDNS_PORT, WITHROTTLE_SERVICE, WitServer, Z21_SERVICE, build_ptr_query,
     collect_servers,
 };
@@ -228,7 +228,8 @@ pub async fn ota_announce_task(stack: Stack<'static>) {
         info!("ota-mdns: announcing {} at {:?}:80", hostname.as_str(), ip);
         while crate::net::http_ota_enabled() {
             let mut pkt = [0u8; 512];
-            let n = longfred_proto::mdns::build_ota_announce(hostname.as_str(), ip, 80, &mut pkt);
+            let n =
+                longfred_proto::network::build_ota_announce(hostname.as_str(), ip, 80, &mut pkt);
             let _ = sock.send_to(&pkt[..n], dst).await;
             Timer::after(Duration::from_secs(2)).await;
         }
