@@ -348,7 +348,7 @@ fn diagnostics_pages_wrap() {
 fn menu_digit_index_opens_expected_screen() {
     for (digit, want) in [
         ('1', ScreenId::FunctionList),
-        ('2', ScreenId::RosterList),
+        ('2', ScreenId::AddrEdit),
         ('5', ScreenId::Extras),
     ] {
         let mut fx = Fixture::new();
@@ -359,6 +359,33 @@ fn menu_digit_index_opens_expected_screen() {
         }
         assert_eq!(router.screen_id(), want, "digit {digit}");
     }
+}
+
+#[test]
+fn menu_digit_two_opens_roster_when_server_source() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Menu);
+    {
+        let mut cx = fx.ctx();
+        cx.drive.effective_loco_source = longfred_proto::LocoSource::ServerRoster;
+        let _ = router.handle(InputEvent::Digit('2'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::RosterList);
+}
+
+#[test]
+fn addr_edit_ok_acquires_typed_address() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::AddrEdit);
+    let intents = {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('4'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('2'), &mut cx);
+        router.handle(InputEvent::Ok, &mut cx)
+    };
+    assert!(intents.iter().any(|i| *i == Intent::AcquireAddr));
+    assert_eq!(fx.session.addr.as_str(), "42");
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
 }
 
 #[test]

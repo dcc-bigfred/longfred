@@ -31,6 +31,8 @@ pub enum ScreenId {
     Extras,
     /// Roster / loco picker.
     RosterList,
+    /// Manual DCC address (menu row when the effective source is address-only).
+    AddrEdit,
     /// DCC function list.
     FunctionList,
     /// Direct command list (`MarkWTech` extra keys).

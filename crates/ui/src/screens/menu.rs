@@ -1,5 +1,6 @@
-//! Main menu (Function / Locos / Speed / Power / Extras).
+//! Main menu (Function / Locos or Change DCC address / Speed / Power / Extras).
 
+use longfred_proto::LocoSource;
 use longfred_proto::action::Action;
 
 use super::helpers::{digit_key, page_list};
@@ -29,20 +30,26 @@ impl MenuItem {
         Self::Extras,
     ];
 
-    fn label(self, s: &Strings) -> &'static str {
+    fn label(self, s: &Strings, source: LocoSource) -> &'static str {
         match self {
             Self::Function => s.menu_fn,
-            Self::Locos => s.menu_locos,
+            Self::Locos => match source {
+                LocoSource::AddressOnly => s.menu_change_addr,
+                LocoSource::ServerRoster | LocoSource::StaticRoster => s.menu_locos,
+            },
             Self::SpeedMult => s.menu_speed_mult,
             Self::Power => s.menu_power,
             Self::Extras => s.menu_extras,
         }
     }
 
-    fn activate(self, nav: &mut Nav<'_>) {
+    fn activate(self, cx: &ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match self {
             Self::Function => nav.go(ScreenId::FunctionList),
-            Self::Locos => nav.go(ScreenId::RosterList),
+            Self::Locos => match cx.drive.effective_loco_source {
+                LocoSource::AddressOnly => nav.go(ScreenId::AddrEdit),
+                LocoSource::ServerRoster | LocoSource::StaticRoster => nav.go(ScreenId::RosterList),
+            },
             Self::SpeedMult => {
                 nav.emit(Intent::Action(Action::SpeedMultiplier));
                 nav.root(ScreenId::Throttle);
@@ -71,7 +78,7 @@ impl MenuScreen {
     }
 
     fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 5] {
-        MenuItem::ALL.map(|item| item.label(cx.s))
+        MenuItem::ALL.map(|item| item.label(cx.s, cx.drive.effective_loco_source))
     }
 
     fn height(cx: &ScreenCtx<'_>) -> u16 {
@@ -131,14 +138,14 @@ impl Screen for MenuScreen {
         if self.list.select_digit(d, &labels, h).is_some()
             && let Some(item) = self.current_at(&labels, h)
         {
-            item.activate(nav);
+            item.activate(cx, nav);
         }
     }
 
-    /// Open Function/Roster/Extras, or apply speed-mult / power and return to throttle.
+    /// Open Function/Roster/AddrEdit/Extras, or apply speed-mult / power and return to throttle.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if let Some(item) = self.current(cx) {
-            item.activate(nav);
+            item.activate(cx, nav);
         }
     }
 

@@ -1,5 +1,6 @@
 //! Per-screen objects. Each [`ScreenId`] has a concrete type in this module.
 
+mod addr_edit;
 mod device;
 mod device_id;
 mod device_name;
@@ -32,6 +33,7 @@ use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 
+pub use addr_edit::AddrEditScreen;
 pub use device::DeviceScreen;
 pub use device_id::DeviceIdEditScreen;
 pub use device_name::DeviceNameEditScreen;
@@ -73,6 +75,7 @@ pub enum ScreenState {
     Menu(MenuScreen),
     Extras(ExtrasScreen),
     RosterList(RosterListScreen),
+    AddrEdit(AddrEditScreen),
     FunctionList(FunctionListScreen),
     DirectCommands(DirectCommandsScreen),
     IpConfig(IpConfigScreen),
@@ -103,6 +106,7 @@ pub fn new_screen(id: ScreenId) -> ScreenState {
         ScreenId::Menu => ScreenState::Menu(MenuScreen::new()),
         ScreenId::Extras => ScreenState::Extras(ExtrasScreen::new()),
         ScreenId::RosterList => ScreenState::RosterList(RosterListScreen::new()),
+        ScreenId::AddrEdit => ScreenState::AddrEdit(AddrEditScreen::new()),
         ScreenId::FunctionList => ScreenState::FunctionList(FunctionListScreen::new()),
         ScreenId::DirectCommands => ScreenState::DirectCommands(DirectCommandsScreen::new()),
         ScreenId::IpConfig => ScreenState::IpConfig(IpConfigScreen),
@@ -134,6 +138,7 @@ macro_rules! dispatch_screen {
             ScreenState::Menu(s) => s.$method($($arg),*),
             ScreenState::Extras(s) => s.$method($($arg),*),
             ScreenState::RosterList(s) => s.$method($($arg),*),
+            ScreenState::AddrEdit(s) => s.$method($($arg),*),
             ScreenState::FunctionList(s) => s.$method($($arg),*),
             ScreenState::DirectCommands(s) => s.$method($($arg),*),
             ScreenState::IpConfig(s) => s.$method($($arg),*),
