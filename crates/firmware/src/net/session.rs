@@ -4,11 +4,11 @@ use embassy_futures::select::{Either3, select3};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
-use embassy_time::{Duration, Instant, Timer, with_timeout};
+use embassy_time::{Duration, Instant, Timer};
 use log::{info, warn};
 use longfred_proto::adapter::{Adapter, WireBuf};
 use longfred_proto::bigfred::BigFredAdapter;
-use longfred_proto::caps::{Probe, Transport as WireTransport, http_probe_matches};
+use longfred_proto::caps::Transport as WireTransport;
 use longfred_proto::command::Protocol;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::persist::DeviceIdentity;
@@ -16,7 +16,9 @@ use longfred_proto::withrottle::WtAdapter;
 use longfred_proto::z21::Z21Adapter;
 
 use crate::config;
-use crate::net::{CONN, ConnState, DEVICE, PROTO_COMMANDS, PROTO_EVENTS, SERVER, ServerEndpoint};
+use crate::net::{
+    CONN, ConnState, DEVICE, PROTO_COMMANDS, PROTO_EVENTS, SERVER, ServerEndpoint, probe,
+};
 
 const TCP_RX_SIZE: usize = 1024;
 const TCP_TX_SIZE: usize = 1024;
@@ -106,54 +108,13 @@ async fn write_all(sock: &mut TcpSocket<'_>, mut data: &[u8]) -> bool {
     true
 }
 
-async fn probe_bigfred(
-    stack: Stack<'static>,
-    ep: ServerEndpoint,
-    rx: &mut [u8],
-    tx: &mut [u8],
-) -> bool {
-    let Probe::HttpGet { port, path, expect } = Protocol::BigFred.probe() else {
-        return false;
-    };
-    let mut sock = TcpSocket::new(stack, rx, tx);
-    sock.set_timeout(Some(Duration::from_secs(2)));
-    let remote = IpEndpoint::new(IpAddress::v4(ep.ip[0], ep.ip[1], ep.ip[2], ep.ip[3]), port);
-    if !matches!(
-        with_timeout(Duration::from_secs(2), sock.connect(remote)).await,
-        Ok(Ok(()))
-    ) {
-        return false;
-    }
-    let mut request = heapless::String::<128>::new();
-    if core::fmt::write(
-        &mut request,
-        format_args!("GET {path} HTTP/1.1\r\nHost: bigfred\r\nConnection: close\r\n\r\n"),
-    )
-    .is_err()
-        || !write_all(&mut sock, request.as_bytes()).await
-    {
-        return false;
-    }
-
-    let mut response = [0u8; 1024];
-    let mut used = 0usize;
-    while used < response.len() {
-        match with_timeout(Duration::from_secs(2), sock.read(&mut response[used..])).await {
-            Ok(Ok(0)) => break,
-            Ok(Ok(n)) => used += n,
-            Ok(Err(_)) | Err(_) => break,
-        }
-    }
-    http_probe_matches(&response[..used], expect.as_bytes())
-}
-
 async fn classify_endpoint(
     stack: Stack<'static>,
     mut ep: ServerEndpoint,
     rx: &mut [u8],
     tx: &mut [u8],
 ) -> ServerEndpoint {
-    if ep.protocol == Protocol::WiThrottle && probe_bigfred(stack, ep, rx, tx).await {
+    if ep.protocol == Protocol::WiThrottle && probe::is_bigfred(stack, ep.ip, rx, tx).await {
         ep.protocol = Protocol::BigFred;
         SERVER.sender().send(Some(ep));
         info!("HTTP probe identified BigFred");
@@ -195,7 +156,6 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
 
     let cmd_rx = PROTO_COMMANDS.receiver();
     let mut rx = [0u8; 512];
-    let mut last_rx = Instant::now();
     let mut hb_last = Instant::now();
 
     loop {
@@ -207,9 +167,8 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
         )
         .await
         {
-            Either3::First(None) => return true,
+            Either3::First(None) => break,
             Either3::First(Some(n)) => {
-                last_rx = Instant::now();
                 let mut hb_cfg = None;
                 adapter.decode(&rx[..n], &mut |ev| {
                     if let ServerEvent::HeartbeatConfig { seconds } = &ev {
@@ -225,29 +184,31 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                 let mut out = WireBuf::new();
                 adapter.encode(&cmd, &mut out, &mut |ev| emit_event(ev));
                 if !out.is_empty() && !tr.send(&out).await {
-                    return true;
+                    break;
                 }
             }
             Either3::Third(_) => {
                 let mut out = WireBuf::new();
                 let polled = adapter.poll(&mut out, &mut |ev| emit_event(ev));
                 if polled && !out.is_empty() && !tr.send(&out).await {
-                    return true;
+                    break;
                 }
                 if hb_last.elapsed() >= hb_period {
                     let mut out = WireBuf::new();
                     if adapter.on_tick(&mut out) && !out.is_empty() && !tr.send(&out).await {
-                        return true;
+                        break;
                     }
                     hb_last = Instant::now();
-                }
-                if last_rx.elapsed() > hb_period * 2 {
-                    warn!("proto watchdog: no data, reconnect");
-                    return true;
                 }
             }
         }
     }
+    let mut out = WireBuf::new();
+    adapter.on_disconnect(&mut out);
+    if !out.is_empty() {
+        let _ = tr.send(&out).await;
+    }
+    true
 }
 
 async fn run_tcp_session(
@@ -266,7 +227,10 @@ async fn run_tcp_session(
         ep.port,
     );
     if sock.connect(remote).await.is_err() {
-        warn!("tcp connect failed");
+        warn!(
+            "tcp connect failed {}.{}.{}.{}:{} (enable the WiThrottle server on the command station)",
+            ep.ip[0], ep.ip[1], ep.ip[2], ep.ip[3], ep.port
+        );
         return false;
     }
     info!(

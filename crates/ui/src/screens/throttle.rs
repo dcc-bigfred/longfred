@@ -1,7 +1,9 @@
 //! Drive HUD (loco acquired) and address-entry mode (no loco).
 
-use longfred_proto::LocoSource;
+use core::fmt::Write as _;
+
 use longfred_proto::model::track_power_on;
+use longfred_proto::{LocoId, LocoSource};
 
 use super::helpers::has_loco;
 use crate::context::ScreenCtx;
@@ -57,7 +59,15 @@ impl Screen for ThrottleScreen {
         if let Some(s) = slot {
             if s.has_loco() {
                 if let Some(addr) = s.consist.first() {
-                    push_oled(&mut loco, addr.as_str());
+                    if let Some(id) = LocoId::parse(addr.as_str()) {
+                        let _ = write!(loco, "{}", id.addr);
+                    } else {
+                        push_oled(&mut loco, addr.as_str());
+                    }
+                    if !s.name.is_empty() {
+                        push_oled(&mut loco, ": ");
+                        push_oled(&mut loco, s.name.as_str());
+                    }
                 }
             } else if !self.addr_kbd.buffer.is_empty() {
                 push_oled(&mut loco, self.addr_kbd.value_preview().as_str());

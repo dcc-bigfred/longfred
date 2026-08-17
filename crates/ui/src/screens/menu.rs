@@ -3,7 +3,7 @@
 use longfred_proto::LocoSource;
 use longfred_proto::action::Action;
 
-use super::helpers::{digit_key, page_list};
+use super::helpers::{digit_key, next_speed_multiplier, overlay_prefixed_count, page_list};
 use crate::context::ScreenCtx;
 use crate::i18n::Strings;
 use crate::intent::Intent;
@@ -52,10 +52,18 @@ impl MenuItem {
             },
             Self::SpeedMult => {
                 nav.emit(Intent::Action(Action::SpeedMultiplier));
+                let next = next_speed_multiplier(cx.drive.speed_multiplier);
+                nav.overlay(overlay_prefixed_count(cx.s.overlay_speed, usize::from(next)).as_str());
                 nav.root(ScreenId::Throttle);
             }
             Self::Power => {
                 nav.emit(Intent::Action(Action::PowerToggle));
+                let on = !matches!(cx.drive.track_power, longfred_proto::model::TrackPower::On);
+                nav.overlay(if on {
+                    cx.s.overlay_power_on
+                } else {
+                    cx.s.overlay_power_off
+                });
                 nav.root(ScreenId::Throttle);
             }
             Self::Extras => nav.go(ScreenId::Extras),

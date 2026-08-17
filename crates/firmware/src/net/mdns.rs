@@ -13,10 +13,15 @@ use longfred_proto::network::{
 use crate::config::{network, sizes};
 use crate::net::{
     FOUND_SERVERS, HTTP_OTA_ENABLE, MDNS_CTRL, NetStatus, SERVER, STATE, ServerEndpoint,
-    WIFI_HOSTNAME,
+    WIFI_HOSTNAME, probe,
 };
 
 const MAX_SERVERS: usize = sizes::MAX_FOUND_SERVERS;
+
+static PROBE_RX: static_cell::ConstStaticCell<[u8; 1024]> =
+    static_cell::ConstStaticCell::new([0; 1024]);
+static PROBE_TX: static_cell::ConstStaticCell<[u8; 512]> =
+    static_cell::ConstStaticCell::new([0; 512]);
 
 async fn query_service(
     sock: &mut UdpSocket<'_>,
@@ -125,6 +130,8 @@ async fn wait_for_net_ready() {
 async fn run_discovery(
     stack: Stack<'static>,
     ssid: &'static str,
+    probe_rx: &mut [u8],
+    probe_tx: &mut [u8],
 ) -> heapless::Vec<WitServer, MAX_SERVERS> {
     let is_dccex = ssid.contains("DCCEX") || ssid.contains("DCC-EX");
     if is_dccex {
@@ -141,7 +148,8 @@ async fn run_discovery(
         return v;
     }
 
-    let servers = discover(stack).await;
+    let mut servers = discover(stack).await;
+    probe_wit_hosts(stack, &mut servers, probe_rx, probe_tx).await;
     for s in &servers {
         info!(
             "server: {} {:?}:{} {:?}",
@@ -152,6 +160,40 @@ async fn run_discovery(
         );
     }
     servers
+}
+
+async fn probe_wit_hosts(
+    stack: Stack<'static>,
+    servers: &mut heapless::Vec<WitServer, MAX_SERVERS>,
+    probe_rx: &mut [u8],
+    probe_tx: &mut [u8],
+) {
+    let mut probed: heapless::Vec<[u8; 4], MAX_SERVERS> = heapless::Vec::new();
+    let mut bigfred: heapless::Vec<[u8; 4], MAX_SERVERS> = heapless::Vec::new();
+    for s in servers.iter_mut() {
+        if s.protocol != Protocol::WiThrottle {
+            continue;
+        }
+        let Some(ip) = s.ipv4 else {
+            continue;
+        };
+        if bigfred.iter().any(|known| *known == ip) {
+            s.protocol = Protocol::BigFred;
+            continue;
+        }
+        if probed.iter().any(|known| *known == ip) {
+            continue;
+        }
+        let _ = probed.push(ip);
+        if probe::is_bigfred(stack, ip, probe_rx, probe_tx).await {
+            s.protocol = Protocol::BigFred;
+            let _ = bigfred.push(ip);
+            info!(
+                "mdns HTTP probe identified BigFred at {}.{}.{}.{}",
+                ip[0], ip[1], ip[2], ip[3]
+            );
+        }
+    }
 }
 
 fn maybe_auto_connect(servers: &heapless::Vec<WitServer, MAX_SERVERS>) {
@@ -177,6 +219,8 @@ fn maybe_auto_connect(servers: &heapless::Vec<WitServer, MAX_SERVERS>) {
 #[embassy_executor::task]
 pub async fn task(stack: Stack<'static>, ssid: &'static str) {
     wait_for_net_ready().await;
+    let probe_rx = PROBE_RX.take();
+    let probe_tx = PROBE_TX.take();
     let mdns_rx = MDNS_CTRL.receiver();
 
     loop {
@@ -184,7 +228,7 @@ pub async fn task(stack: Stack<'static>, ssid: &'static str) {
             Timer::after(Duration::from_millis(500)).await;
             continue;
         }
-        let servers = run_discovery(stack, ssid).await;
+        let servers = run_discovery(stack, ssid, probe_rx, probe_tx).await;
         maybe_auto_connect(&servers);
         FOUND_SERVERS.signal(servers);
 

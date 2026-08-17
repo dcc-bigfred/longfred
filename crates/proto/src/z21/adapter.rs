@@ -138,6 +138,32 @@ fn empty_entry() -> LongText {
     LongText::new()
 }
 
+/// Decode the optional DB4..DB8 function bytes from LAN_X_LOCO_INFO.
+/// Returns `(states, present)` so shorter legacy replies do not clear unknown functions.
+fn decode_function_bits(x: &[u8]) -> (u32, u32) {
+    let mut states = 0u32;
+    let mut present = 0u32;
+    if let Some(&db4) = x.get(5) {
+        present |= 0x1F;
+        if db4 & 0x10 != 0 {
+            states |= 1;
+        }
+        states |= u32::from(db4 & 0x0F) << 1;
+    }
+    for (index, first_func) in [(6usize, 5u8), (7, 13), (8, 21)] {
+        if let Some(&byte) = x.get(index) {
+            let mask = 0xFFu32 << first_func;
+            present |= mask;
+            states |= u32::from(byte) << first_func;
+        }
+    }
+    if let Some(&db8) = x.get(9) {
+        present |= 0x07u32 << 29;
+        states |= u32::from(db8 & 0x07) << 29;
+    }
+    (states, present)
+}
+
 impl Z21Adapter {
     pub fn new() -> Self {
         Self::default()
@@ -161,15 +187,21 @@ impl Z21Adapter {
     ) {
         match cmd {
             ClientCommand::AddLoco { throttle, loco, .. } => {
-                let _ = self.locos.push(Slot {
-                    throttle: *throttle,
-                    addr: loco.addr,
-                    long: loco.long,
-                    steps: 128,
-                    speed: 0,
-                    dir: Direction::Forward,
-                    funcs: 0,
-                });
+                if !self
+                    .locos
+                    .iter()
+                    .any(|slot| slot.throttle == *throttle && slot.addr == loco.addr)
+                {
+                    let _ = self.locos.push(Slot {
+                        throttle: *throttle,
+                        addr: loco.addr,
+                        long: loco.long,
+                        steps: 128,
+                        speed: 0,
+                        dir: Direction::Forward,
+                        funcs: 0,
+                    });
+                }
                 let a = addr_bytes(loco.addr, loco.long);
                 put_xbus(out, &[0xE3, 0xF0, a[0], a[1]]);
                 emit(ServerEvent::AddressAdded {
@@ -216,9 +248,19 @@ impl Z21Adapter {
                 self.drive(*throttle, *loco, None, Some(*dir), out);
             }
             ClientCommand::EStop { throttle } => {
-                for s in self.locos.iter().filter(|s| s.throttle == *throttle) {
+                for s in self.locos.iter_mut().filter(|s| s.throttle == *throttle) {
+                    s.speed = 0;
                     let a = addr_bytes(s.addr, s.long);
                     put_xbus(out, &[0x92, a[0], a[1]]);
+                    let direction = if s.dir == Direction::Forward {
+                        0x80
+                    } else {
+                        0x00
+                    };
+                    put_xbus(
+                        out,
+                        &[0xE4, steps_db0(s.steps), a[0], a[1], direction | 0x01],
+                    );
                 }
             }
             ClientCommand::SetFunction {
@@ -301,6 +343,14 @@ impl Z21Adapter {
                     0x01 => emit(ServerEvent::TrackPower(TrackPower::On)),
                     _ => {}
                 },
+                0x62 if frame.len() >= 8 && frame[5] == 0x22 => {
+                    let power = if frame[6] & 0x02 != 0 {
+                        TrackPower::Off
+                    } else {
+                        TrackPower::On
+                    };
+                    emit(ServerEvent::TrackPower(power));
+                }
                 0x81 => {
                     let mut msg = LongText::new();
                     let _ = msg.push_str("E-STOP");
@@ -329,15 +379,15 @@ impl Z21Adapter {
             let t = throttle_char(s.throttle as usize);
             emit(ServerEvent::Speed { throttle: t, speed });
             emit(ServerEvent::DirectionLead { throttle: t, dir });
-            if x.len() > 5 {
-                let func_byte = x[5];
-                for bit in 0..8u8 {
-                    let on = (func_byte >> bit) & 1 == 1;
-                    let mask = 1u32 << bit;
+            let (functions, present) = decode_function_bits(x);
+            for func in 0..32u8 {
+                let mask = 1u32 << func;
+                if present & mask != 0 {
+                    let on = functions & mask != 0;
                     if on != ((s.funcs & mask) != 0) {
                         emit(ServerEvent::FunctionState {
                             throttle: t,
-                            func: bit,
+                            func,
                             on,
                         });
                         if on {
@@ -420,6 +470,75 @@ mod tests {
     }
 
     #[test]
+    fn loco_info_decodes_functions_f0_through_f31() {
+        let x = [
+            0xEF,
+            0x00,
+            0x03,
+            0x04,
+            0x80,
+            0x10 | 0x01 | 0x08, // F0, F1, F4
+            0x81,               // F5, F12
+            0x00,
+            0x80, // F28
+            0x04, // F31
+        ];
+        let (states, present) = decode_function_bits(&x);
+        for func in [0u8, 1, 4, 5, 12, 28, 31] {
+            assert_ne!(states & (1u32 << func), 0, "F{func}");
+        }
+        assert_eq!(present, u32::MAX);
+    }
+
+    #[test]
+    fn loco_info_ignores_smartsearch_and_double_traction_bits() {
+        let x = [0xEF, 0x00, 0x03, 0x04, 0x80, 0x60];
+        let (states, present) = decode_function_bits(&x);
+        assert_eq!(states, 0);
+        assert_eq!(present, 0x1F);
+    }
+
+    #[test]
+    fn estop_clears_cached_speed_and_sends_spec_plus_drive_fallback() {
+        let mut adapter = Z21Adapter::new();
+        let _ = adapter.locos.push(Slot {
+            throttle: 0,
+            addr: 31,
+            long: false,
+            steps: 128,
+            speed: 50,
+            dir: Direction::Forward,
+            funcs: 0,
+        });
+        let mut out = WireBuf::new();
+        adapter.encode(&ClientCommand::EStop { throttle: 0 }, &mut out, &mut |_| {});
+
+        assert_eq!(adapter.locos[0].speed, 0);
+        assert_eq!(&out[..8], &[0x08, 0x00, 0x40, 0x00, 0x92, 0x00, 0x1F, 0x8D]);
+        assert_eq!(out[12], 0xE4);
+        assert_eq!(out[16] & 0x7F, 1);
+    }
+
+    #[test]
+    fn estop_burst_fits_all_sixteen_locomotives() {
+        let mut adapter = Z21Adapter::new();
+        for addr in 1..=16 {
+            let _ = adapter.locos.push(Slot {
+                throttle: 0,
+                addr,
+                long: false,
+                steps: 128,
+                speed: 50,
+                dir: Direction::Forward,
+                funcs: 0,
+            });
+        }
+        let mut out = WireBuf::new();
+        adapter.encode(&ClientCommand::EStop { throttle: 0 }, &mut out, &mut |_| {});
+        assert_eq!(out.len(), 16 * (8 + 10));
+    }
+
+    #[test]
     fn split_datagram_two_frames() {
         let mut adapter = Z21Adapter::new();
         adapter
@@ -479,6 +598,38 @@ mod tests {
             events
                 .iter()
                 .any(|e| matches!(e, ServerEvent::AddressAdded { .. }))
+        );
+    }
+
+    #[test]
+    fn add_loco_deduplicates_same_throttle_and_address() {
+        let mut adapter = Z21Adapter::new();
+        let mut out = WireBuf::new();
+        let command = ClientCommand::AddLoco {
+            throttle: 0,
+            loco: LocoId {
+                addr: 31,
+                long: false,
+            },
+            name: heapless::String::new(),
+        };
+        adapter.encode(&command, &mut out, &mut |_| {});
+        adapter.encode(&command, &mut out, &mut |_| {});
+        assert_eq!(adapter.locos.len(), 1);
+    }
+
+    #[test]
+    fn status_changed_updates_track_power() {
+        let mut adapter = Z21Adapter::new();
+        let mut packet = WireBuf::new();
+        put_xbus(&mut packet, &[0x62, 0x22, 0x02]);
+        let mut events = heapless::Vec::<ServerEvent, 2>::new();
+        adapter.decode(packet.as_slice(), &mut |event| {
+            let _ = events.push(event);
+        });
+        assert_eq!(
+            events.first(),
+            Some(&ServerEvent::TrackPower(TrackPower::Off))
         );
     }
 }

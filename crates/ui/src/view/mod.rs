@@ -354,6 +354,43 @@ impl Default for ThrottleView {
     }
 }
 
+/// Full-screen message covering whatever screen is underneath.
+#[derive(Clone, PartialEq, Eq)]
+pub struct OverlayView {
+    /// Wrapped body plus footer, drawn like a [`GridView`].
+    pub grid: GridView,
+}
+
+impl OverlayView {
+    /// Wrap `text` and place `footer` on the last visible row.
+    #[must_use]
+    pub fn from_text(text: &str, footer: &str, height: u16) -> Self {
+        let mut grid = GridView::new();
+        grid.foot_line = height > 32;
+        let chunks = wrap_text(text);
+        let (body_rows, footer_row) = if height <= 32 {
+            (3usize, 3usize)
+        } else {
+            (5usize, 5usize)
+        };
+        for (i, chunk) in chunks.iter().take(body_rows).enumerate() {
+            grid.set(i, chunk.as_str(), false);
+        }
+        grid.set(footer_row, footer, false);
+        Self { grid }
+    }
+}
+
+/// Fold and wrap `text` at [`col_chars`] for overlay / multi-line bodies.
+#[must_use]
+pub fn wrap_text(text: &str) -> heapless::Vec<Line, 8> {
+    let mut folded = heapless::String::<64>::new();
+    for c in text.chars() {
+        let _ = folded.push(oled_char(c));
+    }
+    wrap_chunks(folded.as_str(), col_chars())
+}
+
 /// What the firmware should paint this frame.
 #[derive(Clone, PartialEq, Eq)]
 #[allow(clippy::large_enum_variant)]
@@ -362,6 +399,8 @@ pub enum UiView {
     Throttle(ThrottleView),
     /// Menu / wizard / diagnostics grid.
     Grid(GridView),
+    /// Full-screen status / error overlay.
+    Overlay(OverlayView),
     /// Boot splash bitmap / product name.
     Splash,
     /// Soft-AP wizard page 2 on 128×64: QR + HTTP URL.
@@ -388,5 +427,13 @@ mod tests {
         assert!(g.inverted(2));
         g.set(2, "c", false);
         assert!(!g.inverted(2));
+    }
+
+    #[test]
+    fn overlay_wraps_and_puts_footer_on_last_row() {
+        let ov = OverlayView::from_text("vehicle_cap_exceeded extra", "EStop close", 64);
+        assert!(ov.grid.lines[0].len() <= LINE_LEN);
+        assert!(ov.grid.lines[0].as_str().starts_with("vehicle_cap"));
+        assert_eq!(ov.grid.lines[5].as_str(), "EStop close");
     }
 }

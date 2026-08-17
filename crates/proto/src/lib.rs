@@ -27,7 +27,7 @@ pub use caps::{
 };
 pub use catalog::{
     AddressCatalog, Catalog, LocoCatalog, LocoRef, ServerCatalog, StaticCatalog, neighbour_index,
-    resolve_effective,
+    resolve_effective, sort_roster_by_dcc_addr,
 };
 pub use command::{ClientCommand, LocoId, Protocol};
 pub use events::ServerEvent;

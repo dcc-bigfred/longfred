@@ -1,7 +1,10 @@
 //! Compiled-SSID picker.
 
-use super::helpers::{compiled_ssids, digit_key, height, pick_ssid, step_list};
+use super::helpers::{
+    compiled_ssids, digit_key, height, page_list, pick_ssid, set_list_hint, step_list,
+};
 use crate::context::ScreenCtx;
+use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::screen::Screen;
 use crate::view::UiView;
@@ -43,12 +46,13 @@ impl Screen for SsidListScreen {
         ScreenId::SsidList
     }
 
-    /// Compiled SSIDs; page-right starts a live scan rather than paging.
+    /// Compiled SSIDs; footer on 128×64 lists key hints.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         let names = compiled_ssids(cx);
         self.list
             .draw(&mut g, Some(cx.s.msg_ssids_listed), &names, height(cx));
+        set_list_hint(&mut g, cx, cx.s.hint_ssid_list);
         UiView::Grid(g)
     }
 
@@ -58,11 +62,16 @@ impl Screen for SsidListScreen {
         step_list(&mut self.list, d, &names, height(cx));
     }
 
-    /// Page-next starts a scan (not a list page).
-    fn on_page(&mut self, d: PageDir, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        if d == PageDir::Next {
-            nav.replace(ScreenId::SsidScanning);
-        }
+    /// Left / Right Menu pages the compiled-SSID list.
+    fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
+        let names = compiled_ssids(cx);
+        page_list(&mut self.list, d, &names, height(cx));
+    }
+
+    /// Menu starts a live scan.
+    fn on_menu_key(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        nav.replace(ScreenId::SsidScanning);
+        nav.emit(Intent::WifiScan);
     }
 
     /// Digit jumps to that SSID and selects it.

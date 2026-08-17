@@ -2,7 +2,7 @@
 
 use longfred_proto::model::MAX_FOUND_SSIDS;
 
-use super::helpers::{digit_key, height, page_list, pick_ssid, step_list};
+use super::helpers::{digit_key, height, page_list, pick_ssid, set_list_hint, step_list};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -60,6 +60,7 @@ impl Screen for SsidScanScreen {
         let names = Self::names(cx);
         self.list
             .draw(&mut g, Some(cx.s.msg_ssids_found), &names, height(cx));
+        set_list_hint(&mut g, cx, cx.s.hint_ssid_list);
         UiView::Grid(g)
     }
 

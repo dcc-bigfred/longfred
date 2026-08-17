@@ -3,12 +3,12 @@
 use longfred_proto::command::Protocol;
 use longfred_proto::model::MAX_FOUND_SERVERS;
 
-use super::helpers::{digit_key, height, step_list};
+use super::helpers::{digit_key, height, page_list, set_list_hint, step_list};
 use crate::context::ScreenCtx;
 use crate::intent::{AppEvent, Intent};
 use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::screen::Screen;
-use crate::view::{Line, UiView};
+use crate::view::{LINE_LEN, Line, UiView, push_oled};
 use crate::widgets::PagedList;
 
 /// mDNS command-station list.
@@ -25,12 +25,17 @@ impl ServerListScreen {
         }
     }
 
-    /// `"label W|Z"` rows for discovered endpoints.
+    /// `"label W|Z|B"` rows for discovered endpoints.
     fn labels(cx: &ScreenCtx<'_>) -> heapless::Vec<Line, MAX_FOUND_SERVERS> {
         let mut v = heapless::Vec::new();
         for s in cx.net.found_servers {
+            let mut name = Line::new();
+            push_oled(&mut name, s.label.as_str());
+            while name.len() > LINE_LEN.saturating_sub(2) {
+                let _ = name.pop();
+            }
             let mut line = Line::new();
-            let _ = line.push_str(s.label.as_str());
+            push_oled(&mut line, name.as_str());
             let _ = line.push(' ');
             let _ = line.push(s.protocol.glyph());
             let _ = v.push(line);
@@ -52,6 +57,18 @@ impl ServerListScreen {
             nav.root(ScreenId::Throttle);
         }
     }
+
+    fn open_manual_ip(cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        cx.session.manual_protocol = Protocol::WiThrottle;
+        cx.session.server_entry_from_list = true;
+        nav.go(ScreenId::ServerEntry);
+    }
+
+    fn open_proto(cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        cx.session.server_digits.clear();
+        cx.session.server_entry_from_list = false;
+        nav.go(ScreenId::ServerProto);
+    }
 }
 
 impl Default for ServerListScreen {
@@ -70,13 +87,14 @@ impl Screen for ServerListScreen {
         nav.emit(Intent::RequestMdns);
     }
 
-    /// Discovered services; page-right is protocol pick, page-left is WIT IP entry.
+    /// Discovered services; footer on 128×64 lists key hints.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         let bufs = Self::labels(cx);
         let names = Self::name_refs(&bufs);
         self.list
             .draw(&mut g, Some(cx.s.msg_services_found), &names, height(cx));
+        set_list_hint(&mut g, cx, cx.s.hint_server_list);
         UiView::Grid(g)
     }
 
@@ -87,16 +105,30 @@ impl Screen for ServerListScreen {
         step_list(&mut self.list, d, &names, height(cx));
     }
 
-    /// Next → protocol picker. Prev → WIT manual IP (from-list flag set).
-    fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        match d {
-            PageDir::Next => nav.go(ScreenId::ServerProto),
-            PageDir::Prev => {
-                cx.session.manual_protocol = Protocol::WiThrottle;
-                cx.session.server_entry_from_list = true;
-                nav.go(ScreenId::ServerEntry);
-            }
+    /// Left / Right Menu pages the list.
+    fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
+        let bufs = Self::labels(cx);
+        let names = Self::name_refs(&bufs);
+        page_list(&mut self.list, d, &names, height(cx));
+    }
+
+    /// Menu restarts mDNS without leaving the list.
+    fn on_menu_key(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        nav.emit(Intent::RequestMdns);
+    }
+
+    /// Stop: typed IP (keypad) or protocol picker (joystick).
+    fn on_stop(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if cx.env.has_keypad {
+            Self::open_manual_ip(cx, nav);
+        } else {
+            Self::open_proto(cx, nav);
         }
+    }
+
+    /// `*` opens the protocol picker.
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        Self::open_proto(cx, nav);
     }
 
     /// Digit jumps to that server and connects.

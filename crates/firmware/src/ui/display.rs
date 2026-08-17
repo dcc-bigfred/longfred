@@ -568,6 +568,7 @@ pub async fn task(i2c: SharedI2cDevice) {
 
         match &view {
             UiView::Grid(g) => draw_grid(&mut display, g, text_style),
+            UiView::Overlay(o) => draw_grid(&mut display, &o.grid, text_style),
             UiView::Throttle(t) => draw_throttle(&mut display, t, title_style, text_style),
             UiView::Splash => draw_splash(&mut display),
             UiView::PairingQr => draw_pairing_qr(&mut display, text_style),

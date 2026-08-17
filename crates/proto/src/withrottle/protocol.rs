@@ -94,7 +94,9 @@ pub fn steal_loco(throttle: char, addr: &str) -> Cmd {
 pub fn set_speed(throttle: char, speed: u8) -> Cmd {
     let mut act = heapless::String::<8>::new();
     let _ = act.push('V');
-    push_u8(&mut act, speed);
+    // WiThrottle reserves V1 for emergency stop; the regular domain speed 1
+    // must therefore use the first non-emergency wire value.
+    push_u8(&mut act, if speed == 1 { 2 } else { speed });
     mta_cmd(throttle, "*", &act)
 }
 

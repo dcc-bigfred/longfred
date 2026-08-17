@@ -1,11 +1,13 @@
 //! Shared list / IP helpers used by multiple screens.
 
+use core::fmt::Write as _;
+
 use longfred_proto::persist::StaticIpConfig;
 
 use crate::context::{MAX_COMPILED_NETWORKS, ScreenCtx};
 use crate::nav::{PageDir, Step};
 use crate::session::NetField;
-use crate::view::Line;
+use crate::view::{GridView, Line};
 use crate::widgets::PagedList;
 
 /// Keypad digit `0..=9` from a character. Non-digits yield `None`.
@@ -20,6 +22,37 @@ pub fn has_loco(cx: &ScreenCtx<'_>) -> bool {
         .slots
         .get(cx.drive.current)
         .is_some_and(longfred_proto::model::ThrottleSlot::has_loco)
+}
+
+/// Next encoder step multiplier (`1 → 2 → 4 → 1`), matching firmware.
+#[must_use]
+pub fn next_speed_multiplier(current: u8) -> u8 {
+    match current {
+        1 => 2,
+        2 => 4,
+        _ => 1,
+    }
+}
+
+/// Predicted throttle count after extras +/- (`1..=MAX_THROTTLES`).
+#[must_use]
+pub fn next_throttle_count(current: usize, plus: bool) -> usize {
+    if plus {
+        current
+            .saturating_add(1)
+            .min(longfred_proto::model::MAX_THROTTLES)
+    } else {
+        current.saturating_sub(1).max(1)
+    }
+}
+
+/// `prefix` plus a small decimal (overlay status lines).
+#[must_use]
+pub fn overlay_prefixed_count(prefix: &str, n: usize) -> heapless::String<64> {
+    let mut s = heapless::String::new();
+    let _ = s.push_str(prefix);
+    let _ = write!(s, "{n}");
+    s
 }
 
 /// OLED height in pixels (paging).
@@ -40,6 +73,13 @@ pub fn page_list(list: &mut PagedList, d: PageDir, items: &[&str], h: u16) {
     match d {
         PageDir::Prev => list.page_prev(items, h),
         PageDir::Next => list.page_next(items, h),
+    }
+}
+
+/// Footer on row 7 of 128×64 lists (128×32 has no spare row).
+pub fn set_list_hint(g: &mut GridView, cx: &ScreenCtx<'_>, hint: &str) {
+    if cx.env.geometry.height > 32 {
+        g.set(7, hint, false);
     }
 }
 
@@ -302,5 +342,21 @@ mod tests {
     fn parse_ip_digits_rejects_out_of_range_octet() {
         assert!(parse_ip_digits("999000000000").is_none());
         assert_eq!(parse_ip_digits("255255255255"), Some([255, 255, 255, 255]));
+    }
+
+    #[test]
+    fn next_speed_multiplier_cycles_1_2_4() {
+        assert_eq!(next_speed_multiplier(1), 2);
+        assert_eq!(next_speed_multiplier(2), 4);
+        assert_eq!(next_speed_multiplier(4), 1);
+        assert_eq!(next_speed_multiplier(0), 1);
+    }
+
+    #[test]
+    fn next_throttle_count_clamps() {
+        assert_eq!(next_throttle_count(2, true), 3);
+        assert_eq!(next_throttle_count(6, true), 6);
+        assert_eq!(next_throttle_count(2, false), 1);
+        assert_eq!(next_throttle_count(1, false), 1);
     }
 }

@@ -32,6 +32,8 @@ pub struct DriveInfo<'a> {
     pub message: Option<&'a str>,
     /// Speed multiplier (`1`, `2`, `4`, …).
     pub speed_multiplier: u8,
+    /// Active throttle slot count (`1..=MAX_THROTTLES`).
+    pub max_throttles: usize,
     /// `WiThrottle` heartbeat enabled.
     pub heartbeat_on: bool,
     /// Drop locos before acquire.

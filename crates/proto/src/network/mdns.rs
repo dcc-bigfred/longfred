@@ -9,6 +9,7 @@ pub const MDNS_MULTICAST_V4: [u8; 4] = [224, 0, 0, 251];
 pub const MDNS_PORT: u16 = 5353;
 
 const TYPE_A: u16 = 1;
+const TYPE_TXT: u16 = 16;
 const TYPE_SRV: u16 = 33;
 
 /// Dotted host / service name, e.g. `JMRI._withrottle._tcp.local`.
@@ -53,6 +54,53 @@ fn be16(pkt: &[u8], off: usize) -> Option<u16> {
     Some(((*pkt.get(off)? as u16) << 8) | (*pkt.get(off + 1)? as u16))
 }
 
+fn first_label(name: &str) -> heapless::String<32> {
+    let mut label = heapless::String::<32>::new();
+    for c in name.split('.').next().unwrap_or("").chars() {
+        let _ = label.push(c);
+    }
+    label
+}
+
+/// `owner` is `{instance}.{service}` (DNS labels are case-insensitive).
+fn is_service_instance(owner: &str, service: &str) -> bool {
+    let Some(split) = owner.len().checked_sub(service.len()) else {
+        return false;
+    };
+    if split < 2 {
+        return false;
+    }
+    if owner.as_bytes().get(split - 1) != Some(&b'.') {
+        return false;
+    }
+    let instance = &owner[..split - 1];
+    let suffix = &owner[split..];
+    !instance.is_empty() && suffix.eq_ignore_ascii_case(service)
+}
+
+/// TXT strings used by BigFred's `microdns` (`layoutId=` + `commandStationId=`).
+fn txt_marks_bigfred(rdata: &[u8]) -> bool {
+    let mut has_layout = false;
+    let mut has_station = false;
+    let mut i = 0usize;
+    while i < rdata.len() {
+        let n = usize::from(rdata[i]);
+        i += 1;
+        if i.saturating_add(n) > rdata.len() {
+            break;
+        }
+        let chunk = &rdata[i..i + n];
+        i += n;
+        if chunk.starts_with(b"layoutId=") {
+            has_layout = true;
+        }
+        if chunk.starts_with(b"commandStationId=") {
+            has_station = true;
+        }
+    }
+    has_layout && has_station
+}
+
 fn read_name(pkt: &[u8], start: usize) -> Option<(Name, usize)> {
     let mut name = Name::new();
     let mut off = start;
@@ -93,9 +141,11 @@ pub fn collect_servers<const N: usize>(
     pkt: &[u8],
     protocol: Protocol,
 ) -> heapless::Vec<WitServer, N> {
+    let service = protocol.caps().mdns_service;
     let mut servers: heapless::Vec<WitServer, N> = heapless::Vec::new();
     let mut addrs: heapless::Vec<(Name, [u8; 4]), N> = heapless::Vec::new();
     let mut srvs: heapless::Vec<(Name, u16, heapless::String<32>), N> = heapless::Vec::new();
+    let mut txt_bigfred: heapless::Vec<heapless::String<32>, N> = heapless::Vec::new();
 
     let qd = match be16(pkt, 4) {
         Some(v) => v,
@@ -135,13 +185,20 @@ pub fn collect_servers<const N: usize>(
 
         match rtype {
             TYPE_SRV => {
-                if let Some(port) = be16(pkt, rdata + 4) {
-                    if let Some((target, _)) = read_name(pkt, rdata + 6) {
-                        let mut label = heapless::String::<32>::new();
-                        for c in owner.split('.').next().unwrap_or("").chars() {
-                            let _ = label.push(c);
-                        }
-                        let _ = srvs.push((target, port, label));
+                if is_service_instance(owner.as_str(), service)
+                    && let Some(port) = be16(pkt, rdata + 4)
+                    && let Some((target, _)) = read_name(pkt, rdata + 6)
+                {
+                    let _ = srvs.push((target, port, first_label(owner.as_str())));
+                }
+            }
+            TYPE_TXT => {
+                if is_service_instance(owner.as_str(), service)
+                    && txt_marks_bigfred(&pkt[rdata..rdata + rdlen])
+                {
+                    let label = first_label(owner.as_str());
+                    if !label.is_empty() {
+                        let _ = txt_bigfred.push(label);
                     }
                 }
             }
@@ -158,11 +215,17 @@ pub fn collect_servers<const N: usize>(
 
     for (target, port, label) in srvs {
         let ipv4 = addrs.iter().find(|(n, _)| *n == target).map(|(_, ip)| *ip);
+        let tagged = if protocol == Protocol::WiThrottle && txt_bigfred.iter().any(|l| l == &label)
+        {
+            Protocol::BigFred
+        } else {
+            protocol
+        };
         let _ = servers.push(WitServer {
             label,
             port,
             ipv4,
-            protocol,
+            protocol: tagged,
         });
     }
     servers

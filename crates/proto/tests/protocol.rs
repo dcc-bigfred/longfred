@@ -27,6 +27,8 @@ fn heartbeat() {
 
 #[test]
 fn speed() {
+    assert_eq!(p::set_speed('T', 0).as_str(), "MTA*<;>V0");
+    assert_eq!(p::set_speed('T', 1).as_str(), "MTA*<;>V2");
     assert_eq!(p::set_speed('T', 63).as_str(), "MTA*<;>V63");
 }
 

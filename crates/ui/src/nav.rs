@@ -1,5 +1,7 @@
 //! Screen identifiers and navigation commands issued by a screen.
 
+use crate::i18n::OVERLAY_TIMEOUT_MS;
+
 /// Logical screen (one object; may contain several internal pages).
 ///
 /// The router reconstructs the corresponding screen type on every navigation.
@@ -87,18 +89,31 @@ pub(crate) enum NavCmd {
     Root(ScreenId),
 }
 
+/// Pending full-screen overlay (orthogonal to [`NavCmd`]).
+#[derive(Clone, Debug)]
+pub(crate) struct OverlayRequest {
+    pub text: heapless::String<64>,
+    pub timeout_ms: u64,
+}
+
 /// Injected navigator: screens change route and emit intents without knowing the router.
 pub struct Nav<'a> {
     cmd: &'a mut Option<NavCmd>,
+    overlay: &'a mut Option<OverlayRequest>,
     intents: &'a mut heapless::Vec<crate::intent::Intent, 4>,
 }
 
 impl<'a> Nav<'a> {
     pub(crate) fn new(
         cmd: &'a mut Option<NavCmd>,
+        overlay: &'a mut Option<OverlayRequest>,
         intents: &'a mut heapless::Vec<crate::intent::Intent, 4>,
     ) -> Self {
-        Self { cmd, intents }
+        Self {
+            cmd,
+            overlay,
+            intents,
+        }
     }
 
     fn set_cmd(&mut self, cmd: NavCmd) {
@@ -124,6 +139,25 @@ impl<'a> Nav<'a> {
     /// Clear the stack and open `id` (typical: throttle after connect).
     pub fn root(&mut self, id: ScreenId) {
         self.set_cmd(NavCmd::Root(id));
+    }
+
+    /// Show a full-screen overlay (default timeout) on top of the destination screen.
+    pub fn overlay(&mut self, text: &str) {
+        self.overlay_for(text, OVERLAY_TIMEOUT_MS);
+    }
+
+    /// Show a full-screen overlay that auto-dismisses after `timeout_ms`.
+    pub fn overlay_for(&mut self, text: &str, timeout_ms: u64) {
+        let mut s = heapless::String::<64>::new();
+        for c in text.chars() {
+            if s.push(c).is_err() {
+                break;
+            }
+        }
+        *self.overlay = Some(OverlayRequest {
+            text: s,
+            timeout_ms,
+        });
     }
 
     /// Queue a side-effect for the firmware interpreter.

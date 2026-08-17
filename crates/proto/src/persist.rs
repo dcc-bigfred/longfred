@@ -1,7 +1,7 @@
 //! NVS persistence record serialization (host-testable).
 
 use crate::caps::LocoSource;
-use crate::command::Protocol;
+use crate::command::{LocoId, Protocol};
 
 pub const MAGIC: u32 = 0x4C46_5031; // "LFP1"
 pub const VERSION: u16 = 5;
@@ -131,6 +131,22 @@ impl StaticRosterEntry {
             self.name.as_str()
         }
     }
+
+    fn dcc_addr(&self) -> u16 {
+        LocoId::parse(self.addr.as_str())
+            .map(|id| id.addr)
+            .unwrap_or(u16::MAX)
+    }
+}
+
+/// Sort static roster entries by DCC address ascending.
+pub fn sort_static_roster_by_dcc_addr(entries: &mut [StaticRosterEntry]) {
+    entries.sort_unstable_by(|a, b| {
+        a.dcc_addr()
+            .cmp(&b.dcc_addr())
+            .then_with(|| a.addr.as_str().cmp(b.addr.as_str()))
+            .then_with(|| a.name.as_str().cmp(b.name.as_str()))
+    });
 }
 
 /// Last command-station endpoint (WiThrottle / Z21).
@@ -482,6 +498,7 @@ impl PersistRecord {
             if stored_crc != crc32(&buf[..off - 4]) {
                 return None;
             }
+            sort_static_roster_by_dcc_addr(&mut rec.static_roster);
             return Some(rec);
         }
 
@@ -491,6 +508,7 @@ impl PersistRecord {
             if off + 4 <= buf.len() {
                 let stored = u32::from_le_bytes(buf[off..off + 4].try_into().ok()?);
                 if stored == crc32(&buf[..off]) {
+                    sort_static_roster_by_dcc_addr(&mut rec.static_roster);
                     return Some(rec);
                 }
             } else {
@@ -949,10 +967,10 @@ mod tests {
         let decoded = PersistRecord::decode(&buf[..n]).unwrap();
         assert_eq!(decoded.roster_mode, RosterMode::Static);
         assert_eq!(decoded.static_roster.len(), 2);
-        assert_eq!(decoded.static_roster[0].addr.as_str(), "L1234");
-        assert_eq!(decoded.static_roster[0].name.as_str(), "Pacific");
-        assert_eq!(decoded.static_roster[1].addr.as_str(), "S99");
-        assert!(decoded.static_roster[1].name.is_empty());
+        assert_eq!(decoded.static_roster[0].addr.as_str(), "S99");
+        assert!(decoded.static_roster[0].name.is_empty());
+        assert_eq!(decoded.static_roster[1].addr.as_str(), "L1234");
+        assert_eq!(decoded.static_roster[1].name.as_str(), "Pacific");
     }
 
     #[test]

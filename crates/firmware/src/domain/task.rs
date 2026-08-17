@@ -17,7 +17,7 @@ use crate::domain::actions::Action;
 use crate::domain::state::{CMD_BUF, DomainState};
 use crate::input;
 use crate::net::pairing_http::{
-    PAIRING_HTTP_CTRL, PAIRING_HTTP_RESULT, PairingHttpRequest, PairingHttpResult,
+    HandsetHttpOp, PAIRING_HTTP_CTRL, PAIRING_HTTP_RESULT, PairingHttpRequest, PairingHttpResult,
 };
 use crate::net::{
     self, CONN, ConnState, DEVICE, FOUND_SERVERS, MDNS_CTRL, NET_CONFIG_CTRL, NetStatus,
@@ -327,24 +327,73 @@ fn on_wifi_wizard(id: ScreenId) -> bool {
     )
 }
 
-fn start_pairing_http(state: &DomainState) -> bool {
+fn has_pairing_creds(state: &DomainState) -> bool {
+    !state.persist.bigfred_login.is_empty() && !state.persist.bigfred_pin.is_empty()
+}
+
+fn start_handset_http(state: &DomainState, op: HandsetHttpOp) -> bool {
     let Some(endpoint) = SERVER.sender().try_get().flatten() else {
         return false;
     };
-    if !endpoint.protocol.caps().supports_pairing()
-        || state.persist.bigfred_login.is_empty()
-        || state.persist.bigfred_pin.is_empty()
-    {
+    if !endpoint.protocol.caps().supports_pairing() || !has_pairing_creds(state) {
         return false;
     }
     PAIRING_HTTP_CTRL
         .try_send(PairingHttpRequest {
+            op,
             endpoint,
             login: state.persist.bigfred_login.clone(),
             pin: state.persist.bigfred_pin.clone(),
             device_id: state.persist.device.id_wire(),
         })
         .is_ok()
+}
+
+fn start_pairing_http(state: &DomainState) -> bool {
+    start_handset_http(state, HandsetHttpOp::Pair)
+}
+
+fn start_session_http(state: &DomainState) -> bool {
+    start_handset_http(state, HandsetHttpOp::Session)
+}
+
+fn show_pairing_overlay(ui: &mut adapter::UiWorld) {
+    ui.state.show_message_for(
+        adapter::strings_for(&ui.state).msg_pairing,
+        longfred_ui::i18n::PAIRING_OVERLAY_TIMEOUT_MS,
+    );
+}
+
+enum PairingStart {
+    Busy,
+    Overlay,
+    CodeDialog,
+}
+
+fn begin_pairing_flow(
+    state: &DomainState,
+    pairing_active: &mut bool,
+    pairing_http_tried: &mut bool,
+    pairing_user_initiated: &mut bool,
+    out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+) -> PairingStart {
+    if *pairing_active {
+        return PairingStart::Busy;
+    }
+    *pairing_user_initiated = false;
+    if !state.persist.bigfred_pairing_code.is_empty() {
+        *pairing_active = true;
+        let code = state.persist.bigfred_pairing_code.clone();
+        let _ = out.push(ClientCommand::Pair { code });
+        return PairingStart::Overlay;
+    }
+    if !*pairing_http_tried && start_pairing_http(state) {
+        *pairing_active = true;
+        *pairing_http_tried = true;
+        return PairingStart::Overlay;
+    }
+    *pairing_active = true;
+    PairingStart::CodeDialog
 }
 
 #[embassy_executor::task]
@@ -367,6 +416,8 @@ pub async fn task() {
     let mut spdt_direction = Direction::Forward;
     let mut pairing_active = false;
     let mut pairing_http_tried = false;
+    let mut pairing_user_initiated = false;
+    let mut handset_session_paired = false;
 
     let mut net_rx = STATE.receiver();
     let mut conn_rx = CONN.receiver();
@@ -501,6 +552,10 @@ pub async fn task() {
                     let wifi_after_lang =
                         intents.iter().any(|i| matches!(i, Intent::SetLanguage(_)))
                             && screen_after == ScreenId::Language;
+                    if intents.iter().any(|i| matches!(i, Intent::Pair(_))) {
+                        pairing_active = true;
+                        pairing_user_initiated = true;
+                    }
                     run_intents(
                         &mut ui,
                         intents,
@@ -549,45 +604,82 @@ pub async fn task() {
             Either3::Second(sev) => {
                 out.clear();
                 let app_event = match &sev {
-                    longfred_proto::ServerEvent::PairingRequired if pairing_active => None,
-                    longfred_proto::ServerEvent::PairingRequired
-                        if !ui.state.persist.bigfred_pairing_code.is_empty() =>
-                    {
-                        pairing_active = true;
-                        let code = ui.state.persist.bigfred_pairing_code.clone();
-                        let _ = out.push(ClientCommand::Pair { code });
-                        Some(AppEvent::PairingStarted)
+                    longfred_proto::ServerEvent::Alert(text) if text.as_str() == "Not paired" => {
+                        handset_session_paired = false;
+                        match begin_pairing_flow(
+                            &ui.state,
+                            &mut pairing_active,
+                            &mut pairing_http_tried,
+                            &mut pairing_user_initiated,
+                            &mut out,
+                        ) {
+                            PairingStart::Busy => None,
+                            PairingStart::Overlay => {
+                                show_pairing_overlay(&mut ui);
+                                None
+                            }
+                            PairingStart::CodeDialog => Some(AppEvent::PairingRequired),
+                        }
                     }
                     longfred_proto::ServerEvent::PairingRequired
-                        if !pairing_http_tried && start_pairing_http(&ui.state) =>
+                        if pairing_active || handset_session_paired =>
                     {
-                        pairing_active = true;
-                        pairing_http_tried = true;
-                        Some(AppEvent::PairingStarted)
+                        None
                     }
                     longfred_proto::ServerEvent::PairingRequired => {
-                        pairing_active = true;
-                        Some(AppEvent::PairingRequired)
+                        match begin_pairing_flow(
+                            &ui.state,
+                            &mut pairing_active,
+                            &mut pairing_http_tried,
+                            &mut pairing_user_initiated,
+                            &mut out,
+                        ) {
+                            PairingStart::Busy => None,
+                            PairingStart::Overlay => {
+                                show_pairing_overlay(&mut ui);
+                                None
+                            }
+                            PairingStart::CodeDialog => Some(AppEvent::PairingRequired),
+                        }
                     }
                     longfred_proto::ServerEvent::PairingSucceeded(_) => {
                         pairing_active = false;
                         pairing_http_tried = false;
-                        ui.state.persist.bigfred_pairing_code.clear();
-                        let _ = storage_tx
-                            .try_send(StorageCmd::SavePairingCode(heapless::String::new()));
-                        Some(AppEvent::PairingSucceeded)
+                        handset_session_paired = true;
+                        ui.router.dismiss_overlay();
+                        ui.state.reacquire_session_locos(&mut out);
+                        restored_this_session = true;
+                        let app_event =
+                            pairing_user_initiated.then_some(AppEvent::PairingSucceeded);
+                        pairing_user_initiated = false;
+                        app_event
                     }
                     longfred_proto::ServerEvent::PairingFailed => {
+                        handset_session_paired = false;
                         ui.state.persist.bigfred_pairing_code.clear();
                         let _ = storage_tx
                             .try_send(StorageCmd::SavePairingCode(heapless::String::new()));
-                        if !pairing_http_tried && start_pairing_http(&ui.state) {
-                            pairing_active = true;
-                            pairing_http_tried = true;
-                            Some(AppEvent::PairingStarted)
+                        if has_pairing_creds(&ui.state) {
+                            if !pairing_http_tried && start_pairing_http(&ui.state) {
+                                pairing_active = true;
+                                pairing_http_tried = true;
+                                show_pairing_overlay(&mut ui);
+                                None
+                            } else {
+                                pairing_active = false;
+                                pairing_http_tried = false;
+                                pairing_user_initiated = false;
+                                None
+                            }
                         } else {
                             pairing_active = true;
-                            Some(AppEvent::PairingFailed)
+                            let app_event = if pairing_user_initiated {
+                                AppEvent::PairingFailed
+                            } else {
+                                AppEvent::PairingRequired
+                            };
+                            pairing_user_initiated = false;
+                            Some(app_event)
                         }
                     }
                     _ => None,
@@ -801,15 +893,22 @@ pub async fn task() {
                         persist_last_server(&storage_tx, &mut ui.state, ep);
                         ui.state.ensure_session(ep.protocol.caps());
                     }
-                    if !restored_this_session {
+                    let defer_reacquire = SERVER.sender().try_get().flatten().is_some_and(|ep| {
+                        ep.protocol.caps().supports_pairing() && has_pairing_creds(&ui.state)
+                    });
+                    if defer_reacquire && start_session_http(&ui.state) {
+                        pairing_active = true;
+                    } else if !restored_this_session {
                         out.clear();
-                        ui.state.restore_locos(&mut out);
+                        ui.state.reacquire_session_locos(&mut out);
                         restored_this_session = true;
                     }
                 } else if w == ConnState::Disconnected {
                     ui.state.end_session();
                     pairing_active = false;
                     pairing_http_tried = false;
+                    pairing_user_initiated = false;
+                    handset_session_paired = false;
                     restored_this_session = false;
                 }
             }
@@ -855,32 +954,70 @@ pub async fn task() {
         if let Ok(result) = pairing_http_rx.try_receive() {
             let endpoint = match &result {
                 PairingHttpResult::Code { endpoint, .. }
-                | PairingHttpResult::Failed { endpoint } => *endpoint,
+                | PairingHttpResult::Session { endpoint, .. }
+                | PairingHttpResult::Failed { endpoint, .. } => *endpoint,
             };
             let still_current = CONN.sender().try_get() == Some(ConnState::Connected)
                 && SERVER.sender().try_get().flatten() == Some(endpoint);
             if still_current {
-                let event = match result {
+                let app_event = match result {
                     PairingHttpResult::Code { code, .. } => {
                         ui.state.persist.bigfred_pairing_code = code.clone();
                         let _ = storage_tx.try_send(StorageCmd::SavePairingCode(code.clone()));
                         let _ = out.push(ClientCommand::Pair { code });
-                        AppEvent::PairingStarted
+                        show_pairing_overlay(&mut ui);
+                        None
                     }
-                    PairingHttpResult::Failed { .. } => AppEvent::PairingRequired,
+                    PairingHttpResult::Session { paired: true, .. } => {
+                        pairing_active = false;
+                        pairing_http_tried = false;
+                        handset_session_paired = true;
+                        ui.router.dismiss_overlay();
+                        if !restored_this_session {
+                            ui.state.reacquire_session_locos(&mut out);
+                            restored_this_session = true;
+                        }
+                        None
+                    }
+                    PairingHttpResult::Session { paired: false, .. } => {
+                        handset_session_paired = false;
+                        pairing_http_tried = false;
+                        if start_pairing_http(&ui.state) {
+                            pairing_active = true;
+                            pairing_http_tried = true;
+                            show_pairing_overlay(&mut ui);
+                        } else {
+                            pairing_active = false;
+                        }
+                        None
+                    }
+                    PairingHttpResult::Failed { error, .. } => {
+                        pairing_active = false;
+                        pairing_http_tried = false;
+                        if !error.is_empty() {
+                            ui.state.show_message(error.as_str());
+                        }
+                        if has_pairing_creds(&ui.state) {
+                            None
+                        } else {
+                            Some(AppEvent::PairingRequired)
+                        }
+                    }
                 };
-                let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
-                    router.on_app_event(event, cx)
-                });
-                run_intents(
-                    &mut ui,
-                    follow,
-                    spdt_direction,
-                    &mut out,
-                    &wifi_tx,
-                    &srv_tx,
-                    &storage_tx,
-                );
+                if let Some(event) = app_event {
+                    let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                        router.on_app_event(event, cx)
+                    });
+                    run_intents(
+                        &mut ui,
+                        follow,
+                        spdt_direction,
+                        &mut out,
+                        &wifi_tx,
+                        &srv_tx,
+                        &storage_tx,
+                    );
+                }
             }
         }
 
@@ -901,6 +1038,7 @@ pub async fn task() {
 
         ui.state.flush_pending_speed(&mut out);
 
+        ui.apply_pending_overlay(Instant::now().as_millis());
         ui.publish_view(Instant::now().as_millis(), &ui_tx);
 
         flush_cmds(&cmd_tx, &mut out, &mut last_cmd).await;

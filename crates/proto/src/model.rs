@@ -110,6 +110,8 @@ pub struct RosterEntry {
 pub struct ThrottleSlot {
     pub speed: u8,
     pub direction: Direction,
+    /// Display name of the lead locomotive, when selected from a named roster.
+    pub name: ShortText,
     /// Per-loco "facing" direction in the consist (parallel to `consist`).
     pub facing: heapless::Vec<Direction, MAX_LOCOS>,
     pub functions: [bool; MAX_FUNCTIONS],
@@ -125,6 +127,7 @@ impl ThrottleSlot {
         Self {
             speed: 0,
             direction: Direction::Forward,
+            name: ShortText::new(),
             facing: heapless::Vec::new(),
             functions: [false; MAX_FUNCTIONS],
             labels: core::array::from_fn(|_| ShortText::new()),
@@ -140,5 +143,15 @@ impl ThrottleSlot {
 
     pub fn has_loco(&self) -> bool {
         !self.consist.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ThrottleSlot;
+
+    #[test]
+    fn new_throttle_slot_has_no_loco_name() {
+        assert!(ThrottleSlot::new(4).name.is_empty());
     }
 }

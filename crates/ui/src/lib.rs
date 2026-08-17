@@ -31,4 +31,4 @@ pub use nav_profile::{LongFredNav, MarkwtechNav, NavAction, NavProfile};
 pub use router::Router;
 pub use screen::{InputMode, KeyBindings, Screen};
 pub use session::{BatteryMode, NetField, UiSession};
-pub use view::{GridView, ThrottleView, UiView};
+pub use view::{GridView, OverlayView, ThrottleView, UiView};

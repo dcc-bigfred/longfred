@@ -106,7 +106,10 @@ fn parse_loco_action(throttle: char, s: &str, emit: &mut impl FnMut(ServerEvent)
     match k {
         'V' => {
             if let Ok(speed) = act[1..].parse::<u8>() {
-                emit(ServerEvent::Speed { throttle, speed });
+                emit(ServerEvent::Speed {
+                    throttle,
+                    speed: if speed <= 1 { 0 } else { speed },
+                });
             }
         }
         'R' => {

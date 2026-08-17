@@ -54,6 +54,16 @@ pub trait Screen {
         nav.back();
     }
 
+    /// Physical Stop off the drive HUD. Default cancels.
+    fn on_stop(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        self.on_cancel(cx, nav);
+    }
+
+    /// Keypad `*` in navigation mode. Default cancels.
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        self.on_cancel(cx, nav);
+    }
+
     /// Keypad digit (and `0` = tenth numbered row).
     fn on_digit(&mut self, _c: char, _cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {}
 

@@ -49,6 +49,10 @@ impl BigFredAdapter {
         self.inner.on_connect(out, emit);
     }
 
+    pub fn on_disconnect(&mut self, out: &mut WireBuf) {
+        self.inner.on_disconnect(out);
+    }
+
     pub fn encode(
         &mut self,
         cmd: &ClientCommand,
@@ -84,26 +88,21 @@ impl BigFredAdapter {
     }
 
     pub fn decode(&mut self, data: &[u8], emit: &mut dyn FnMut(ServerEvent)) {
-        let mut events = heapless::Vec::<ServerEvent, 16>::new();
-        self.inner.decode(data, &mut |event| {
-            let _ = events.push(event);
-        });
-        for event in events {
-            match &event {
-                ServerEvent::RosterEntry { name, .. } if name.as_str() == PAIRING_SENTINEL_NAME => {
-                    emit(event);
-                    emit(ServerEvent::PairingRequired);
-                }
-                ServerEvent::Message(message) if message.as_str().starts_with("Paired as ") => {
-                    self.pairing = PairState::ReleaseSentinel;
-                    let mut user = ShortText::new();
-                    let _ = user.push_str(message.as_str().trim_start_matches("Paired as "));
-                    emit(event);
-                    emit(ServerEvent::PairingSucceeded(user));
-                }
-                _ => emit(event),
+        let pairing = &mut self.pairing;
+        self.inner.decode(data, &mut |event| match &event {
+            ServerEvent::RosterEntry { name, .. } if name.as_str() == PAIRING_SENTINEL_NAME => {
+                emit(event);
+                emit(ServerEvent::PairingRequired);
             }
-        }
+            ServerEvent::Message(message) if message.as_str().starts_with("Paired as ") => {
+                *pairing = PairState::ReleaseSentinel;
+                let mut user = ShortText::new();
+                let _ = user.push_str(message.as_str().trim_start_matches("Paired as "));
+                emit(event);
+                emit(ServerEvent::PairingSucceeded(user));
+            }
+            _ => emit(event),
+        });
     }
 
     /// Advance one momentary function edge or pairing timeout tick.
@@ -122,16 +121,7 @@ impl BigFredAdapter {
                     return false;
                 };
                 let on = *step % 2 == 0;
-                self.inner.encode(
-                    &ClientCommand::SetFunction {
-                        throttle: 0,
-                        func: digit,
-                        on,
-                        all: true,
-                    },
-                    out,
-                    emit,
-                );
+                self.inner.encode_function(0, digit, on, false, out);
                 *step += 1;
                 if usize::from(*step) == PAIRING_CODE_LEN * 2 {
                     next = Some(PairState::AwaitingResult { ticks: 0 });
@@ -173,6 +163,8 @@ impl BigFredAdapter {
 
 #[cfg(test)]
 mod tests {
+    use core::fmt::Write as _;
+
     use super::*;
 
     fn adapter() -> BigFredAdapter {
@@ -199,6 +191,20 @@ mod tests {
                     .is_ok_and(|s| s.contains(marker) && s.ends_with(suffix.as_str()))
             );
         }
+    }
+
+    #[test]
+    fn decode_does_not_truncate_multi_event_roster_line() {
+        let mut adapter = adapter();
+        let mut wire = heapless::String::<256>::new();
+        let _ = wire.push_str("RL17");
+        for address in 1..=17 {
+            let _ = write!(wire, "]\\[A}}|{{{address}}}|{{S");
+        }
+        let _ = wire.push('\n');
+        let mut events = 0usize;
+        adapter.decode(wire.as_bytes(), &mut |_| events += 1);
+        assert_eq!(events, 18);
     }
 
     fn format_func(func: u8) -> heapless::String<4> {

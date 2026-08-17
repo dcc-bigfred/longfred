@@ -191,6 +191,14 @@ impl Screen for ScreenState {
         dispatch_screen!(self, on_cancel, cx, nav);
     }
 
+    fn on_stop(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        dispatch_screen!(self, on_stop, cx, nav);
+    }
+
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        dispatch_screen!(self, on_star, cx, nav);
+    }
+
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         dispatch_screen!(self, on_digit, c, cx, nav);
     }

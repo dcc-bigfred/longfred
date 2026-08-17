@@ -41,6 +41,34 @@ historical designs in [`docs/plans/`](docs/plans/).
    and integration tests on `x86_64-unknown-linux-gnu`. Firmware is
    `cargo check` / clippy on `riscv32imac-unknown-none-elf`.
 
+### Reliability (connection and pairing)
+
+The throttle fights to stay driving. Manual pairing is a last resort.
+
+1. **Stay connected.** TCP keepalive (`TCP_KEEPALIVE_S`) and a 15 s
+   socket timeout detect dead links. WiThrottle reconnect uses bounded
+   backoff (`RECONNECT_MIN_MS` … `RECONNECT_MAX_MS`). After a transport
+   reconnect the domain reacquires session locos
+   (`RESTORE_ACQUIRED_LOCOS`) so speed/functions resume without a roster
+   pick.
+2. **Re-pair automatically.** `HMNot paired` is a pairing signal, not an
+   error overlay. Drive on a non-sentinel DCC address while unpaired
+   starts the same flow. With login+PIN in NVS the handset auto-pairs
+   (HTTP + function digits) and shows overlay `Pairing...`. The pairing
+   code dialog opens only when those credentials are missing.
+3. **Long paired sessions.** BigFred keeps each handset session for
+   ~3 days of idle time (`RemoteStickySessionIdle`), refreshed on
+   activity (`TouchSeen`). On connect, firmware calls
+   `POST /api/v1/remotes/handset-session` so an unexpired session skips
+   pairing. `POST /api/v1/remotes/handset-pairing` runs only when the
+   session is gone.
+4. **Sticky credentials.** NVS login, PIN, and last pairing code survive
+   reconnect, `PairingFailed`, and HTTP errors. Firmware never clears
+   login/PIN except when the operator changes them in provisioning.
+5. **Minimise drive interruptions.** Auto-pair uses an overlay on the
+   current screen (not `PairingWait`). After pairing succeeds, the
+   domain retries acquire of the locos already on the throttle.
+
 ---
 
 ## 2. High-level architecture
@@ -225,8 +253,9 @@ only the NVS/wire identity (`as_u8` / `from_u8`). Accessors
 
 `BigFredAdapter` owns a `WtAdapter` and a pairing FSM (sentinel loco +
 momentary function digits). Drive traffic is WiThrottle; pairing is
-extra. Firmware pairing HTTP (`POST /api/v1/remotes/handset-pairing`)
-runs in its own task so the session loop stays live.
+extra. Firmware handset HTTP (`POST /api/v1/remotes/handset-session`
+and `POST /api/v1/remotes/handset-pairing`) runs in its own task so
+the session loop stays live.
 
 **Locomotive catalogues.** `LocoSource` is `ServerRoster`,
 `StaticRoster`, or `AddressOnly`. `RosterMode` (`Auto` / `Static` /

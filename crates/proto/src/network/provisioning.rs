@@ -392,6 +392,7 @@ pub fn apply_settings_put(
                 return Err(ApplyError::RosterFull);
             }
         }
+        crate::persist::sort_static_roster_by_dcc_addr(&mut rec.static_roster);
     }
 
     Ok(())
@@ -475,10 +476,10 @@ mod tests {
         assert!(apply_settings_put(&mut rec, &put).is_ok());
         assert_eq!(rec.roster_mode, RosterMode::Static);
         assert_eq!(rec.static_roster.len(), 2);
-        assert_eq!(rec.static_roster[0].addr.as_str(), "S42");
-        assert_eq!(rec.static_roster[0].name.as_str(), "Switch");
-        assert_eq!(rec.static_roster[1].addr.as_str(), "L7");
-        assert!(rec.static_roster[1].name.is_empty());
+        assert_eq!(rec.static_roster[0].addr.as_str(), "L7");
+        assert!(rec.static_roster[0].name.is_empty());
+        assert_eq!(rec.static_roster[1].addr.as_str(), "S42");
+        assert_eq!(rec.static_roster[1].name.as_str(), "Switch");
         assert_eq!(rec.bigfred_login.as_str(), "ops");
         assert_eq!(rec.bigfred_pin.as_str(), "1234");
     }

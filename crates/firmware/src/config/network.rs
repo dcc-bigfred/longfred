@@ -30,7 +30,7 @@ pub const DOMAIN_TICK_MS: u64 = 50;
 // --- TCP (latency + dead-connection detection) ---
 pub const TCP_NODELAY: bool = true;
 pub const TCP_KEEPALIVE_S: u64 = 5;
-pub const TCP_TIMEOUT_S: u64 = 8;
+pub const TCP_TIMEOUT_S: u64 = 15;
 
 // --- WiThrottle reconnect backoff ---
 pub const RECONNECT_MIN_MS: u64 = 500;

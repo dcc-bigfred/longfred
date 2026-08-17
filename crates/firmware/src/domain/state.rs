@@ -1,13 +1,17 @@
 //! Domain state plus reduction of server events and menu intents.
 
 use embassy_time::{Duration, Instant};
-use log::warn;
+use log::{info, warn};
 use longfred_proto::caps::{LocoSource, LocoSourceMask, ProtocolCaps};
-use longfred_proto::catalog::{self, Catalog, LocoCatalog, neighbour_index, resolve_effective};
+use longfred_proto::catalog::{
+    self, Catalog, LocoCatalog, neighbour_index, resolve_effective, roster_loco_id,
+};
 use longfred_proto::command::{ClientCommand, LocoId};
 use longfred_proto::events::ServerEvent;
 use longfred_proto::model::{Direction, LocoAddr, LongText, ShortText, TrackPower};
-use longfred_proto::persist::{MAX_SAVED_LOCOS, PersistRecord, SavedLoco};
+use longfred_proto::persist::{
+    MAX_SAVED_LOCOS, PersistRecord, SavedLoco, sort_static_roster_by_dcc_addr,
+};
 
 use crate::config::{self, buttons, network, sizes};
 use crate::domain::actions::Action;
@@ -29,6 +33,7 @@ pub struct DomainState {
     pub roster: heapless::Vec<RosterEntry, { sizes::MAX_ROSTER }>,
     pub roster_count: u16,
     message: Option<(LongText, Instant)>,
+    overlay_pending: Option<(LongText, u64)>,
     pub heartbeat_on: bool,
     pub drop_before_acquire: bool,
     pub persist: PersistRecord,
@@ -56,6 +61,7 @@ impl DomainState {
             roster: heapless::Vec::new(),
             roster_count: 0,
             message: None,
+            overlay_pending: None,
             heartbeat_on: buttons::HEARTBEAT_ENABLED,
             drop_before_acquire: buttons::DROP_BEFORE_ACQUIRE,
             persist: PersistRecord::default(),
@@ -191,6 +197,15 @@ impl DomainState {
         let Some(loco_id) = parse_acquire_addr(digits) else {
             return false;
         };
+        self.acquire_loco(loco_id, ShortText::new(), out)
+    }
+
+    fn acquire_loco(
+        &mut self,
+        loco: LocoId,
+        name: ShortText,
+        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    ) -> bool {
         if self.drop_before_acquire {
             push_cmd(
                 out,
@@ -200,14 +215,41 @@ impl DomainState {
             );
             self.clear_consist(self.current);
         }
-        let loco_str = loco_id.to_wire();
-        let mut name = ShortText::new();
-        let _ = name.push_str(loco_str.as_str());
+        let current = self.current;
+        let addr = loco.to_wire();
+        let slot = self.current_slot_mut();
+        let was_empty = slot.consist.is_empty();
+        if !slot
+            .consist
+            .iter()
+            .any(|known| known.as_str() == addr.as_str())
+        {
+            let mut loco_addr = LocoAddr::new();
+            let _ = loco_addr.push_str(addr.as_str());
+            if slot.consist.push(loco_addr).is_err() {
+                warn!("consist full on throttle {}", current);
+                return false;
+            }
+            if slot.facing.push(Direction::Forward).is_err() {
+                let _ = slot.consist.pop();
+                warn!("consist facing full on throttle {}", current);
+                return false;
+            }
+        }
+        if was_empty
+            || slot
+                .consist
+                .first()
+                .is_some_and(|lead| lead.as_str() == addr.as_str())
+        {
+            slot.name = name.clone();
+        }
+        info!("acquire throttle {} loco {}", current, addr.as_str());
         push_cmd(
             out,
             ClientCommand::AddLoco {
-                throttle: self.current as u8,
-                loco: loco_id,
+                throttle: current as u8,
+                loco,
                 name,
             },
         );
@@ -220,11 +262,18 @@ impl DomainState {
         out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
     ) -> bool {
         let Some(entry) = self.roster.get(index) else {
+            warn!("roster acquire failed: index {} is out of range", index);
             return false;
         };
-        let mut digits = heapless::String::<8>::new();
-        let _ = write_roster_addr(entry.address, entry.length, &mut digits);
-        let ok = self.acquire_addr(digits.as_str(), out);
+        let Some(loco) = roster_loco_id(entry.address, entry.length) else {
+            warn!(
+                "roster acquire failed: invalid address {}{}",
+                entry.address, entry.length
+            );
+            return false;
+        };
+        let name = entry.name.clone();
+        let ok = self.acquire_loco(loco, name, out);
         if ok {
             self.current_slot_mut().list_idx = Some(index);
         }
@@ -328,13 +377,35 @@ impl DomainState {
     }
 
     pub fn show_message(&mut self, text: &str) {
+        self.show_message_for(text, longfred_ui::i18n::OVERLAY_TIMEOUT_MS);
+    }
+
+    pub fn show_message_for(&mut self, text: &str, timeout_ms: u64) {
         let mut msg = LongText::new();
-        let _ = msg.push_str(text);
-        self.message = Some((msg, Instant::now()));
+        for c in text.chars() {
+            if msg.push(c).is_err() {
+                break;
+            }
+        }
+        self.queue_overlay_for(msg, timeout_ms);
+    }
+
+    pub fn take_overlay(&mut self) -> Option<(LongText, u64)> {
+        self.overlay_pending.take()
+    }
+
+    fn queue_overlay(&mut self, text: LongText) {
+        self.queue_overlay_for(text, longfred_ui::i18n::OVERLAY_TIMEOUT_MS);
+    }
+
+    fn queue_overlay_for(&mut self, text: LongText, timeout_ms: u64) {
+        self.message = Some((text.clone(), Instant::now()));
+        self.overlay_pending = Some((text, timeout_ms));
     }
 
     pub fn load_persist(&mut self, rec: PersistRecord) {
         self.persist = rec;
+        sort_static_roster_by_dcc_addr(&mut self.persist.static_roster);
         self.refresh_effective_source();
     }
 
@@ -344,8 +415,6 @@ impl DomainState {
             return;
         }
         self.session_caps = Some(caps);
-        self.roster.clear();
-        self.roster_count = 0;
         let pref = self.persist.roster_mode.as_source();
         let wait = pref == LocoSource::ServerRoster && caps.supports_source(pref);
         self.roster_settled = !wait;
@@ -354,17 +423,13 @@ impl DomainState {
         self.refresh_effective_source();
     }
 
-    /// Drop session caps; preference stays in NVS.
+    /// Drop session caps while retaining the last live roster during reconnect.
     pub fn end_session(&mut self) {
-        if self.session_caps.is_none() && self.roster_settled {
+        if self.session_caps.is_none() {
             return;
         }
         self.session_caps = None;
-        self.roster.clear();
-        self.roster_count = 0;
-        self.roster_settled = true;
         self.roster_wait_until = None;
-        self.refresh_effective_source();
     }
 
     pub fn poll_roster_timeout(&mut self, now: Instant) {
@@ -373,6 +438,7 @@ impl DomainState {
         {
             self.roster_settled = true;
             self.roster_wait_until = None;
+            catalog::sort_roster_by_dcc_addr(&mut self.roster);
             self.refresh_effective_source();
         }
     }
@@ -444,7 +510,7 @@ impl DomainState {
                 push_cmd(
                     out,
                     ClientCommand::AddLoco {
-                        throttle: loco.throttle,
+                        throttle: idx as u8,
                         loco: loco_id,
                         name,
                     },
@@ -454,15 +520,79 @@ impl DomainState {
         self.current = 0;
     }
 
+    /// Recreate the live MultiThrottle state after a transport reconnect.
+    pub fn reacquire_session_locos(&mut self, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) {
+        if !network::RESTORE_ACQUIRED_LOCOS {
+            return;
+        }
+        if !self
+            .throttles
+            .iter()
+            .take(self.max_throttles)
+            .any(ThrottleSlot::has_loco)
+        {
+            self.restore_locos(out);
+            return;
+        }
+        for (throttle, slot) in self.throttles.iter().enumerate().take(self.max_throttles) {
+            if slot.consist.is_empty() {
+                continue;
+            }
+            info!(
+                "reacquire throttle {} locos={} speed={}",
+                throttle,
+                slot.consist.len(),
+                slot.speed
+            );
+            for addr in &slot.consist {
+                let Some(loco) = LocoId::parse(addr.as_str()) else {
+                    warn!(
+                        "reacquire skipped invalid address {} on throttle {}",
+                        addr.as_str(),
+                        throttle
+                    );
+                    continue;
+                };
+                let mut name = ShortText::new();
+                let _ = name.push_str(addr.as_str());
+                push_cmd(
+                    out,
+                    ClientCommand::AddLoco {
+                        throttle: throttle as u8,
+                        loco,
+                        name,
+                    },
+                );
+            }
+            push_cmd(
+                out,
+                ClientCommand::SetDirection {
+                    throttle: throttle as u8,
+                    loco: None,
+                    dir: slot.direction,
+                },
+            );
+            push_cmd(
+                out,
+                ClientCommand::SetSpeed {
+                    throttle: throttle as u8,
+                    speed: slot.speed,
+                },
+            );
+        }
+    }
+
     pub fn apply_event(
         &mut self,
         ev: ServerEvent,
         out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
     ) -> bool {
         match ev {
-            ServerEvent::AddressAdded { throttle, addr, .. } => {
-                self.on_address_added(throttle, addr)
-            }
+            ServerEvent::AddressAdded {
+                throttle,
+                addr,
+                entry,
+            } => self.on_address_added(throttle, addr, entry),
             ServerEvent::AddressRemoved { throttle, addr, .. } => {
                 self.on_address_removed(throttle, addr)
             }
@@ -532,15 +662,15 @@ impl DomainState {
         if s == "Connected" || s.starts_with("Connecting") {
             return false;
         }
-        self.message = Some((text, Instant::now()));
+        self.queue_overlay(text);
         true
     }
 
     fn on_alert(&mut self, text: LongText) -> bool {
-        if text.as_str().contains("steal") {
+        if text.as_str() == "Not paired" || text.as_str().contains("steal") {
             return false;
         }
-        self.message = Some((text, Instant::now()));
+        self.queue_overlay(text);
         true
     }
 
@@ -561,20 +691,51 @@ impl DomainState {
         let slot = &mut self.throttles[index];
         slot.consist.clear();
         slot.facing.clear();
+        slot.name.clear();
         slot.functions = [false; config::sizes::MAX_FUNCTIONS];
     }
 
-    fn on_address_added(&mut self, throttle: char, addr: LocoAddr) -> bool {
+    fn on_address_added(&mut self, throttle: char, addr: LocoAddr, entry: LongText) -> bool {
         let Some(idx) = throttle_index(throttle) else {
             return false;
         };
+        let name = self.name_for_address(&addr, entry.as_str());
         let slot = &mut self.throttles[idx];
+        if slot.consist.iter().any(|known| known == &addr) {
+            if slot.name.is_empty()
+                && slot.consist.first().is_some_and(|lead| lead == &addr)
+                && !name.is_empty()
+            {
+                slot.name = name;
+                return true;
+            }
+            return false;
+        }
+        let was_empty = slot.consist.is_empty();
         if slot.consist.push(addr).is_err() {
             warn!("consist full on throttle {}", throttle);
             return false;
         }
         let _ = slot.facing.push(Direction::Forward);
+        if was_empty {
+            slot.name = name;
+        }
         true
+    }
+
+    fn name_for_address(&self, addr: &LocoAddr, event_entry: &str) -> ShortText {
+        let mut name = ShortText::new();
+        if !event_entry.is_empty() && event_entry != addr.as_str() {
+            let _ = name.push_str(event_entry);
+            return name;
+        }
+        if let Some(entry) = self.roster.iter().find(|entry| {
+            roster_loco_id(entry.address, entry.length)
+                .is_some_and(|loco| loco.to_wire().as_str() == addr.as_str())
+        }) {
+            let _ = name.push_str(entry.name.as_str());
+        }
+        name
     }
 
     fn on_address_removed(&mut self, throttle: char, addr: LocoAddr) -> bool {
@@ -591,6 +752,9 @@ impl DomainState {
             slot.consist.remove(pos);
             if pos < slot.facing.len() {
                 slot.facing.remove(pos);
+            }
+            if pos == 0 {
+                slot.name.clear();
             }
             if slot.consist.is_empty() {
                 slot.speed = 0;
@@ -681,6 +845,9 @@ impl DomainState {
             self.roster[index as usize] = entry;
         } else if self.roster.push(entry).is_err() {
             warn!("roster full");
+        }
+        if self.roster.len() as u16 == self.roster_count {
+            catalog::sort_roster_by_dcc_addr(&mut self.roster);
         }
         true
     }
@@ -946,29 +1113,6 @@ fn build_loco_addr(digits: &str) -> Option<LocoAddr> {
     }
     let _ = s.push_str(digits);
     Some(s)
-}
-
-fn write_roster_addr(address: i32, length: char, out: &mut heapless::String<8>) -> Result<(), ()> {
-    let mut buf = heapless::String::<8>::new();
-    let abs = address.unsigned_abs();
-    if abs >= 10000 {
-        return Err(());
-    }
-    if abs >= 1000 {
-        let _ = buf.push((b'0' + (abs / 1000) as u8) as char);
-    }
-    if abs >= 100 {
-        let _ = buf.push((b'0' + ((abs / 100) % 10) as u8) as char);
-    }
-    if abs >= 10 {
-        let _ = buf.push((b'0' + ((abs / 10) % 10) as u8) as char);
-    }
-    let _ = buf.push((b'0' + (abs % 10) as u8) as char);
-    let _ = out.push_str(buf.as_str());
-    if length != 'S' && length != 's' {
-        let _ = out.push(length);
-    }
-    Ok(())
 }
 
 fn push_cmd(out: &mut heapless::Vec<ClientCommand, CMD_BUF>, cmd: ClientCommand) {

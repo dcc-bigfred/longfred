@@ -40,9 +40,13 @@ impl WtAdapter {
     }
 
     pub fn on_connect(&mut self, out: &mut WireBuf, _emit: &mut dyn FnMut(ServerEvent)) {
-        self.push_line(out, &protocol::handshake_name(self.name.as_str()));
         self.push_line(out, &protocol::handshake_id(self.id.as_str()));
+        self.push_line(out, &protocol::handshake_name(self.name.as_str()));
         self.push_line(out, &protocol::heartbeat_enable(self.heartbeat_enabled));
+    }
+
+    pub fn on_disconnect(&mut self, out: &mut WireBuf) {
+        self.push_line(out, &protocol::quit());
     }
 
     pub fn encode(
@@ -89,10 +93,7 @@ impl WtAdapter {
             ClientCommand::SetFunction {
                 throttle, func, on, ..
             } => {
-                self.push_line(
-                    out,
-                    &protocol::set_function(throttle_char_u8(*throttle), "*", *func, *on, false),
-                );
+                self.encode_function(*throttle, *func, *on, true, out);
             }
             ClientCommand::TrackPower(on) => {
                 self.push_line(out, &protocol::track_power(*on));
@@ -136,6 +137,20 @@ impl WtAdapter {
         true
     }
 
+    pub(crate) fn encode_function(
+        &mut self,
+        throttle: u8,
+        func: u8,
+        on: bool,
+        force: bool,
+        out: &mut WireBuf,
+    ) {
+        self.push_line(
+            out,
+            &protocol::set_function(throttle_char_u8(throttle), "*", func, on, force),
+        );
+    }
+
     fn push_line(&mut self, out: &mut WireBuf, cmd: &protocol::Cmd) {
         if self.send_leading_crlf && !self.leading_crlf {
             let _ = out.extend_from_slice(b"\r\n");
@@ -143,5 +158,46 @@ impl WtAdapter {
         }
         let _ = out.extend_from_slice(cmd.as_bytes());
         let _ = out.extend_from_slice(b"\r\n");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handshake_identifies_device_before_sending_name() {
+        let mut adapter = WtAdapter::new("WiFred", "device-1", 10, false, true);
+        let mut out = WireBuf::new();
+        adapter.on_connect(&mut out, &mut |_| {});
+        assert_eq!(
+            core::str::from_utf8(out.as_slice()),
+            Ok("HUdevice-1\r\nNWiFred\r\n*+\r\n")
+        );
+    }
+
+    #[test]
+    fn function_commands_use_absolute_force_form() {
+        let mut adapter = WtAdapter::new("", "", 10, false, true);
+        let mut out = WireBuf::new();
+        adapter.encode(
+            &ClientCommand::SetFunction {
+                throttle: 0,
+                func: 5,
+                on: true,
+                all: true,
+            },
+            &mut out,
+            &mut |_| {},
+        );
+        assert_eq!(core::str::from_utf8(out.as_slice()), Ok("M0A*<;>f15\r\n"));
+    }
+
+    #[test]
+    fn disconnect_sends_quit() {
+        let mut adapter = WtAdapter::new("", "", 10, false, true);
+        let mut out = WireBuf::new();
+        adapter.on_disconnect(&mut out);
+        assert_eq!(core::str::from_utf8(out.as_slice()), Ok("Q\r\n"));
     }
 }

@@ -3,7 +3,9 @@
 use longfred_proto::action::Action;
 use longfred_proto::persist::RosterMode;
 
-use super::helpers::{digit_key, height, page_list, step_list};
+use super::helpers::{
+    digit_key, height, next_throttle_count, overlay_prefixed_count, page_list, step_list,
+};
 use crate::context::ScreenCtx;
 use crate::i18n::Strings;
 use crate::intent::Intent;
@@ -15,6 +17,7 @@ use crate::widgets::PagedList;
 #[derive(Clone, Copy)]
 enum ExtrasItem {
     NetConfig,
+    ServerManual,
     Device,
     HashFunctions,
     Heartbeat,
@@ -29,8 +32,9 @@ enum ExtrasItem {
 }
 
 impl ExtrasItem {
-    const ALL: [Self; 12] = [
+    const ALL: [Self; 13] = [
         Self::NetConfig,
+        Self::ServerManual,
         Self::Device,
         Self::HashFunctions,
         Self::Heartbeat,
@@ -47,6 +51,7 @@ impl ExtrasItem {
     fn label(self, s: &Strings, roster_mode: RosterMode) -> &'static str {
         match self {
             Self::NetConfig => s.extras_net_config,
+            Self::ServerManual => s.extras_server_manual,
             Self::Device => s.extras_device,
             Self::HashFunctions => s.extras_fnc_key_tgl,
             Self::Heartbeat => s.extras_heartbt_tgl,
@@ -65,24 +70,45 @@ impl ExtrasItem {
         }
     }
 
-    fn activate(self, cx: &ScreenCtx<'_>, nav: &mut Nav<'_>) {
+    fn activate(self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match self {
             Self::NetConfig => nav.go(ScreenId::IpConfig),
+            Self::ServerManual => {
+                cx.session.server_digits.clear();
+                cx.session.server_entry_from_list = false;
+                nav.go(ScreenId::ServerProto);
+            }
             Self::Device => nav.go(ScreenId::Device),
             Self::HashFunctions => {
                 nav.emit(Intent::HashFunctionsToggle);
+                let on = !cx.session.hash_functions;
+                nav.overlay(if on {
+                    cx.s.overlay_fn_list
+                } else {
+                    cx.s.overlay_fn_direct
+                });
                 nav.root(ScreenId::Throttle);
             }
             Self::Heartbeat => {
                 nav.emit(Intent::HeartbeatToggle);
+                let on = !cx.drive.heartbeat_on;
+                nav.overlay(if on {
+                    cx.s.overlay_heartbeat_on
+                } else {
+                    cx.s.overlay_heartbeat_off
+                });
                 nav.root(ScreenId::Throttle);
             }
             Self::ThrottlesPlus => {
                 nav.emit(Intent::Action(Action::MaxThrottleIncrease));
+                let n = next_throttle_count(cx.drive.max_throttles, true);
+                nav.overlay(overlay_prefixed_count(cx.s.overlay_throttles, n).as_str());
                 nav.root(ScreenId::Throttle);
             }
             Self::ThrottlesMinus => {
                 nav.emit(Intent::Action(Action::MaxThrottleDecrease));
+                let n = next_throttle_count(cx.drive.max_throttles, false);
+                nav.overlay(overlay_prefixed_count(cx.s.overlay_throttles, n).as_str());
                 nav.root(ScreenId::Throttle);
             }
             Self::Sleep => {
@@ -91,6 +117,12 @@ impl ExtrasItem {
             }
             Self::OneLoco => {
                 nav.emit(Intent::DropBeforeAcquireToggle);
+                let on = !cx.drive.drop_before_acquire;
+                nav.overlay(if on {
+                    cx.s.overlay_one_loco_on
+                } else {
+                    cx.s.overlay_one_loco_off
+                });
                 nav.root(ScreenId::Throttle);
             }
             Self::Language => nav.go(ScreenId::Language),
@@ -117,7 +149,7 @@ impl ExtrasScreen {
         }
     }
 
-    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 12] {
+    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 13] {
         ExtrasItem::ALL.map(|item| item.label(cx.s, cx.drive.persist.roster_mode))
     }
 

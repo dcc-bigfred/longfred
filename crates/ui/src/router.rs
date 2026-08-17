@@ -3,12 +3,12 @@
 use crate::context::ScreenCtx;
 use crate::input::InputEvent;
 use crate::intent::{AppEvent, Intent};
-use crate::nav::{Nav, NavCmd, PageDir, ScreenId, Step};
+use crate::nav::{Nav, NavCmd, OverlayRequest, PageDir, ScreenId, Step};
 use crate::nav_profile::{NavAction, NavProfile};
 use crate::screen::Screen;
 use crate::screens::helpers::has_loco;
 use crate::screens::{ScreenState, new_screen};
-use crate::view::UiView;
+use crate::view::{OverlayView, UiView};
 
 const STACK_CAP: usize = 8;
 
@@ -21,6 +21,7 @@ pub struct Router {
     current: ScreenState,
     stack: heapless::Vec<ScreenId, STACK_CAP>,
     profile: &'static dyn NavProfile,
+    overlay: Option<(heapless::String<64>, u64)>,
 }
 
 impl Router {
@@ -30,6 +31,7 @@ impl Router {
             current: new_screen(start),
             stack: heapless::Vec::new(),
             profile,
+            overlay: None,
         }
     }
 
@@ -39,10 +41,52 @@ impl Router {
         self.current.id()
     }
 
-    /// Render the active screen.
+    /// Render the overlay if active, otherwise the active screen.
     #[must_use]
     pub fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
+        if let Some(text) = self.active_overlay_text(cx.now_ms) {
+            return UiView::Overlay(OverlayView::from_text(
+                text,
+                cx.s.overlay_close,
+                cx.env.geometry.height,
+            ));
+        }
         self.current.view(cx)
+    }
+
+    /// Show a full-screen overlay until `now_ms + timeout_ms` or dismiss.
+    pub fn show_overlay(&mut self, text: &str, now_ms: u64, timeout_ms: u64) {
+        let mut s = heapless::String::<64>::new();
+        for c in text.chars() {
+            if s.push(c).is_err() {
+                break;
+            }
+        }
+        self.overlay = Some((s, now_ms.saturating_add(timeout_ms)));
+    }
+
+    /// Hide the overlay (`EStop` / timeout).
+    pub fn dismiss_overlay(&mut self) {
+        self.overlay = None;
+    }
+
+    fn overlay_active(&self, now_ms: u64) -> bool {
+        self.active_overlay_text(now_ms).is_some()
+    }
+
+    fn active_overlay_text(&self, now_ms: u64) -> Option<&str> {
+        let (text, until) = self.overlay.as_ref()?;
+        if now_ms < *until {
+            Some(text.as_str())
+        } else {
+            None
+        }
+    }
+
+    fn apply_overlay_request(&mut self, req: Option<OverlayRequest>, now_ms: u64) {
+        if let Some(req) = req {
+            self.show_overlay(req.text.as_str(), now_ms, req.timeout_ms);
+        }
     }
 
     /// Force-replace the active screen (boot wizard, Wi-Fi timeout, …).
@@ -52,7 +96,9 @@ impl Router {
         cx: &mut ScreenCtx<'_>,
     ) -> heapless::Vec<Intent, 4> {
         let mut intents = heapless::Vec::new();
-        self.apply(NavCmd::Replace(id), cx, &mut intents);
+        let mut overlay = None;
+        self.apply(NavCmd::Replace(id), cx, &mut overlay, &mut intents);
+        self.apply_overlay_request(overlay, cx.now_ms);
         intents
     }
 
@@ -63,7 +109,9 @@ impl Router {
         cx: &mut ScreenCtx<'_>,
     ) -> heapless::Vec<Intent, 4> {
         let mut intents = heapless::Vec::new();
-        self.apply(NavCmd::Go(id), cx, &mut intents);
+        let mut overlay = None;
+        self.apply(NavCmd::Go(id), cx, &mut overlay, &mut intents);
+        self.apply_overlay_request(overlay, cx.now_ms);
         intents
     }
 
@@ -75,12 +123,29 @@ impl Router {
 
     /// Drive one input event through the nav profile into the active screen.
     pub fn handle(&mut self, ev: InputEvent, cx: &mut ScreenCtx<'_>) -> heapless::Vec<Intent, 4> {
+        if self.overlay_active(cx.now_ms) {
+            return self.handle_overlay_input(ev);
+        }
         let mode = self.current.key_bindings(cx);
-        self.dispatch(self.profile.map(ev, mode), cx)
+        let action = self.profile.map(ev, mode);
+        if action == NavAction::Cancel && ev == InputEvent::Digit('*') {
+            return self.with_nav(cx, super::screen::Screen::on_star);
+        }
+        self.dispatch(action, cx)
     }
 
-    /// Idle tick (multitap commit, splash timeout).
+    fn handle_overlay_input(&mut self, ev: InputEvent) -> heapless::Vec<Intent, 4> {
+        if matches!(ev, InputEvent::EStop | InputEvent::Stop) {
+            self.dismiss_overlay();
+        }
+        heapless::Vec::new()
+    }
+
+    /// Idle tick (multitap commit, splash timeout, overlay expiry).
     pub fn tick(&mut self, cx: &mut ScreenCtx<'_>) -> heapless::Vec<Intent, 4> {
+        if self.overlay.is_some() && !self.overlay_active(cx.now_ms) {
+            self.dismiss_overlay();
+        }
         self.with_nav(cx, super::screen::Screen::on_tick)
     }
 
@@ -103,7 +168,9 @@ impl Router {
             | AppEvent::WifiFailed => None,
         };
         if let Some(cmd) = nav {
-            self.apply(cmd, cx, &mut intents);
+            let mut overlay = None;
+            self.apply(cmd, cx, &mut overlay, &mut intents);
+            self.apply_overlay_request(overlay, cx.now_ms);
             return intents;
         }
         self.with_nav(cx, |s, cx, nav| s.on_app_event(e, cx, nav))
@@ -148,7 +215,7 @@ impl Router {
                 let _ = out.push(Intent::Action(longfred_proto::action::Action::EStop));
                 out
             }
-            InputEvent::Stop => self.with_nav(cx, super::screen::Screen::on_cancel),
+            InputEvent::Stop => self.with_nav(cx, super::screen::Screen::on_stop),
             InputEvent::FnPress(k) => self.with_nav(cx, |s, cx, nav| s.on_fn_key(k, true, cx, nav)),
             InputEvent::FnRelease(k) => {
                 self.with_nav(cx, |s, cx, nav| s.on_fn_key(k, false, cx, nav))
@@ -224,14 +291,16 @@ impl Router {
         f: impl FnOnce(&mut ScreenState, &mut ScreenCtx<'_>, &mut Nav<'_>),
     ) -> heapless::Vec<Intent, 4> {
         let mut cmd = None;
+        let mut overlay = None;
         let mut intents = heapless::Vec::new();
         {
-            let mut nav = Nav::new(&mut cmd, &mut intents);
+            let mut nav = Nav::new(&mut cmd, &mut overlay, &mut intents);
             f(&mut self.current, cx, &mut nav);
         }
         if let Some(cmd) = cmd {
-            self.apply(cmd, cx, &mut intents);
+            self.apply(cmd, cx, &mut overlay, &mut intents);
         }
+        self.apply_overlay_request(overlay, cx.now_ms);
         intents
     }
 
@@ -241,6 +310,7 @@ impl Router {
         &mut self,
         cmd: NavCmd,
         cx: &mut ScreenCtx<'_>,
+        overlay: &mut Option<OverlayRequest>,
         intents: &mut heapless::Vec<Intent, 4>,
     ) {
         let mut next = Some(cmd);
@@ -248,7 +318,7 @@ impl Router {
             let Some(cmd) = next.take() else {
                 return;
             };
-            next = self.step(cmd, cx, intents);
+            next = self.step(cmd, cx, overlay, intents);
         }
         debug_assert!(next.is_none(), "navigation did not settle");
     }
@@ -257,6 +327,7 @@ impl Router {
         &mut self,
         cmd: NavCmd,
         cx: &mut ScreenCtx<'_>,
+        overlay: &mut Option<OverlayRequest>,
         intents: &mut heapless::Vec<Intent, 4>,
     ) -> Option<NavCmd> {
         match cmd {
@@ -269,22 +340,22 @@ impl Router {
                     let _ = self.stack.remove(0);
                 }
                 let _ = self.stack.push(from);
-                self.enter_screen(id, cx, intents)
+                self.enter_screen(id, cx, overlay, intents)
             }
             NavCmd::Replace(id) => {
                 if self.current.id() == id {
                     None
                 } else {
-                    self.enter_screen(id, cx, intents)
+                    self.enter_screen(id, cx, overlay, intents)
                 }
             }
             NavCmd::Back => {
                 let id = self.stack.pop().unwrap_or(ScreenId::Throttle);
-                self.enter_screen(id, cx, intents)
+                self.enter_screen(id, cx, overlay, intents)
             }
             NavCmd::Root(id) => {
                 self.stack.clear();
-                self.enter_screen(id, cx, intents)
+                self.enter_screen(id, cx, overlay, intents)
             }
         }
     }
@@ -293,12 +364,13 @@ impl Router {
         &mut self,
         id: ScreenId,
         cx: &mut ScreenCtx<'_>,
+        overlay: &mut Option<OverlayRequest>,
         intents: &mut heapless::Vec<Intent, 4>,
     ) -> Option<NavCmd> {
         self.current = new_screen(id);
         let mut cmd = None;
         {
-            let mut nav = Nav::new(&mut cmd, intents);
+            let mut nav = Nav::new(&mut cmd, overlay, intents);
             self.current.on_enter(cx, &mut nav);
         }
         cmd

@@ -239,10 +239,35 @@ impl LocoCatalog for Catalog<'_> {
     }
 }
 
+/// Convert a server-roster address and length marker to a wire identity.
+#[must_use]
+pub fn roster_loco_id(address: i32, length: char) -> Option<LocoId> {
+    let addr = u16::try_from(address).ok()?;
+    if addr >= 10_000 {
+        return None;
+    }
+    Some(LocoId {
+        addr,
+        long: matches!(length, 'L' | 'l') || addr >= 128,
+    })
+}
+
 fn roster_wire_addr(e: &RosterEntry) -> heapless::String<8> {
-    let addr = u16::try_from(e.address.max(0)).unwrap_or(0);
-    let long = matches!(e.length, 'L' | 'l') || addr >= 128;
-    LocoId { addr, long }.to_wire()
+    roster_loco_id(e.address, e.length)
+        .unwrap_or(LocoId {
+            addr: 0,
+            long: false,
+        })
+        .to_wire()
+}
+
+/// Sort a live WiThrottle roster by DCC address ascending.
+pub fn sort_roster_by_dcc_addr(entries: &mut [RosterEntry]) {
+    entries.sort_unstable_by(|a, b| {
+        a.address
+            .cmp(&b.address)
+            .then_with(|| a.name.as_str().cmp(b.name.as_str()))
+    });
 }
 
 #[cfg(test)]
@@ -278,6 +303,35 @@ mod tests {
         assert_eq!(c.entry(0).unwrap().name, "Pacific");
         let c = Catalog::for_source(LocoSource::AddressOnly, &live, &st);
         assert!(!c.allows_pick());
+    }
+
+    #[test]
+    fn roster_addresses_use_wire_prefix() {
+        assert_eq!(
+            roster_loco_id(4014, 'L').map(LocoId::to_wire).as_deref(),
+            Some("L4014")
+        );
+        assert_eq!(
+            roster_loco_id(12, 'S').map(LocoId::to_wire).as_deref(),
+            Some("S12")
+        );
+        assert_eq!(
+            roster_loco_id(41, 'L').map(LocoId::to_wire).as_deref(),
+            Some("L41")
+        );
+        assert_eq!(
+            roster_loco_id(200, 'S').map(LocoId::to_wire).as_deref(),
+            Some("L200")
+        );
+    }
+
+    #[test]
+    fn live_roster_sorts_by_dcc_address() {
+        let mut entries = [live("C", 42, 'S'), live("A", 3, 'S'), live("B", 200, 'L')];
+        sort_roster_by_dcc_addr(&mut entries);
+        assert_eq!(entries[0].address, 3);
+        assert_eq!(entries[1].address, 42);
+        assert_eq!(entries[2].address, 200);
     }
 
     #[test]

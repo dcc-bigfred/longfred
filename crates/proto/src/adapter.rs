@@ -3,7 +3,8 @@
 use crate::command::ClientCommand;
 use crate::events::ServerEvent;
 
-pub type WireBuf = heapless::Vec<u8, 256>;
+/// Largest encoded burst (Z21 E-stop emits two frames for up to 16 locos).
+pub type WireBuf = heapless::Vec<u8, 512>;
 
 pub enum Adapter {
     Wt(crate::withrottle::WtAdapter),
@@ -18,6 +19,15 @@ impl Adapter {
             Adapter::Wt(a) => a.on_connect(out, emit),
             Adapter::Z21(a) => a.on_connect(out, emit),
             Adapter::BigFred(a) => a.on_connect(out, emit),
+        }
+    }
+
+    /// Bytes sent when leaving a live session cleanly.
+    pub fn on_disconnect(&mut self, out: &mut WireBuf) {
+        match self {
+            Adapter::Wt(a) => a.on_disconnect(out),
+            Adapter::BigFred(a) => a.on_disconnect(out),
+            Adapter::Z21(_) => {}
         }
     }
 

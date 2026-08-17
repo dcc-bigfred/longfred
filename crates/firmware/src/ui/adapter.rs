@@ -201,6 +201,12 @@ impl UiWorld {
             ui_tx,
         );
     }
+
+    pub fn apply_pending_overlay(&mut self, now_ms: u64) {
+        if let Some((text, timeout_ms)) = self.state.take_overlay() {
+            self.router.show_overlay(text.as_str(), now_ms, timeout_ms);
+        }
+    }
 }
 
 pub fn publish(
@@ -256,6 +262,7 @@ pub fn screen_ctx<'a>(
             persist: &state.persist,
             message: state.active_broadcast(),
             speed_multiplier: state.speed_multiplier,
+            max_throttles: state.max_throttles,
             heartbeat_on: state.heartbeat_on,
             drop_before_acquire: state.drop_before_acquire,
         },

@@ -48,6 +48,13 @@ fn speed() {
             speed: 63
         }
     );
+    assert_eq!(
+        collect("MTAL341<;>V1")[0],
+        ServerEvent::Speed {
+            throttle: 'T',
+            speed: 0
+        }
+    );
 }
 
 #[test]

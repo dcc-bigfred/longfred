@@ -4,6 +4,10 @@
 use longfred_proto::persist::Language;
 
 pub const BROADCAST_TIMEOUT_MS: u64 = 10_000;
+/// Default full-screen overlay auto-dismiss.
+pub const OVERLAY_TIMEOUT_MS: u64 = 5_000;
+/// Overlay while auto-pairing so drive is not replaced by `PairingWait`.
+pub const PAIRING_OVERLAY_TIMEOUT_MS: u64 = 30_000;
 pub const RECEIVING_REFRESH_MS: u64 = 2_000;
 pub const PW_BLANK_CHAR: u8 = 164;
 
@@ -34,6 +38,8 @@ struct HintRow {
     net: &'static str,
     name: &'static str,
     id: &'static str,
+    server: &'static str,
+    ssid: &'static str,
 }
 
 mod joystick_hints {
@@ -44,6 +50,8 @@ mod joystick_hints {
         net: "Joy Menu SW  Next",
         name: "Joy Menu SW  Back",
         id: "Joy Menu SW  Back",
+        server: "Stop-Proto  M-Skan",
+        ssid: "<> str.  M-Skan",
     };
     pub const PL: HintRow = HintRow {
         pw: "Joy Menu SW  Wst",
@@ -51,6 +59,8 @@ mod joystick_hints {
         net: "Joy Menu SW  Dalej",
         name: "Joy Menu SW  Wst",
         id: "Joy Menu SW  Wst",
+        server: "Stop-Proto  M-Skan",
+        ssid: "<> str.  M-Skan",
     };
     pub const DE: HintRow = HintRow {
         pw: "Joy Menu SW  Zur",
@@ -58,6 +68,8 @@ mod joystick_hints {
         net: "Joy Menu SW  Weiter",
         name: "Joy Menu SW  Zur",
         id: "Joy Menu SW  Zur",
+        server: "Stop-Proto  M-Scan",
+        ssid: "<> str.  M-Scan",
     };
 }
 
@@ -69,6 +81,8 @@ mod keypad_hints {
         net: "L/P Menu SW  Next",
         name: "L/P *Caps Menu SW",
         id: "L/P Menu SW  Back",
+        server: "Stop-IP *-Prot M-Skan",
+        ssid: "<> str.  M-Skan",
     };
     pub const PL: HintRow = HintRow {
         pw: "L/P *Caps Menu SW",
@@ -76,6 +90,8 @@ mod keypad_hints {
         net: "L/P Menu SW  Dalej",
         name: "L/P *Caps Menu SW",
         id: "L/P Menu SW  Wst",
+        server: "Stop-IP *-Prot M-Skan",
+        ssid: "<> str.  M-Skan",
     };
     pub const DE: HintRow = HintRow {
         pw: "L/P *Caps Menu SW",
@@ -83,6 +99,8 @@ mod keypad_hints {
         net: "L/P Menu SW  Weiter",
         name: "L/P *Caps Menu SW",
         id: "L/P Menu SW  Zur",
+        server: "Stop-IP *-Prot M-Scan",
+        ssid: "<> str.  M-Scan",
     };
 }
 
@@ -122,6 +140,8 @@ pub struct Strings {
     pub hint_wifi_fail: &'static str,
     pub hint_enter_password: &'static str,
     pub hint_select_wit: &'static str,
+    pub hint_server_list: &'static str,
+    pub hint_ssid_list: &'static str,
     pub hint_proto: &'static str,
     pub hint_wit_entry: &'static str,
     pub hint_menu: &'static str,
@@ -146,6 +166,7 @@ pub struct Strings {
     pub menu_power: &'static str,
     pub menu_extras: &'static str,
     pub extras_net_config: &'static str,
+    pub extras_server_manual: &'static str,
     pub extras_device: &'static str,
     pub extras_language: &'static str,
     pub extras_fnc_key_tgl: &'static str,
@@ -176,6 +197,17 @@ pub struct Strings {
     pub saved_device: &'static str,
     pub saved_new_id: &'static str,
     pub saved_language: &'static str,
+    pub overlay_close: &'static str,
+    pub overlay_speed: &'static str,
+    pub overlay_power_on: &'static str,
+    pub overlay_power_off: &'static str,
+    pub overlay_fn_list: &'static str,
+    pub overlay_fn_direct: &'static str,
+    pub overlay_heartbeat_on: &'static str,
+    pub overlay_heartbeat_off: &'static str,
+    pub overlay_one_loco_on: &'static str,
+    pub overlay_one_loco_off: &'static str,
+    pub overlay_throttles: &'static str,
     pub msg_prog_connected: &'static str,
     pub hint_prog_ask: &'static str,
     pub hint_prog_back: &'static str,
@@ -224,6 +256,8 @@ pub const EN: Strings = Strings {
     hint_wifi_fail: "Back skip  wait scan",
     hint_enter_password: "",
     hint_select_wit: "Nav OK  < IP",
+    hint_server_list: "",
+    hint_ssid_list: "",
     hint_proto: "Nav OK  Back",
     hint_wit_entry: "",
     hint_menu: "Nav OK  Fn+digits  Back",
@@ -248,6 +282,7 @@ pub const EN: Strings = Strings {
     menu_power: "Trk Power",
     menu_extras: "Extras",
     extras_net_config: "1 Net Config",
+    extras_server_manual: "Manual server",
     extras_device: "2 Device",
     extras_language: "6 Language",
     extras_fnc_key_tgl: "0 Fnc/Key Tgl",
@@ -278,6 +313,17 @@ pub const EN: Strings = Strings {
     saved_device: "Device saved",
     saved_new_id: "New ID",
     saved_language: "Lang saved",
+    overlay_close: "EStop close",
+    overlay_speed: "Speed x",
+    overlay_power_on: "Trk power ON",
+    overlay_power_off: "Trk power OFF",
+    overlay_fn_list: "# Fn list",
+    overlay_fn_direct: "# Direct",
+    overlay_heartbeat_on: "Heartbeat ON",
+    overlay_heartbeat_off: "Heartbeat OFF",
+    overlay_one_loco_on: "1 loco ON",
+    overlay_one_loco_off: "1 loco OFF",
+    overlay_throttles: "Throttles ",
     msg_prog_connected: "Connected?",
     hint_prog_ask: "Cancel           Next",
     hint_prog_back: "Back",
@@ -326,6 +372,8 @@ pub const PL: Strings = Strings {
     hint_wifi_fail: "Wst pomin  czekaj",
     hint_enter_password: "",
     hint_select_wit: "Nav OK  < IP",
+    hint_server_list: "",
+    hint_ssid_list: "",
     hint_proto: "Nav OK  Wst",
     hint_wit_entry: "",
     hint_menu: "Nav OK  Fn+cyfry  Wst",
@@ -350,6 +398,7 @@ pub const PL: Strings = Strings {
     menu_power: "Zasilanie",
     menu_extras: "Dodatkowe",
     extras_net_config: "1 Konfig. sieci",
+    extras_server_manual: "Serwer recznie",
     extras_device: "2 Urzadzenie",
     extras_language: "6 Jezyk",
     extras_fnc_key_tgl: "0 Fnc/Klaw Przel",
@@ -380,6 +429,17 @@ pub const PL: Strings = Strings {
     saved_device: "Urzadz. zapisane",
     saved_new_id: "Nowe ID",
     saved_language: "Jezyk zapisany",
+    overlay_close: "EStop zamknij",
+    overlay_speed: "Predkosc x",
+    overlay_power_on: "Zasilanie ON",
+    overlay_power_off: "Zasilanie OFF",
+    overlay_fn_list: "# Lista Fn",
+    overlay_fn_direct: "# Direct",
+    overlay_heartbeat_on: "Heartbeat ON",
+    overlay_heartbeat_off: "Heartbeat OFF",
+    overlay_one_loco_on: "1 lok ON",
+    overlay_one_loco_off: "1 lok OFF",
+    overlay_throttles: "Kontrolery ",
     msg_prog_connected: "Podlaczyles sie?",
     hint_prog_ask: "Anuluj          Dalej",
     hint_prog_back: "Wst",
@@ -428,6 +488,8 @@ pub const DE: Strings = Strings {
     hint_wifi_fail: "Zur skip  warte Scan",
     hint_enter_password: "",
     hint_select_wit: "Nav OK  < IP",
+    hint_server_list: "",
+    hint_ssid_list: "",
     hint_proto: "Nav OK  Zur",
     hint_wit_entry: "",
     hint_menu: "Nav OK  Fn+Ziff  Zur",
@@ -452,6 +514,7 @@ pub const DE: Strings = Strings {
     menu_power: "Gleisspannung",
     menu_extras: "Extras",
     extras_net_config: "1 Netzwerk",
+    extras_server_manual: "Server manuell",
     extras_device: "2 Geraet",
     extras_language: "6 Sprache",
     extras_fnc_key_tgl: "0 Fnc/Taste Ums",
@@ -482,6 +545,17 @@ pub const DE: Strings = Strings {
     saved_device: "Geraet gespeichert",
     saved_new_id: "Neue ID",
     saved_language: "Sprache gespeichert",
+    overlay_close: "EStop zu",
+    overlay_speed: "Geschw. x",
+    overlay_power_on: "Gleis AN",
+    overlay_power_off: "Gleis AUS",
+    overlay_fn_list: "# Fn-Liste",
+    overlay_fn_direct: "# Direct",
+    overlay_heartbeat_on: "Heartbeat AN",
+    overlay_heartbeat_off: "Heartbeat AUS",
+    overlay_one_loco_on: "1 Lok AN",
+    overlay_one_loco_off: "1 Lok AUS",
+    overlay_throttles: "Regler ",
     msg_prog_connected: "Verbunden?",
     hint_prog_ask: "Abbruch        Weiter",
     hint_prog_back: "Zur",
@@ -501,6 +575,8 @@ const fn with_hints(mut s: Strings, h: HintRow) -> Strings {
     s.hint_net_edit = h.net;
     s.hint_device_name_edit = h.name;
     s.hint_device_id_edit = h.id;
+    s.hint_server_list = h.server;
+    s.hint_ssid_list = h.ssid;
     s
 }
 
