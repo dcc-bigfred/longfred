@@ -22,7 +22,7 @@ pub struct DriveInfo<'a> {
     pub current: usize,
     /// WIT / static roster slice; which one the UI reads is [`Self::effective_loco_source`].
     pub roster: &'a [RosterEntry],
-    /// Session-resolved catalogue source (ARCHITECTURE.md §3.4). Not written back to NVS.
+    /// Session-resolved catalogue source (ARCHITECTURE.md §7). Not written back to NVS.
     pub effective_loco_source: LocoSource,
     /// Track power as last reported by the station.
     pub track_power: TrackPower,

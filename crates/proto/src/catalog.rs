@@ -6,7 +6,7 @@ use crate::model::RosterEntry;
 use crate::persist::StaticRosterEntry;
 
 /// Wait this long after connect for a live roster burst before treating
-/// [`LocoSource::ServerRoster`] as unavailable (ARCHITECTURE.md §3.4).
+/// [`LocoSource::ServerRoster`] as unavailable (ARCHITECTURE.md §7).
 pub const ROSTER_BURST_TIMEOUT_MS: u64 = 3_000;
 
 /// One row in a [`LocoCatalog`].
@@ -140,7 +140,7 @@ impl<'a> Catalog<'a> {
     }
 }
 
-/// Whether `src` currently has data (ARCHITECTURE.md §3.4 availability).
+/// Whether `src` currently has data (ARCHITECTURE.md §7 availability).
 #[must_use]
 pub fn source_available(src: LocoSource, live_len: usize, static_len: usize) -> bool {
     match src {

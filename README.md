@@ -13,7 +13,8 @@ Build-time Cargo features (mutually exclusive):
 | `variant-markwtech` | Keypad + 2.42" OLED, WiTcontroller-style |
 | `variant-heiko-wifred` | Headless wiFred-style (LEDs + pot), Wi‑Fi config only |
 
-Docs: [docs/hardware/](docs/hardware/), provisioning: [docs/provisioning.md](docs/provisioning.md).
+Docs: [ARCHITECTURE.md](ARCHITECTURE.md), [docs/hardware/](docs/hardware/),
+provisioning: [docs/provisioning.md](docs/provisioning.md).
 
 ```bash
 cargo build -p longfred-firmware --release --bin longfred

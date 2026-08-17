@@ -331,7 +331,7 @@ fn start_pairing_http(state: &DomainState) -> bool {
     let Some(endpoint) = SERVER.sender().try_get().flatten() else {
         return false;
     };
-    if endpoint.protocol != longfred_proto::Protocol::BigFred
+    if !endpoint.protocol.caps().supports_pairing()
         || state.persist.bigfred_login.is_empty()
         || state.persist.bigfred_pin.is_empty()
     {
