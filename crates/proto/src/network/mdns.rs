@@ -3,8 +3,6 @@
 
 use crate::command::Protocol;
 
-pub const WITHROTTLE_SERVICE: &str = "_withrottle._tcp.local";
-pub const Z21_SERVICE: &str = "_z21._udp.local";
 /// Advertised while STA HTTP OTA is enabled.
 pub const OTA_HTTP_SERVICE: &str = "_longfred-ota._tcp.local";
 pub const MDNS_MULTICAST_V4: [u8; 4] = [224, 0, 0, 251];
@@ -297,8 +295,8 @@ mod tests {
     #[test]
     fn ptr_query_lengths() {
         let mut buf = [0u8; 64];
-        let w = build_ptr_query(WITHROTTLE_SERVICE, &mut buf);
-        let z = build_ptr_query(Z21_SERVICE, &mut buf);
+        let w = build_ptr_query(crate::withrottle::MDNS_SERVICE, &mut buf);
+        let z = build_ptr_query(crate::z21::MDNS_SERVICE, &mut buf);
         assert!(w > 12);
         assert!(z > 12);
         assert_ne!(w, z);

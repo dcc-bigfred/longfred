@@ -5,8 +5,8 @@ pub mod net_status;
 pub mod provisioning;
 
 pub use mdns::{
-    MDNS_MULTICAST_V4, MDNS_PORT, OTA_HTTP_SERVICE, OtaHost, WITHROTTLE_SERVICE, WitServer,
-    Z21_SERVICE, build_ota_announce, build_ptr_query, collect_ota_hosts, collect_servers,
+    MDNS_MULTICAST_V4, MDNS_PORT, OTA_HTTP_SERVICE, OtaHost, WitServer, build_ota_announce,
+    build_ptr_query, collect_ota_hosts, collect_servers,
 };
 pub use net_status::{
     ConnState, NetStatus, PingStatus, ServerEndpoint, SsidInfo, StaNet, WifiLink,

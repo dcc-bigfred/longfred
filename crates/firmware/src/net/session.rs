@@ -8,7 +8,7 @@ use embassy_time::{Duration, Instant, Timer, with_timeout};
 use log::{info, warn};
 use longfred_proto::adapter::{Adapter, WireBuf};
 use longfred_proto::bigfred::BigFredAdapter;
-use longfred_proto::caps::{Probe, http_probe_matches};
+use longfred_proto::caps::{Probe, Transport as WireTransport, http_probe_matches};
 use longfred_proto::command::Protocol;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::persist::DeviceIdentity;
@@ -337,11 +337,9 @@ pub async fn task(stack: Stack<'static>) {
         CONN.sender().send(ConnState::Connecting);
         let ep = wait_for_server().await;
         let ep = classify_endpoint(stack, ep, tcp_rx, tcp_tx).await;
-        let established = match ep.protocol {
-            Protocol::WiThrottle | Protocol::BigFred => {
-                run_tcp_session(stack, ep, tcp_rx, tcp_tx).await
-            }
-            Protocol::Z21 => {
+        let established = match ep.protocol.caps().transport {
+            WireTransport::Tcp => run_tcp_session(stack, ep, tcp_rx, tcp_tx).await,
+            WireTransport::Udp => {
                 run_udp_session(stack, ep, udp_rx_meta, udp_rx, udp_tx_meta, udp_tx).await
             }
         };

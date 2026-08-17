@@ -1,7 +1,8 @@
 //! Integration tests for WiThrottle mDNS discovery helpers.
 
 use longfred_proto::command::Protocol;
-use longfred_proto::network::{WITHROTTLE_SERVICE, build_ptr_query, collect_servers};
+use longfred_proto::network::{build_ptr_query, collect_servers};
+use longfred_proto::withrottle::MDNS_SERVICE;
 
 fn push_label(pkt: &mut Vec<u8>, label: &str) {
     pkt.push(label.len() as u8);
@@ -44,7 +45,7 @@ fn build_fixture() -> Vec<u8> {
 #[test]
 fn query_has_ptr_question() {
     let mut buf = [0u8; 64];
-    let n = build_ptr_query(WITHROTTLE_SERVICE, &mut buf);
+    let n = build_ptr_query(MDNS_SERVICE, &mut buf);
     assert!(n > 12);
     assert_eq!(&buf[4..6], &[0, 1]);
     assert_eq!(&buf[n - 4..n], &[0x00, 0x0c, 0x00, 0x01]);

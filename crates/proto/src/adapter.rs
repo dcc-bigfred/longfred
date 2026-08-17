@@ -80,10 +80,11 @@ impl Adapter {
     /// Capabilities of the live adapter.
     #[must_use]
     pub fn caps(&self) -> crate::caps::ProtocolCaps {
+        use crate::caps::ProtocolSpec;
         match self {
-            Adapter::Wt(_) => crate::command::Protocol::WiThrottle.caps(),
-            Adapter::Z21(_) => crate::command::Protocol::Z21.caps(),
-            Adapter::BigFred(_) => crate::command::Protocol::BigFred.caps(),
+            Adapter::Wt(_) => <crate::withrottle::WiThrottle as ProtocolSpec>::INFO.caps,
+            Adapter::Z21(_) => <crate::z21::Z21 as ProtocolSpec>::INFO.caps,
+            Adapter::BigFred(_) => <crate::bigfred::BigFred as ProtocolSpec>::INFO.caps,
         }
     }
 }

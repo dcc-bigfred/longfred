@@ -22,7 +22,9 @@ pub mod withrottle;
 pub mod z21;
 
 pub use action::Action;
-pub use caps::{LocoSource, LocoSourceMask, Probe, ProtocolCaps, Transport};
+pub use caps::{
+    LocoSource, LocoSourceMask, Probe, ProtocolCaps, ProtocolInfo, ProtocolSpec, Transport,
+};
 pub use catalog::{
     AddressCatalog, Catalog, LocoCatalog, LocoRef, ServerCatalog, StaticCatalog, neighbour_index,
     resolve_effective,

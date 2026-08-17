@@ -7,8 +7,7 @@ use embassy_time::{Duration, Instant, Timer, with_timeout};
 use log::{info, warn};
 use longfred_proto::command::Protocol;
 use longfred_proto::network::{
-    MDNS_MULTICAST_V4, MDNS_PORT, WITHROTTLE_SERVICE, WitServer, Z21_SERVICE, build_ptr_query,
-    collect_servers,
+    MDNS_MULTICAST_V4, MDNS_PORT, WitServer, build_ptr_query, collect_servers,
 };
 
 use crate::config::{network, sizes};
@@ -87,12 +86,19 @@ pub async fn discover(stack: Stack<'static>) -> heapless::Vec<WitServer, MAX_SER
     query_service(
         &mut sock,
         dst,
-        WITHROTTLE_SERVICE,
+        Protocol::WiThrottle.caps().mdns_service,
         Protocol::WiThrottle,
         &mut found,
     )
     .await;
-    query_service(&mut sock, dst, Z21_SERVICE, Protocol::Z21, &mut found).await;
+    query_service(
+        &mut sock,
+        dst,
+        Protocol::Z21.caps().mdns_service,
+        Protocol::Z21,
+        &mut found,
+    )
+    .await;
 
     let _ = stack.leave_multicast_group(group);
     found

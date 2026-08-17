@@ -32,11 +32,7 @@ impl ServerListScreen {
             let mut line = Line::new();
             let _ = line.push_str(s.label.as_str());
             let _ = line.push(' ');
-            let _ = line.push(match s.protocol {
-                Protocol::WiThrottle => 'W',
-                Protocol::Z21 => 'Z',
-                Protocol::BigFred => 'B',
-            });
+            let _ = line.push(s.protocol.glyph());
             let _ = v.push(line);
         }
         v

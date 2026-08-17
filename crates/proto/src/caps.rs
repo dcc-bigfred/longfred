@@ -126,66 +126,54 @@ impl ProtocolCaps {
     }
 }
 
-const WIT_CAPS: ProtocolCaps = ProtocolCaps {
-    loco_sources: LocoSourceMask::ALL,
-    steal: true,
-    heartbeat: true,
-    function_labels: true,
-    pairing: false,
-    transport: Transport::Tcp,
-    default_port: 12090,
-    mdns_service: crate::network::WITHROTTLE_SERVICE,
-};
+/// Bundle of everything a protocol says about itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProtocolInfo {
+    pub caps: ProtocolCaps,
+    pub probe: Probe,
+    pub display_name: &'static str,
+    pub glyph: char,
+}
 
-const Z21_CAPS: ProtocolCaps = ProtocolCaps {
-    loco_sources: LocoSourceMask::SHARED,
-    steal: false,
-    heartbeat: false,
-    function_labels: false,
-    pairing: false,
-    transport: Transport::Udp,
-    default_port: 21105,
-    mdns_service: crate::network::Z21_SERVICE,
-};
-
-const BIGFRED_CAPS: ProtocolCaps = ProtocolCaps {
-    pairing: true,
-    ..WIT_CAPS
-};
+/// Each protocol module implements this so capabilities live next to the adapter.
+pub trait ProtocolSpec {
+    const INFO: ProtocolInfo;
+}
 
 impl Protocol {
     /// Every known protocol. Used by the shared-source invariant test.
     pub const ALL: [Self; 3] = [Self::WiThrottle, Self::Z21, Self::BigFred];
 
+    /// Sole `match` on protocol identity in this crate. Callers use the accessors.
     #[must_use]
-    pub const fn caps(self) -> ProtocolCaps {
+    pub const fn info(self) -> ProtocolInfo {
         match self {
-            Self::WiThrottle => WIT_CAPS,
-            Self::Z21 => Z21_CAPS,
-            Self::BigFred => BIGFRED_CAPS,
+            Self::WiThrottle => <crate::withrottle::WiThrottle as ProtocolSpec>::INFO,
+            Self::Z21 => <crate::z21::Z21 as ProtocolSpec>::INFO,
+            Self::BigFred => <crate::bigfred::BigFred as ProtocolSpec>::INFO,
         }
     }
 
     #[must_use]
+    pub const fn caps(self) -> ProtocolCaps {
+        self.info().caps
+    }
+
+    #[must_use]
     pub const fn probe(self) -> Probe {
-        match self {
-            Self::BigFred => Probe::HttpGet {
-                port: 8080,
-                path: "/api/v1/version",
-                expect: "\"product\":\"bigfred\"",
-            },
-            Self::WiThrottle | Self::Z21 => Probe::None,
-        }
+        self.info().probe
     }
 
     /// Short OLED / log label. Not a substitute for [`Self::caps`].
     #[must_use]
     pub const fn display_name(self) -> &'static str {
-        match self {
-            Self::WiThrottle => "WiThrottle",
-            Self::Z21 => "Z21",
-            Self::BigFred => "BigFred",
-        }
+        self.info().display_name
+    }
+
+    /// One-character protocol mark for the server list.
+    #[must_use]
+    pub const fn glyph(self) -> char {
+        self.info().glyph
     }
 }
 
@@ -206,52 +194,6 @@ mod tests {
                 "{p:?} missing AddressOnly"
             );
         }
-    }
-
-    #[test]
-    fn z21_has_no_server_roster() {
-        assert!(
-            !Protocol::Z21
-                .caps()
-                .supports_source(LocoSource::ServerRoster)
-        );
-        assert!(
-            Protocol::WiThrottle
-                .caps()
-                .supports_source(LocoSource::ServerRoster)
-        );
-        assert!(
-            Protocol::BigFred
-                .caps()
-                .supports_source(LocoSource::ServerRoster)
-        );
-    }
-
-    #[test]
-    fn only_bigfred_pairs_and_probes() {
-        assert!(!Protocol::WiThrottle.caps().supports_pairing());
-        assert!(!Protocol::Z21.caps().supports_pairing());
-        assert!(Protocol::BigFred.caps().supports_pairing());
-        assert_eq!(Protocol::WiThrottle.probe(), Probe::None);
-        assert_eq!(Protocol::Z21.probe(), Probe::None);
-        assert_eq!(
-            Protocol::BigFred.probe(),
-            Probe::HttpGet {
-                port: 8080,
-                path: "/api/v1/version",
-                expect: "\"product\":\"bigfred\"",
-            }
-        );
-    }
-
-    #[test]
-    fn bigfred_is_withrottle_plus_pairing() {
-        let w = Protocol::WiThrottle.caps();
-        let b = Protocol::BigFred.caps();
-        assert_eq!(w.loco_sources, b.loco_sources);
-        assert_eq!(w.transport, b.transport);
-        assert_eq!(w.mdns_service, b.mdns_service);
-        assert!(b.pairing && !w.pairing);
     }
 
     #[test]
