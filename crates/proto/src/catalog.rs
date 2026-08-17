@@ -188,6 +188,23 @@ pub fn resolve_effective_caps(
     resolve_effective(pref, caps.loco_sources, live_len, static_len, live_settled)
 }
 
+/// Next or previous index in a catalogue. `None` when the list is empty.
+///
+/// Out-of-range `current` is treated as unknown (same as `None`).
+#[must_use]
+pub fn neighbour_index(len: usize, current: Option<usize>, next: bool) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    let current = current.filter(|&i| i < len);
+    Some(match (current, next) {
+        (Some(i), true) => (i + 1) % len,
+        (Some(i), false) => (i + len - 1) % len,
+        (None, true) => 0,
+        (None, false) => len - 1,
+    })
+}
+
 impl LocoCatalog for Catalog<'_> {
     fn len(&self) -> usize {
         match self {
@@ -313,5 +330,16 @@ mod tests {
             resolve_effective(LocoSource::ServerRoster, LocoSourceMask::SHARED, 0, 0, true),
             LocoSource::AddressOnly
         );
+    }
+
+    #[test]
+    fn neighbour_index_wraps_and_starts_from_ends() {
+        assert_eq!(neighbour_index(0, None, true), None);
+        assert_eq!(neighbour_index(3, None, true), Some(0));
+        assert_eq!(neighbour_index(3, None, false), Some(2));
+        assert_eq!(neighbour_index(3, Some(0), true), Some(1));
+        assert_eq!(neighbour_index(3, Some(2), true), Some(0));
+        assert_eq!(neighbour_index(3, Some(0), false), Some(2));
+        assert_eq!(neighbour_index(3, Some(99), true), Some(0));
     }
 }

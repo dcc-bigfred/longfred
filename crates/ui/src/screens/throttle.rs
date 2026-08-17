@@ -1,11 +1,12 @@
 //! Drive HUD (loco acquired) and address-entry mode (no loco).
 
+use longfred_proto::LocoSource;
 use longfred_proto::model::track_power_on;
 
 use super::helpers::has_loco;
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
-use crate::nav::{Nav, ScreenId};
+use crate::nav::{Nav, PageDir, ScreenId};
 use crate::screen::{KeyBindings, Screen};
 use crate::view::{Line, ThrottleView, UiView, push_oled};
 use crate::widgets::{KeyboardMode, TextKeyboard};
@@ -181,5 +182,13 @@ impl Screen for ThrottleScreen {
         if !has_loco(cx) {
             self.addr_kbd.tick(cx.now_ms);
         }
+    }
+
+    /// Menu Left / Right walk the effective catalogue in this slot.
+    fn on_page(&mut self, d: PageDir, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if cx.drive.effective_loco_source == LocoSource::AddressOnly {
+            return;
+        }
+        nav.emit(Intent::SelectLoco(d));
     }
 }

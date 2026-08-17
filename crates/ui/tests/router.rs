@@ -275,6 +275,28 @@ fn loco_slot_emits_throttle_action() {
 }
 
 #[test]
+fn throttle_page_walks_catalogue() {
+    use longfred_ui::nav::PageDir;
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Throttle);
+    {
+        let mut cx = fx.ctx();
+        cx.drive.effective_loco_source = longfred_proto::LocoSource::ServerRoster;
+        let intents = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
+        assert!(
+            intents
+                .iter()
+                .any(|i| *i == Intent::SelectLoco(PageDir::Next))
+        );
+    }
+    {
+        let mut cx = fx.ctx();
+        let intents = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
+        assert!(intents.is_empty());
+    }
+}
+
+#[test]
 fn speed_absolute_emits_speed_set_when_loco_acquired() {
     let mut fx = Fixture::new();
     let mut addr = heapless::String::new();

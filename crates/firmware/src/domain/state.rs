@@ -3,7 +3,7 @@
 use embassy_time::{Duration, Instant};
 use log::warn;
 use longfred_proto::caps::{LocoSource, LocoSourceMask, ProtocolCaps};
-use longfred_proto::catalog::{self, resolve_effective};
+use longfred_proto::catalog::{self, Catalog, LocoCatalog, neighbour_index, resolve_effective};
 use longfred_proto::command::{ClientCommand, LocoId};
 use longfred_proto::events::ServerEvent;
 use longfred_proto::model::{Direction, LocoAddr, LongText, ShortText, TrackPower};
@@ -224,7 +224,64 @@ impl DomainState {
         };
         let mut digits = heapless::String::<8>::new();
         let _ = write_roster_addr(entry.address, entry.length, &mut digits);
-        self.acquire_addr(digits.as_str(), out)
+        let ok = self.acquire_addr(digits.as_str(), out);
+        if ok {
+            self.current_slot_mut().list_idx = Some(index);
+        }
+        ok
+    }
+
+    /// Release the current slot and acquire the neighbouring catalogue entry into it.
+    pub fn select_loco(
+        &mut self,
+        next: bool,
+        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    ) -> bool {
+        if self.effective_loco_source == LocoSource::AddressOnly {
+            return false;
+        }
+        enum Pick {
+            Roster(usize),
+            Addr(usize, heapless::String<8>),
+        }
+        let pick = {
+            let cat = Catalog::for_source(
+                self.effective_loco_source,
+                self.roster.as_slice(),
+                self.persist.static_roster.as_slice(),
+            );
+            let n = cat.len();
+            let current = self.current_slot().list_idx.or_else(|| {
+                let have = self.current_slot().consist.first()?.as_str();
+                (0..n).find(|&i| cat.entry(i).is_some_and(|e| e.addr.as_str() == have))
+            });
+            let Some(idx) = neighbour_index(n, current, next) else {
+                return false;
+            };
+            if current == Some(idx) {
+                return false;
+            }
+            match cat {
+                Catalog::Server(_) => Some(Pick::Roster(idx)),
+                Catalog::Static(c) => c.entry(idx).map(|e| Pick::Addr(idx, e.addr)),
+                Catalog::Address(_) => None,
+            }
+        };
+        let Some(pick) = pick else {
+            return false;
+        };
+        let drop = self.drop_before_acquire;
+        self.drop_before_acquire = false;
+        let _ = self.release_all(out);
+        let (ok, idx) = match pick {
+            Pick::Roster(i) => (self.acquire_roster(i, out), i),
+            Pick::Addr(i, addr) => (self.acquire_addr(addr.as_str(), out), i),
+        };
+        self.drop_before_acquire = drop;
+        if ok {
+            self.current_slot_mut().list_idx = Some(idx);
+        }
+        ok
     }
 
     pub fn release_all(&mut self, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {

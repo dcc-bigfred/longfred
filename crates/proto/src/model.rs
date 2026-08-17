@@ -116,6 +116,8 @@ pub struct ThrottleSlot {
     pub labels: [ShortText; MAX_FUNCTIONS],
     pub consist: heapless::Vec<LocoAddr, MAX_LOCOS>,
     pub speed_step: u8,
+    /// Cursor in the effective loco catalogue for HUD list-walk. Independent of slot index.
+    pub list_idx: Option<usize>,
 }
 
 impl ThrottleSlot {
@@ -128,6 +130,7 @@ impl ThrottleSlot {
             labels: core::array::from_fn(|_| ShortText::new()),
             consist: heapless::Vec::new(),
             speed_step,
+            list_idx: None,
         }
     }
 

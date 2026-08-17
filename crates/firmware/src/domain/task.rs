@@ -9,7 +9,7 @@ use longfred_proto::command::ClientCommand;
 use longfred_proto::menu::parse_ip_endpoint;
 use longfred_proto::model::Direction;
 use longfred_proto::persist::{PersistRecord, SavedServer};
-use longfred_ui::nav::ScreenId;
+use longfred_ui::nav::{PageDir, ScreenId};
 use longfred_ui::{AppEvent, Intent, UiSession};
 
 use crate::config::{self, power, sizes};
@@ -111,6 +111,17 @@ fn interpret(
         }
         Intent::AcquireRoster(i) => {
             let _ = state.acquire_roster(i, out);
+            if state.current_slot_has_loco() {
+                let dir_action = if spdt_direction == Direction::Forward {
+                    Action::DirectionForward
+                } else {
+                    Action::DirectionReverse
+                };
+                let _ = state.apply_action(dir_action, true, out);
+            }
+        }
+        Intent::SelectLoco(d) => {
+            let _ = state.select_loco(d == PageDir::Next, out);
             if state.current_slot_has_loco() {
                 let dir_action = if spdt_direction == Direction::Forward {
                     Action::DirectionForward

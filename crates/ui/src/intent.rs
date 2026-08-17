@@ -3,6 +3,8 @@
 use longfred_proto::action::Action;
 use longfred_proto::persist::{DeviceIdentity, Language, RosterMode, StaticIpConfig};
 
+use crate::nav::PageDir;
+
 /// Side-effect requested by a screen. Firmware interprets these; the UI crate
 /// does not talk to Wi-Fi, storage, or the command station itself.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -13,6 +15,8 @@ pub enum Intent {
     AcquireAddr,
     /// Acquire WIT roster entry `i`.
     AcquireRoster(usize),
+    /// Walk the effective catalogue inside the current throttle slot.
+    SelectLoco(PageDir),
     /// Release every acquired loco on this throttle.
     ReleaseAll,
     /// Toggle DCC function `0..=31`.
