@@ -4,10 +4,11 @@ use embassy_futures::select::{Either3, select3};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use log::{info, warn};
 use longfred_proto::adapter::{Adapter, WireBuf};
 use longfred_proto::bigfred::BigFredAdapter;
+use longfred_proto::caps::{Probe, http_probe_matches};
 use longfred_proto::command::Protocol;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::persist::DeviceIdentity;
@@ -103,6 +104,61 @@ async fn write_all(sock: &mut TcpSocket<'_>, mut data: &[u8]) -> bool {
         }
     }
     true
+}
+
+async fn probe_bigfred(
+    stack: Stack<'static>,
+    ep: ServerEndpoint,
+    rx: &mut [u8],
+    tx: &mut [u8],
+) -> bool {
+    let Probe::HttpGet { port, path, expect } = Protocol::BigFred.probe() else {
+        return false;
+    };
+    let mut sock = TcpSocket::new(stack, rx, tx);
+    sock.set_timeout(Some(Duration::from_secs(2)));
+    let remote = IpEndpoint::new(IpAddress::v4(ep.ip[0], ep.ip[1], ep.ip[2], ep.ip[3]), port);
+    if !matches!(
+        with_timeout(Duration::from_secs(2), sock.connect(remote)).await,
+        Ok(Ok(()))
+    ) {
+        return false;
+    }
+    let mut request = heapless::String::<128>::new();
+    if core::fmt::write(
+        &mut request,
+        format_args!("GET {path} HTTP/1.1\r\nHost: bigfred\r\nConnection: close\r\n\r\n"),
+    )
+    .is_err()
+        || !write_all(&mut sock, request.as_bytes()).await
+    {
+        return false;
+    }
+
+    let mut response = [0u8; 1024];
+    let mut used = 0usize;
+    while used < response.len() {
+        match with_timeout(Duration::from_secs(2), sock.read(&mut response[used..])).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => used += n,
+            Ok(Err(_)) | Err(_) => break,
+        }
+    }
+    http_probe_matches(&response[..used], expect.as_bytes())
+}
+
+async fn classify_endpoint(
+    stack: Stack<'static>,
+    mut ep: ServerEndpoint,
+    rx: &mut [u8],
+    tx: &mut [u8],
+) -> ServerEndpoint {
+    if ep.protocol == Protocol::WiThrottle && probe_bigfred(stack, ep, rx, tx).await {
+        ep.protocol = Protocol::BigFred;
+        SERVER.sender().send(Some(ep));
+        info!("HTTP probe identified BigFred");
+    }
+    ep
 }
 
 fn make_adapter(ep: ServerEndpoint) -> Adapter {
@@ -280,6 +336,7 @@ pub async fn task(stack: Stack<'static>) {
     loop {
         CONN.sender().send(ConnState::Connecting);
         let ep = wait_for_server().await;
+        let ep = classify_endpoint(stack, ep, tcp_rx, tcp_tx).await;
         let established = match ep.protocol {
             Protocol::WiThrottle | Protocol::BigFred => {
                 run_tcp_session(stack, ep, tcp_rx, tcp_tx).await

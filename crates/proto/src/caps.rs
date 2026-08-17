@@ -79,6 +79,23 @@ pub enum Probe {
     },
 }
 
+/// Validate a bounded HTTP probe response without parsing JSON.
+#[must_use]
+pub fn http_probe_matches(response: &[u8], expect: &[u8]) -> bool {
+    let Some(header_end) = response.windows(4).position(|w| w == b"\r\n\r\n") else {
+        return false;
+    };
+    let Some(status_end) = response.windows(2).position(|w| w == b"\r\n") else {
+        return false;
+    };
+    let status = &response[..status_end];
+    let ok = status.starts_with(b"HTTP/1.1 200 ") || status.starts_with(b"HTTP/1.0 200 ");
+    ok && !expect.is_empty()
+        && response[header_end + 4..]
+            .windows(expect.len())
+            .any(|w| w == expect)
+}
+
 /// Closed set of protocol abilities. UI and domain consult this, not `Protocol` identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProtocolCaps {
@@ -235,5 +252,22 @@ mod tests {
         assert_eq!(w.transport, b.transport);
         assert_eq!(w.mdns_service, b.mdns_service);
         assert!(b.pairing && !w.pairing);
+    }
+
+    #[test]
+    fn http_probe_requires_200_and_product_in_body() {
+        let expect = br#""product":"bigfred""#;
+        assert!(http_probe_matches(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"product\":\"bigfred\"}",
+            expect
+        ));
+        assert!(!http_probe_matches(
+            b"HTTP/1.1 404 Not Found\r\n\r\n{\"product\":\"bigfred\"}",
+            expect
+        ));
+        assert!(!http_probe_matches(
+            b"HTTP/1.1 200 OK\r\nX-Product: \"product\":\"bigfred\"\r\n\r\n{}",
+            expect
+        ));
     }
 }
