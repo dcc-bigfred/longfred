@@ -1,6 +1,7 @@
 //! Network layer: WiFi STA + embassy-net stack, mDNS, protocol session.
 
 pub mod mdns;
+pub mod pairing_http;
 #[cfg(not(feature = "sim"))]
 pub mod ping;
 #[cfg(not(feature = "sim"))]

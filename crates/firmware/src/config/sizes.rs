@@ -9,8 +9,8 @@ pub const MAX_FOUND_WIT_SERVERS: usize = MAX_FOUND_SERVERS;
 pub const MAX_SSID_LEN: usize = 32;
 pub const MAX_PASSWORD_LEN: usize = 64;
 
-/// embassy-net socket count (DHCP + DNS + mDNS UDP + session TCP/UDP + HTTP OTA + ICMP).
-pub const NET_SOCKETS: usize = 7;
+/// embassy-net sockets, including concurrent session TCP and pairing HTTP client.
+pub const NET_SOCKETS: usize = 8;
 
 /// Soft-AP programming stack: HTTP TCP + DHCP UDP + spare.
 pub const PROG_NET_SOCKETS: usize = 4;

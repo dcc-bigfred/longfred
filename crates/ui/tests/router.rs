@@ -420,6 +420,16 @@ fn pairing_lifecycle_routes_globally() {
     assert_eq!(router.screen_id(), ScreenId::Pairing);
     {
         let mut cx = fx.ctx();
+        let _ = router.on_app_event(longfred_ui::AppEvent::PairingStarted, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::PairingWait);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.on_app_event(longfred_ui::AppEvent::PairingFailed, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Pairing);
+    {
+        let mut cx = fx.ctx();
         let _ = router.on_app_event(longfred_ui::AppEvent::PairingSucceeded, &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Throttle);

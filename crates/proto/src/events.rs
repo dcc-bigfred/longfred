@@ -62,8 +62,6 @@ pub enum ServerEvent {
 
     /// BigFred sentinel roster entry requests a six-digit pairing code.
     PairingRequired,
-    /// Firmware obtained a code from the authenticated HTTP endpoint.
-    PairingCodeReceived(heapless::String<6>),
     /// BigFred accepted the pairing sequence.
     PairingSucceeded(ShortText),
     /// Pairing timed out; UI should ask for a fresh code.

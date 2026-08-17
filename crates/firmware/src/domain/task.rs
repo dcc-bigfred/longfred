@@ -16,6 +16,9 @@ use crate::config::{self, power, sizes};
 use crate::domain::actions::Action;
 use crate::domain::state::{CMD_BUF, DomainState};
 use crate::input;
+use crate::net::pairing_http::{
+    PAIRING_HTTP_CTRL, PAIRING_HTTP_RESULT, PairingHttpRequest, PairingHttpResult,
+};
 use crate::net::{
     self, CONN, ConnState, DEVICE, FOUND_SERVERS, MDNS_CTRL, NET_CONFIG_CTRL, NetStatus,
     PROTO_COMMANDS, PROTO_EVENTS, SERVER, STATE, ServerEndpoint, WIFI_CTRL, WIFI_HOSTNAME,
@@ -324,6 +327,26 @@ fn on_wifi_wizard(id: ScreenId) -> bool {
     )
 }
 
+fn start_pairing_http(state: &DomainState) -> bool {
+    let Some(endpoint) = SERVER.sender().try_get().flatten() else {
+        return false;
+    };
+    if endpoint.protocol != longfred_proto::Protocol::BigFred
+        || state.persist.bigfred_login.is_empty()
+        || state.persist.bigfred_pin.is_empty()
+    {
+        return false;
+    }
+    PAIRING_HTTP_CTRL
+        .try_send(PairingHttpRequest {
+            endpoint,
+            login: state.persist.bigfred_login.clone(),
+            pin: state.persist.bigfred_pin.clone(),
+            device_id: state.persist.device.id_wire(),
+        })
+        .is_ok()
+}
+
 #[embassy_executor::task]
 pub async fn task() {
     let mut ui = adapter::UiWorld::new();
@@ -334,6 +357,7 @@ pub async fn task() {
     let srv_tx = SERVER.sender();
     let storage_tx = STORAGE_CTRL.sender();
     let ui_tx = UI_VIEW.sender();
+    let pairing_http_rx = PAIRING_HTTP_RESULT.receiver();
 
     let mut out: heapless::Vec<ClientCommand, CMD_BUF> = heapless::Vec::new();
     let mut last_cmd = Instant::from_ticks(0);
@@ -341,6 +365,8 @@ pub async fn task() {
     let mut restored_this_session = false;
     let mut last_activity = Instant::now();
     let mut spdt_direction = Direction::Forward;
+    let mut pairing_active = false;
+    let mut pairing_http_tried = false;
 
     let mut net_rx = STATE.receiver();
     let mut conn_rx = CONN.receiver();
@@ -523,20 +549,29 @@ pub async fn task() {
             Either3::Second(sev) => {
                 out.clear();
                 let app_event = match &sev {
-                    longfred_proto::ServerEvent::PairingCodeReceived(code) => {
-                        ui.state.persist.bigfred_pairing_code = code.clone();
-                        let _ = storage_tx.try_send(StorageCmd::SavePairingCode(code.clone()));
-                        None
-                    }
+                    longfred_proto::ServerEvent::PairingRequired if pairing_active => None,
                     longfred_proto::ServerEvent::PairingRequired
                         if !ui.state.persist.bigfred_pairing_code.is_empty() =>
                     {
+                        pairing_active = true;
                         let code = ui.state.persist.bigfred_pairing_code.clone();
                         let _ = out.push(ClientCommand::Pair { code });
                         Some(AppEvent::PairingStarted)
                     }
-                    longfred_proto::ServerEvent::PairingRequired => Some(AppEvent::PairingRequired),
+                    longfred_proto::ServerEvent::PairingRequired
+                        if !pairing_http_tried && start_pairing_http(&ui.state) =>
+                    {
+                        pairing_active = true;
+                        pairing_http_tried = true;
+                        Some(AppEvent::PairingStarted)
+                    }
+                    longfred_proto::ServerEvent::PairingRequired => {
+                        pairing_active = true;
+                        Some(AppEvent::PairingRequired)
+                    }
                     longfred_proto::ServerEvent::PairingSucceeded(_) => {
+                        pairing_active = false;
+                        pairing_http_tried = false;
                         ui.state.persist.bigfred_pairing_code.clear();
                         let _ = storage_tx
                             .try_send(StorageCmd::SavePairingCode(heapless::String::new()));
@@ -546,7 +581,14 @@ pub async fn task() {
                         ui.state.persist.bigfred_pairing_code.clear();
                         let _ = storage_tx
                             .try_send(StorageCmd::SavePairingCode(heapless::String::new()));
-                        Some(AppEvent::PairingFailed)
+                        if !pairing_http_tried && start_pairing_http(&ui.state) {
+                            pairing_active = true;
+                            pairing_http_tried = true;
+                            Some(AppEvent::PairingStarted)
+                        } else {
+                            pairing_active = true;
+                            Some(AppEvent::PairingFailed)
+                        }
                     }
                     _ => None,
                 };
@@ -766,6 +808,8 @@ pub async fn task() {
                     }
                 } else if w == ConnState::Disconnected {
                     ui.state.end_session();
+                    pairing_active = false;
+                    pairing_http_tried = false;
                     restored_this_session = false;
                 }
             }
@@ -806,6 +850,38 @@ pub async fn task() {
 
         if let Some(b) = battery_rx.as_mut().and_then(|r| r.try_get()) {
             ui.battery = b;
+        }
+
+        if let Ok(result) = pairing_http_rx.try_receive() {
+            let endpoint = match &result {
+                PairingHttpResult::Code { endpoint, .. }
+                | PairingHttpResult::Failed { endpoint } => *endpoint,
+            };
+            let still_current = CONN.sender().try_get() == Some(ConnState::Connected)
+                && SERVER.sender().try_get().flatten() == Some(endpoint);
+            if still_current {
+                let event = match result {
+                    PairingHttpResult::Code { code, .. } => {
+                        ui.state.persist.bigfred_pairing_code = code.clone();
+                        let _ = storage_tx.try_send(StorageCmd::SavePairingCode(code.clone()));
+                        let _ = out.push(ClientCommand::Pair { code });
+                        AppEvent::PairingStarted
+                    }
+                    PairingHttpResult::Failed { .. } => AppEvent::PairingRequired,
+                };
+                let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                    router.on_app_event(event, cx)
+                });
+                run_intents(
+                    &mut ui,
+                    follow,
+                    spdt_direction,
+                    &mut out,
+                    &wifi_tx,
+                    &srv_tx,
+                    &storage_tx,
+                );
+            }
         }
 
         ui.state.poll_roster_timeout(Instant::now());

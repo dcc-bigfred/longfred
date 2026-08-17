@@ -130,6 +130,9 @@ async fn main(spawner: Spawner) -> ! {
             if let Ok(token) = net::session::task(stack) {
                 spawner.spawn(token);
             }
+            if let Ok(token) = net::pairing_http::task(stack) {
+                spawner.spawn(token);
+            }
             if let Ok(token) = net::ping::task(stack) {
                 spawner.spawn(token);
             }
