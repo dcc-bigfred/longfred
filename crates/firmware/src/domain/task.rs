@@ -523,6 +523,11 @@ pub async fn task() {
             Either3::Second(sev) => {
                 out.clear();
                 let app_event = match &sev {
+                    longfred_proto::ServerEvent::PairingCodeReceived(code) => {
+                        ui.state.persist.bigfred_pairing_code = code.clone();
+                        let _ = storage_tx.try_send(StorageCmd::SavePairingCode(code.clone()));
+                        None
+                    }
                     longfred_proto::ServerEvent::PairingRequired
                         if !ui.state.persist.bigfred_pairing_code.is_empty() =>
                     {

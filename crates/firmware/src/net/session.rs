@@ -11,12 +11,16 @@ use longfred_proto::bigfred::BigFredAdapter;
 use longfred_proto::caps::{Probe, http_probe_matches};
 use longfred_proto::command::Protocol;
 use longfred_proto::events::ServerEvent;
+use longfred_proto::pairing_http::{
+    HANDSET_PAIRING_PATH, encode_request, parse_response, response_body,
+};
 use longfred_proto::persist::DeviceIdentity;
 use longfred_proto::wt::WtAdapter;
 use longfred_proto::z21::Z21Adapter;
 
 use crate::config;
 use crate::net::{CONN, ConnState, DEVICE, PROTO_COMMANDS, PROTO_EVENTS, SERVER, ServerEndpoint};
+use crate::storage::PERSIST_LOADED;
 
 const TCP_RX_SIZE: usize = 1024;
 const TCP_TX_SIZE: usize = 1024;
@@ -159,6 +163,78 @@ async fn classify_endpoint(
         info!("HTTP probe identified BigFred");
     }
     ep
+}
+
+async fn request_pairing_code(
+    stack: Stack<'static>,
+    ep: ServerEndpoint,
+    rx: &mut [u8],
+    tx: &mut [u8],
+) -> Option<heapless::String<6>> {
+    if ep.protocol != Protocol::BigFred {
+        return None;
+    }
+    let rec = PERSIST_LOADED.sender().try_get()?;
+    if rec.bigfred_login.is_empty()
+        || rec.bigfred_pin.is_empty()
+        || !rec.bigfred_pairing_code.is_empty()
+    {
+        return None;
+    }
+    let device = DEVICE.sender().try_get()?;
+    let device_id = device.id_wire();
+    let mut json = [0u8; 256];
+    let json_len = encode_request(
+        &mut json,
+        rec.bigfred_login.as_str(),
+        rec.bigfred_pin.as_str(),
+        device_id.as_str(),
+    )?;
+
+    let Probe::HttpGet { port, .. } = Protocol::BigFred.probe() else {
+        return None;
+    };
+    let mut sock = TcpSocket::new(stack, rx, tx);
+    sock.set_timeout(Some(Duration::from_secs(3)));
+    let remote = IpEndpoint::new(IpAddress::v4(ep.ip[0], ep.ip[1], ep.ip[2], ep.ip[3]), port);
+    if !matches!(
+        with_timeout(Duration::from_secs(3), sock.connect(remote)).await,
+        Ok(Ok(()))
+    ) {
+        return None;
+    }
+    let mut header = heapless::String::<256>::new();
+    core::fmt::write(
+        &mut header,
+        format_args!(
+            "POST {HANDSET_PAIRING_PATH} HTTP/1.1\r\nHost: bigfred\r\n\
+             Content-Type: application/json\r\nContent-Length: {json_len}\r\n\
+             Connection: close\r\n\r\n"
+        ),
+    )
+    .ok()?;
+    if !write_all(&mut sock, header.as_bytes()).await
+        || !write_all(&mut sock, &json[..json_len]).await
+    {
+        return None;
+    }
+
+    let mut response = [0u8; 1024];
+    let mut used = 0usize;
+    while used < response.len() {
+        match with_timeout(Duration::from_secs(3), sock.read(&mut response[used..])).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => used += n,
+            Ok(Err(_)) | Err(_) => break,
+        }
+    }
+    let body = response_body(&response[..used], 201)?;
+    let parsed = parse_response(body)?;
+    info!(
+        "handset pairing code received for layout {} station {}, expires {}",
+        parsed.layout_id, parsed.command_station_id, parsed.expires_at
+    );
+    Some(parsed.pairing_code)
 }
 
 fn make_adapter(ep: ServerEndpoint) -> Adapter {
@@ -337,6 +413,9 @@ pub async fn task(stack: Stack<'static>) {
         CONN.sender().send(ConnState::Connecting);
         let ep = wait_for_server().await;
         let ep = classify_endpoint(stack, ep, tcp_rx, tcp_tx).await;
+        if let Some(code) = request_pairing_code(stack, ep, tcp_rx, tcp_tx).await {
+            emit_event(ServerEvent::PairingCodeReceived(code));
+        }
         let established = match ep.protocol {
             Protocol::WiThrottle | Protocol::BigFred => {
                 run_tcp_session(stack, ep, tcp_rx, tcp_tx).await

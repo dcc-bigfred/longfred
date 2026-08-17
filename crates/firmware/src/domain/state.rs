@@ -521,6 +521,7 @@ impl DomainState {
             | ServerEvent::ServerDescription(_)
             | ServerEvent::WebPort(_)
             | ServerEvent::PairingRequired
+            | ServerEvent::PairingCodeReceived(_)
             | ServerEvent::PairingSucceeded(_)
             | ServerEvent::PairingFailed
             | ServerEvent::Unknown(_) => false,

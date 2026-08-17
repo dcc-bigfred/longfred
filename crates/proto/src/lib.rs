@@ -18,6 +18,7 @@ pub mod mdns;
 pub mod menu;
 pub mod model;
 pub mod net_status;
+pub mod pairing_http;
 pub mod parser;
 pub mod persist;
 pub mod protocol;
