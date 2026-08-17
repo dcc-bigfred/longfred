@@ -60,4 +60,13 @@ impl Adapter {
             a.heartbeat_period = seconds.max(1);
         }
     }
+
+    /// Capabilities of the live adapter. BigFred still rides `Wt` until its own type exists.
+    #[must_use]
+    pub fn caps(&self) -> crate::caps::ProtocolCaps {
+        match self {
+            Adapter::Wt(_) => crate::command::Protocol::WiThrottle.caps(),
+            Adapter::Z21(_) => crate::command::Protocol::Z21.caps(),
+        }
+    }
 }

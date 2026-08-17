@@ -6,6 +6,8 @@ use crate::model::{Direction, ShortText};
 pub enum Protocol {
     WiThrottle,
     Z21,
+    /// WiThrottle plus pairing (same TCP port / mDNS as WiThrottle until probed).
+    BigFred,
 }
 
 impl Protocol {
@@ -13,6 +15,7 @@ impl Protocol {
         match self {
             Self::WiThrottle => 0,
             Self::Z21 => 1,
+            Self::BigFred => 2,
         }
     }
 
@@ -20,6 +23,7 @@ impl Protocol {
         match v {
             0 => Some(Self::WiThrottle),
             1 => Some(Self::Z21),
+            2 => Some(Self::BigFred),
             _ => None,
         }
     }

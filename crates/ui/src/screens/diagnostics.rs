@@ -2,7 +2,6 @@
 
 use core::fmt::Write as _;
 
-use longfred_proto::command::Protocol;
 use longfred_proto::net_status::{PingStatus, ServerEndpoint};
 
 use super::helpers::{write_ip_line, write_mac};
@@ -120,11 +119,8 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
                 .or_else(|| cx.drive.persist.last_server.map(|s| s.protocol));
             let mut l = Line::new();
             match proto {
-                Some(Protocol::WiThrottle) => {
-                    let _ = l.push_str("WiThrottle");
-                }
-                Some(Protocol::Z21) => {
-                    let _ = l.push_str("Z21");
+                Some(p) => {
+                    let _ = l.push_str(p.display_name());
                 }
                 None => {
                     let _ = l.push_str(na);

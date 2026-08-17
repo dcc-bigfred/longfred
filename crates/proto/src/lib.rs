@@ -7,6 +7,8 @@
 
 pub mod action;
 pub mod adapter;
+pub mod caps;
+pub mod catalog;
 pub mod command;
 pub mod events;
 pub mod image;
@@ -23,6 +25,8 @@ pub mod wt;
 pub mod z21;
 
 pub use action::Action;
+pub use caps::{LocoSource, LocoSourceMask, Probe, ProtocolCaps, Transport};
+pub use catalog::{AddressCatalog, Catalog, LocoCatalog, LocoRef, ServerCatalog, StaticCatalog};
 pub use command::{ClientCommand, LocoId, Protocol};
 pub use events::ServerEvent;
 pub use model::{Direction, TrackPower};

@@ -94,6 +94,18 @@ pub struct StaticRosterEntry {
     pub name: heapless::String<MAX_STATIC_ROSTER_NAME_LEN>,
 }
 
+impl StaticRosterEntry {
+    /// Name if set, otherwise the address string.
+    #[must_use]
+    pub fn display_name(&self) -> &str {
+        if self.name.is_empty() {
+            self.addr.as_str()
+        } else {
+            self.name.as_str()
+        }
+    }
+}
+
 /// Last command-station endpoint (WiThrottle / Z21).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SavedServer {

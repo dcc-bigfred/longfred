@@ -1,5 +1,6 @@
 //! Roster / locomotive picker.
 
+use longfred_proto::catalog::{Catalog, LocoCatalog};
 use longfred_proto::model::MAX_ROSTER;
 
 use super::helpers::{digit_key, height, page_list, step_list};
@@ -24,39 +25,57 @@ impl RosterListScreen {
         }
     }
 
-    /// Live WIT roster names, or persisted static roster (name, else address).
+    fn catalog<'a>(cx: &'a ScreenCtx<'_>) -> Catalog<'a> {
+        Catalog::prefer_live(cx.drive.roster, &cx.drive.persist.static_roster)
+    }
+
     fn names<'a>(cx: &'a ScreenCtx<'_>) -> heapless::Vec<&'a str, MAX_ROSTER> {
+        use longfred_proto::LocoSource;
+        let source = Self::catalog(cx).source();
         let mut v = heapless::Vec::new();
-        if cx.drive.roster.is_empty() {
-            for e in &cx.drive.persist.static_roster {
-                let s = if e.name.is_empty() {
-                    e.addr.as_str()
-                } else {
-                    e.name.as_str()
-                };
-                if v.push(s).is_err() {
-                    break;
+        match source {
+            LocoSource::ServerRoster => {
+                for e in cx.drive.roster {
+                    if v.push(e.name.as_str()).is_err() {
+                        break;
+                    }
                 }
             }
-        } else {
-            for e in cx.drive.roster {
-                if v.push(e.name.as_str()).is_err() {
-                    break;
+            LocoSource::StaticRoster => {
+                for e in &cx.drive.persist.static_roster {
+                    if v.push(e.display_name()).is_err() {
+                        break;
+                    }
                 }
             }
+            LocoSource::AddressOnly => {}
         }
         v
     }
 
     fn acquire_at(cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
-        if !cx.drive.roster.is_empty() {
-            nav.emit(Intent::AcquireRoster(
-                idx.min(cx.drive.roster.len().saturating_sub(1)),
-            ));
-        } else if let Some(e) = cx.drive.persist.static_roster.get(idx) {
-            cx.session.addr.clear();
-            let _ = cx.session.addr.push_str(e.addr.as_str());
-            nav.emit(Intent::AcquireAddr);
+        enum Pick {
+            Roster(usize),
+            Addr(heapless::String<8>),
+        }
+        let pick = {
+            let cat = Self::catalog(cx);
+            match cat {
+                Catalog::Server(c) if c.allows_pick() => {
+                    Some(Pick::Roster(idx.min(c.len().saturating_sub(1))))
+                }
+                Catalog::Static(c) => c.entry(idx).map(|e| Pick::Addr(e.addr)),
+                Catalog::Server(_) | Catalog::Address(_) => None,
+            }
+        };
+        match pick {
+            Some(Pick::Roster(i)) => nav.emit(Intent::AcquireRoster(i)),
+            Some(Pick::Addr(addr)) => {
+                cx.session.addr.clear();
+                let _ = cx.session.addr.push_str(addr.as_str());
+                nav.emit(Intent::AcquireAddr);
+            }
+            None => {}
         }
         nav.root(ScreenId::Throttle);
     }

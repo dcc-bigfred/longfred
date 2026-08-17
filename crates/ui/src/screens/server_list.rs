@@ -35,6 +35,7 @@ impl ServerListScreen {
             let _ = line.push(match s.protocol {
                 Protocol::WiThrottle => 'W',
                 Protocol::Z21 => 'Z',
+                Protocol::BigFred => 'B',
             });
             let _ = v.push(line);
         }

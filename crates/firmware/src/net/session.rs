@@ -111,7 +111,7 @@ fn make_adapter(ep: ServerEndpoint) -> Adapter {
         .unwrap_or_else(DeviceIdentity::empty);
     let id = dev.id_wire();
     match ep.protocol {
-        Protocol::WiThrottle => Adapter::Wt(WtAdapter::new(
+        Protocol::WiThrottle | Protocol::BigFred => Adapter::Wt(WtAdapter::new(
             dev.name.as_str(),
             id.as_str(),
             config::buttons::DEFAULT_HEARTBEAT_PERIOD_S,
@@ -268,7 +268,9 @@ pub async fn task(stack: Stack<'static>) {
         CONN.sender().send(ConnState::Connecting);
         let ep = wait_for_server().await;
         let established = match ep.protocol {
-            Protocol::WiThrottle => run_tcp_session(stack, ep, tcp_rx, tcp_tx).await,
+            Protocol::WiThrottle | Protocol::BigFred => {
+                run_tcp_session(stack, ep, tcp_rx, tcp_tx).await
+            }
             Protocol::Z21 => {
                 run_udp_session(stack, ep, udp_rx_meta, udp_rx, udp_tx_meta, udp_tx).await
             }
