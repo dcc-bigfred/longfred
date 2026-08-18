@@ -89,6 +89,27 @@ pub fn page_list(list: &mut PagedList, d: PageDir, items: &[&str], h: u16) {
     }
 }
 
+/// Digit: append in `*` mode, otherwise numbered-row shortcut.
+pub fn list_digit(list: &mut PagedList, d: u8, items: &[&str], h: u16) -> Option<usize> {
+    if list.buffer_digit(d, items, h) {
+        return None;
+    }
+    list.select_digit(d, items, h)
+}
+
+/// Digit: append in `*` mode, otherwise leading-label shortcut.
+pub fn list_label_digit(list: &mut PagedList, d: u8, items: &[&str], h: u16) -> Option<usize> {
+    if list.buffer_digit(d, items, h) {
+        return None;
+    }
+    list.select_label_digit(d, items, h)
+}
+
+/// `*` confirmed a row (caller should activate the focused item).
+pub fn list_star_confirms(list: &mut PagedList, items: &[&str], h: u16) -> bool {
+    matches!(list.star(items, h), crate::widgets::StarIndex::Confirm(_))
+}
+
 /// Hint on the last visible content row (6 on 128×64, 3 on 128×32).
 pub fn set_list_hint(g: &mut GridView, cx: &ScreenCtx<'_>, hint: &str) {
     g.set(

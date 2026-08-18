@@ -186,6 +186,14 @@ fn interpret(
                 srv_tx.send(Some(ep));
             }
         }
+        Intent::ServerReconnect => {
+            if let Some(saved) = state.persist.last_server {
+                srv_tx.send(Some(endpoint_from_saved(saved)));
+            }
+        }
+        Intent::ServerDisconnect => {
+            srv_tx.send(None);
+        }
         Intent::DeadManSwitchToggle => {
             let _ = state.toggle_dead_man_switch(out);
         }
@@ -1037,6 +1045,8 @@ pub async fn task() {
         }
 
         ui.state.flush_pending_speed(&mut out);
+
+        net::set_ping_enabled(ui.router.screen_id() == ScreenId::Diagnostics);
 
         ui.apply_pending_overlay(Instant::now().as_millis());
         ui.publish_view(Instant::now().as_millis(), &ui_tx);

@@ -5,7 +5,7 @@ use crate::input::InputEvent;
 use crate::intent::{AppEvent, Intent};
 use crate::nav::{Nav, NavCmd, OverlayRequest, PageDir, ScreenId, Step};
 use crate::nav_profile::{NavAction, NavProfile};
-use crate::screen::Screen;
+use crate::screen::{InputMode, Screen};
 use crate::screens::helpers::has_loco;
 use crate::screens::{ScreenState, new_screen};
 use crate::view::{OverlayView, UiView};
@@ -127,10 +127,10 @@ impl Router {
             return self.handle_overlay_input(ev);
         }
         let mode = self.current.key_bindings(cx);
-        let action = self.profile.map(ev, mode);
-        if action == NavAction::Cancel && ev == InputEvent::Digit('*') {
+        if mode == InputMode::Navigation && ev == InputEvent::Digit('*') {
             return self.with_nav(cx, super::screen::Screen::on_star);
         }
+        let action = self.profile.map(ev, mode);
         self.dispatch(action, cx)
     }
 

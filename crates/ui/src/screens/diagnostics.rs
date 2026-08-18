@@ -1,4 +1,4 @@
-//! Six-page diagnostics (battery / version / board / RF / Wi-Fi / ping).
+//! Five-page diagnostics (battery / version / board / RF+ping / Wi-Fi).
 
 use core::fmt::Write as _;
 
@@ -10,9 +10,9 @@ use crate::nav::{Nav, PageDir, ScreenId};
 use crate::screen::Screen;
 use crate::view::{Line, UiView, fill_list_page};
 
-const DIAG_PAGES: usize = 6;
+const DIAG_PAGES: usize = 5;
 
-/// Six-page diagnostics (battery / version / board / RF / Wi-Fi / ping).
+/// Five-page diagnostics (battery / version / board / RF+ping / Wi-Fi).
 pub struct DiagnosticsScreen {
     page: usize,
 }
@@ -36,14 +36,14 @@ impl Screen for DiagnosticsScreen {
         ScreenId::Diagnostics
     }
 
-    /// Title plus the current diagnostics page (battery / version / board / RF / Wi-Fi / ping).
+    /// Title plus the current diagnostics page (battery / version / board / RF+ping / Wi-Fi).
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         draw_diagnostics(&mut g, self.page, cx);
         UiView::Grid(g)
     }
 
-    /// Next wraps 0..5. Prev on page 0 leaves diagnostics; otherwise goes back one page.
+    /// Next wraps 0..4. Prev on page 0 leaves diagnostics; otherwise goes back one page.
     fn on_page(&mut self, d: PageDir, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match d {
             PageDir::Next => self.page = (self.page + 1) % DIAG_PAGES,
@@ -56,7 +56,7 @@ impl Screen for DiagnosticsScreen {
     fn on_select(&mut self, _cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {}
 }
 
-/// Fill `g` with one of six diagnostic pages. Title is row 0; body uses list layout.
+/// Fill `g` with one of five diagnostic pages. Title is row 0; body uses list layout.
 #[allow(clippy::too_many_lines)]
 fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'_>) {
     g.foot_line = false;
@@ -68,8 +68,7 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
         1 => t.diag_version,
         2 => t.diag_software,
         3 => t.diag_range,
-        4 => t.diag_wifi,
-        _ => t.diag_ping,
+        _ => t.diag_wifi,
     };
     g.set(0, title, false);
 
@@ -141,8 +140,41 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
                 let mut l = Line::new();
                 let _ = write!(l, "RSSI {} dB", link.rssi);
                 let _ = lines.push(l);
+            } else {
+                let mut l = Line::new();
+                let _ = l.push_str(na);
+                let _ = lines.push(l);
+            }
+            let mut l = Line::new();
+            match cx.net.ping {
+                PingStatus::Ms(ms) => {
+                    let _ = write!(l, "{ms} ms");
+                }
+                PingStatus::Timeout => {
+                    let _ = l.push_str(t.diag_timeout);
+                }
+                PingStatus::Idle => {
+                    let _ = l.push_str(na);
+                }
+            }
+            let _ = lines.push(l);
+            if let Some(link) = cx.net.wifi_link.as_ref() {
                 let mut l = Line::new();
                 let _ = write!(l, "ch {}", link.channel);
+                let _ = lines.push(l);
+            }
+            let ep = cx.net.server.or_else(|| {
+                cx.drive.persist.last_server.map(|s| ServerEndpoint {
+                    ip: s.ip,
+                    port: s.port,
+                    protocol: s.protocol,
+                })
+            });
+            if let Some(ep) = ep {
+                let mut l = Line::new();
+                write_ip_line(&mut l, ep.ip);
+                let _ = l.push(':');
+                let _ = write!(l, "{}", ep.port);
                 let _ = lines.push(l);
             } else {
                 let mut l = Line::new();
@@ -150,7 +182,7 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
                 let _ = lines.push(l);
             }
         }
-        4 => {
+        _ => {
             if let Some(link) = cx.net.wifi_link.as_ref() {
                 let mut l = Line::new();
                 let _ = l.push_str(link.ssid.as_str());
@@ -190,39 +222,6 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
             }
             let _ = lines.push(l);
         }
-        _ => {
-            let ep = cx.net.server.or_else(|| {
-                cx.drive.persist.last_server.map(|s| ServerEndpoint {
-                    ip: s.ip,
-                    port: s.port,
-                    protocol: s.protocol,
-                })
-            });
-            if let Some(ep) = ep {
-                let mut l = Line::new();
-                write_ip_line(&mut l, ep.ip);
-                let _ = l.push(':');
-                let _ = write!(l, "{}", ep.port);
-                let _ = lines.push(l);
-            } else {
-                let mut l = Line::new();
-                let _ = l.push_str(na);
-                let _ = lines.push(l);
-            }
-            let mut l = Line::new();
-            match cx.net.ping {
-                PingStatus::Ms(ms) => {
-                    let _ = write!(l, "{ms} ms");
-                }
-                PingStatus::Timeout => {
-                    let _ = l.push_str(t.diag_timeout);
-                }
-                PingStatus::Idle => {
-                    let _ = l.push_str(na);
-                }
-            }
-            let _ = lines.push(l);
-        }
     }
 
     let mut refs: heapless::Vec<&str, 8> = heapless::Vec::new();
@@ -234,6 +233,7 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
         cursor: usize::MAX,
         numbered: false,
         footer: false,
+        index: None,
     };
     fill_list_page(g, &refs, &list, cx.env.geometry.height);
 }

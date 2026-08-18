@@ -2,7 +2,10 @@
 
 use longfred_proto::model::MAX_FOUND_SSIDS;
 
-use super::helpers::{digit_key, height, page_list, pick_ssid, set_list_hint, step_list};
+use super::helpers::{
+    digit_key, height, list_digit, list_star_confirms, page_list, pick_ssid, set_list_hint,
+    step_list,
+};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -82,16 +85,42 @@ impl Screen for SsidScanScreen {
         nav.emit(Intent::WifiScan);
     }
 
-    /// Digit jumps to that SSID and selects it.
+    /// Digit jumps to that SSID and selects it; `*` builds a 1-based index.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let Some(d) = digit_key(c) else { return };
         let idx = {
             let names = Self::names(cx);
             let h = height(cx);
-            self.list
-                .select_digit(d, &names, h)
-                .is_some()
-                .then(|| self.list.global_index(&names, h))
+            list_digit(&mut self.list, d, &names, h)
+        };
+        if let Some(idx) = idx {
+            Self::pick_at(cx, nav, idx);
+        }
+    }
+
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let idx = {
+            let names = Self::names(cx);
+            let h = height(cx);
+            list_star_confirms(&mut self.list, &names, h).then(|| self.list.global_index(&names, h))
+        };
+        if let Some(idx) = idx {
+            Self::pick_at(cx, nav, idx);
+        }
+    }
+
+    fn on_fn_key(&mut self, k: u8, down: bool, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if !down {
+            return;
+        }
+        let idx = {
+            let names = Self::names(cx);
+            let h = height(cx);
+            let found = self.list.select_fn_key(k, &names, h);
+            if found.is_some() {
+                let _ = self.list.clear_index();
+            }
+            found
         };
         if let Some(idx) = idx {
             Self::pick_at(cx, nav, idx);
@@ -100,6 +129,7 @@ impl Screen for SsidScanScreen {
 
     /// Remember the scanned SSID and open the password screen.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let _ = self.list.clear_index();
         let idx = {
             let names = Self::names(cx);
             self.list.global_index(&names, height(cx))
@@ -109,6 +139,9 @@ impl Screen for SsidScanScreen {
 
     /// Back to compiled SSIDs when they exist; otherwise stay (scan is the root list).
     fn on_cancel(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if self.list.clear_index() {
+            return;
+        }
         if !cx.env.compiled_networks.is_empty() {
             nav.replace(ScreenId::SsidList);
         }

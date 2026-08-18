@@ -4,13 +4,15 @@ use longfred_proto::action::Action;
 use longfred_proto::persist::RosterMode;
 
 use super::helpers::{
-    digit_key, height, next_throttle_count, overlay_prefixed_count, page_list, step_list,
+    digit_key, height, list_digit, list_star_confirms, next_throttle_count, overlay_prefixed_count,
+    page_list, step_list,
 };
 use crate::context::ScreenCtx;
 use crate::i18n::Strings;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::screen::{KeyBindings, Screen};
+use crate::session::ChoiceKind;
 use crate::view::UiView;
 use crate::widgets::PagedList;
 
@@ -90,14 +92,8 @@ impl ExtrasItem {
                 nav.root(ScreenId::Throttle);
             }
             Self::DeadManSwitch => {
-                nav.emit(Intent::DeadManSwitchToggle);
-                let on = !cx.drive.dead_man_switch_on;
-                nav.overlay(if on {
-                    cx.s.overlay_dead_man_on
-                } else {
-                    cx.s.overlay_dead_man_off
-                });
-                nav.root(ScreenId::Throttle);
+                cx.session.choice = ChoiceKind::DeadMan;
+                nav.go(ScreenId::Choice);
             }
             Self::ThrottlesPlus => {
                 nav.emit(Intent::Action(Action::MaxThrottleIncrease));
@@ -127,7 +123,8 @@ impl ExtrasItem {
             }
             Self::Language => nav.go(ScreenId::Language),
             Self::RosterSource => {
-                nav.emit(Intent::SetRosterMode(cx.drive.persist.roster_mode.next()));
+                cx.session.choice = ChoiceKind::RosterSource;
+                nav.go(ScreenId::Choice);
             }
             Self::Firmware => nav.go(ScreenId::FirmwareUpdate),
             Self::Diagnostics => nav.go(ScreenId::Diagnostics),
@@ -141,11 +138,11 @@ pub struct ExtrasScreen {
 }
 
 impl ExtrasScreen {
-    /// Unnumbered extras list (settings + toggles).
+    /// Numbered extras list (settings + toggles).
     #[must_use]
     pub fn new() -> Self {
         Self {
-            list: PagedList::new(false),
+            list: PagedList::new(true),
         }
     }
 
@@ -179,12 +176,12 @@ impl Screen for ExtrasScreen {
         KeyBindings::NAVIGATION
     }
 
-    /// Title plus a paged extras list (no 1-based numbering).
+    /// Title plus a numbered paged extras list.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
-        g.set(0, cx.s.menu_extras, false);
         let labels = Self::labels(cx);
-        crate::view::fill_list_page(&mut g, &labels, &self.list, height(cx));
+        self.list
+            .draw(&mut g, Some(cx.s.menu_extras), &labels, height(cx));
         UiView::Grid(g)
     }
 
@@ -200,22 +197,57 @@ impl Screen for ExtrasScreen {
         page_list(&mut self.list, d, &labels, height(cx));
     }
 
-    /// Digit jumps to that row and selects it.
+    /// Digit jumps to that row and selects it; in `*` mode digits build a 1-based index.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let Some(d) = digit_key(c) else { return };
         let labels = Self::labels(cx);
         let h = height(cx);
-        if self.list.select_label_digit(d, &labels, h).is_some()
+        if list_digit(&mut self.list, d, &labels, h).is_some()
             && let Some(item) = self.current_at(&labels, h)
         {
             item.activate(cx, nav);
         }
     }
 
+    /// `*` starts, cancels, or confirms a typed row number.
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let labels = Self::labels(cx);
+        let h = height(cx);
+        if list_star_confirms(&mut self.list, &labels, h)
+            && let Some(item) = self.current_at(&labels, h)
+        {
+            item.activate(cx, nav);
+        }
+    }
+
+    /// Shift+F selects that 1-based row (`Shift`+F4 → 13).
+    fn on_fn_key(&mut self, k: u8, down: bool, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if !down {
+            return;
+        }
+        let labels = Self::labels(cx);
+        let h = height(cx);
+        if self.list.select_fn_key(k, &labels, h).is_some() {
+            let _ = self.list.clear_index();
+            if let Some(item) = self.current_at(&labels, h) {
+                item.activate(cx, nav);
+            }
+        }
+    }
+
     /// Open a settings screen, or emit a toggle and return to throttle.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let _ = self.list.clear_index();
         if let Some(item) = self.current(cx) {
             item.activate(cx, nav);
         }
+    }
+
+    /// Back leaves extras unless `*` index-entry is active.
+    fn on_cancel(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if self.list.clear_index() {
+            return;
+        }
+        nav.back();
     }
 }

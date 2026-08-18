@@ -369,7 +369,10 @@ impl DomainState {
         out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
     ) -> bool {
         self.dead_man_switch_on = !self.dead_man_switch_on;
-        push_cmd(out, ClientCommand::SetDeadManSwitch(self.dead_man_switch_on));
+        push_cmd(
+            out,
+            ClientCommand::SetDeadManSwitch(self.dead_man_switch_on),
+        );
         true
     }
 

@@ -3,7 +3,9 @@
 use longfred_proto::command::Protocol;
 use longfred_proto::model::MAX_FOUND_SERVERS;
 
-use super::helpers::{digit_key, height, page_list, set_list_hint, step_list};
+use super::helpers::{
+    digit_key, height, list_digit, list_star_confirms, page_list, set_list_hint, step_list,
+};
 use crate::context::ScreenCtx;
 use crate::intent::{AppEvent, Intent};
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -126,22 +128,46 @@ impl Screen for ServerListScreen {
         }
     }
 
-    /// `*` opens the protocol picker.
+    /// `*` starts or confirms a typed row number (protocol picker is Stop / Extra).
     fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
-        Self::open_proto(cx, nav);
+        let idx = {
+            let bufs = Self::labels(cx);
+            let names = Self::name_refs(&bufs);
+            let h = height(cx);
+            list_star_confirms(&mut self.list, &names, h).then(|| self.list.global_index(&names, h))
+        };
+        if let Some(idx) = idx {
+            Self::connect_at(cx, nav, idx);
+        }
     }
 
-    /// Digit jumps to that server and connects.
+    /// Digit jumps to that server and connects; `*` mode builds a 1-based index.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let Some(d) = digit_key(c) else { return };
         let idx = {
             let bufs = Self::labels(cx);
             let names = Self::name_refs(&bufs);
             let h = height(cx);
-            self.list
-                .select_digit(d, &names, h)
-                .is_some()
-                .then(|| self.list.global_index(&names, h))
+            list_digit(&mut self.list, d, &names, h)
+        };
+        if let Some(idx) = idx {
+            Self::connect_at(cx, nav, idx);
+        }
+    }
+
+    fn on_fn_key(&mut self, k: u8, down: bool, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if !down {
+            return;
+        }
+        let idx = {
+            let bufs = Self::labels(cx);
+            let names = Self::name_refs(&bufs);
+            let h = height(cx);
+            let found = self.list.select_fn_key(k, &names, h);
+            if found.is_some() {
+                let _ = self.list.clear_index();
+            }
+            found
         };
         if let Some(idx) = idx {
             Self::connect_at(cx, nav, idx);
@@ -150,6 +176,7 @@ impl Screen for ServerListScreen {
 
     /// Connect to the highlighted discovered server and go to throttle.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let _ = self.list.clear_index();
         let idx = {
             let bufs = Self::labels(cx);
             let names = Self::name_refs(&bufs);
@@ -167,6 +194,9 @@ impl Screen for ServerListScreen {
 
     /// Back to compiled SSIDs, or scan results if none are compiled in.
     fn on_cancel(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if self.list.clear_index() {
+            return;
+        }
         if cx.env.compiled_networks.is_empty() {
             nav.replace(ScreenId::SsidScan);
         } else {

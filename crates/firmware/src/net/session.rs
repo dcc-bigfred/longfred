@@ -1,6 +1,6 @@
 //! Generic protocol session: TCP (WiThrottle) or UDP (Z21) with shared adapter loop.
 
-use embassy_futures::select::{Either3, select3};
+use embassy_futures::select::{Either4, select4};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
@@ -157,18 +157,30 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
     let cmd_rx = PROTO_COMMANDS.receiver();
     let mut rx = [0u8; 512];
     let mut hb_last = Instant::now();
+    let mut srv_rx = SERVER.receiver();
+    if let Some(rx) = srv_rx.as_mut() {
+        let _ = rx.try_get();
+    }
 
     loop {
         let hb_period = Duration::from_secs(adapter.tick_period_s() as u64);
-        match select3(
+        let server_changed = async {
+            if let Some(rx) = srv_rx.as_mut() {
+                let _ = rx.changed().await;
+            } else {
+                core::future::pending::<()>().await;
+            }
+        };
+        match select4(
             tr.recv(&mut rx),
             cmd_rx.receive(),
             Timer::after(SESSION_TICK),
+            server_changed,
         )
         .await
         {
-            Either3::First(None) => break,
-            Either3::First(Some(n)) => {
+            Either4::First(None) => break,
+            Either4::First(Some(n)) => {
                 let mut hb_cfg = None;
                 adapter.decode(&rx[..n], &mut |ev| {
                     if let ServerEvent::HeartbeatConfig { seconds } = &ev {
@@ -180,14 +192,14 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                     adapter.set_heartbeat_period(seconds);
                 }
             }
-            Either3::Second(cmd) => {
+            Either4::Second(cmd) => {
                 let mut out = WireBuf::new();
                 adapter.encode(&cmd, &mut out, &mut |ev| emit_event(ev));
                 if !out.is_empty() && !tr.send(&out).await {
                     break;
                 }
             }
-            Either3::Third(_) => {
+            Either4::Third(_) => {
                 let mut out = WireBuf::new();
                 let polled = adapter.poll(&mut out, &mut |ev| emit_event(ev));
                 if polled && !out.is_empty() && !tr.send(&out).await {
@@ -201,6 +213,7 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                     hb_last = Instant::now();
                 }
             }
+            Either4::Fourth(_) => break,
         }
     }
     let mut out = WireBuf::new();

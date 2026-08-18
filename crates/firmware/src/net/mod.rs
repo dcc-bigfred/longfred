@@ -96,6 +96,9 @@ pub static WIFI_LINK: Watch<CriticalSectionRawMutex, Option<WifiLink>, 2> = Watc
 
 pub static PING: Watch<CriticalSectionRawMutex, PingStatus, 2> = Watch::new_with(PingStatus::Idle);
 
+/// ICMP echo runs only while Diagnostics is on screen (domain → ping task).
+pub static PING_ENABLE: Watch<CriticalSectionRawMutex, bool, 2> = Watch::new_with(false);
+
 /// User-enabled STA HTTP OTA server (menu screen).
 pub static HTTP_OTA_ENABLE: Watch<CriticalSectionRawMutex, bool, 4> = Watch::new_with(false);
 
@@ -116,6 +119,16 @@ pub fn sta_ipv4() -> Option<[u8; 4]> {
 
 pub fn set_http_ota_enabled(on: bool) {
     HTTP_OTA_ENABLE.sender().send(on);
+}
+
+pub fn set_ping_enabled(on: bool) {
+    if PING_ENABLE.try_get() == Some(on) {
+        return;
+    }
+    PING_ENABLE.sender().send(on);
+    if !on {
+        PING.sender().send(PingStatus::Idle);
+    }
 }
 
 // Legacy type aliases for gradual migration.

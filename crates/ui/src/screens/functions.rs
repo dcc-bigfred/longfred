@@ -2,7 +2,7 @@
 
 use longfred_proto::model::MAX_FUNCTIONS;
 
-use super::helpers::{digit_key, height, page_list, step_list};
+use super::helpers::{digit_key, height, list_digit, list_star_confirms, page_list, step_list};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -62,7 +62,7 @@ impl Screen for FunctionListScreen {
     /// Numbered labels; rows whose DCC function is ON are drawn inverted.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
-        g.set(0, cx.s.menu_fn, false);
+        g.set(0, self.list.title_with_index(cx.s.menu_fn).as_str(), false);
         let names = Self::names(cx);
         let ons = cx
             .drive
@@ -87,12 +87,12 @@ impl Screen for FunctionListScreen {
         page_list(&mut self.list, d, &names, height(cx));
     }
 
-    /// Digit jumps to that row and toggles it.
+    /// Digit jumps to that row and toggles it; `*` builds a 1-based index.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let Some(d) = digit_key(c) else { return };
         let names = Self::names(cx);
         let h = height(cx);
-        if self.list.select_digit(d, &names, h).is_some() {
+        if list_digit(&mut self.list, d, &names, h).is_some() {
             let idx = self
                 .list
                 .global_index(&names, h)
@@ -101,8 +101,33 @@ impl Screen for FunctionListScreen {
         }
     }
 
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let names = Self::names(cx);
+        let h = height(cx);
+        if list_star_confirms(&mut self.list, &names, h) {
+            let idx = self
+                .list
+                .global_index(&names, h)
+                .min(MAX_FUNCTIONS.saturating_sub(1));
+            emit_function(nav, idx);
+        }
+    }
+
+    fn on_fn_key(&mut self, k: u8, down: bool, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if !down {
+            return;
+        }
+        let names = Self::names(cx);
+        let h = height(cx);
+        if let Some(idx) = self.list.select_fn_key(k, &names, h) {
+            let _ = self.list.clear_index();
+            emit_function(nav, idx.min(MAX_FUNCTIONS.saturating_sub(1)));
+        }
+    }
+
     /// Toggle the highlighted DCC function.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let _ = self.list.clear_index();
         let names = Self::names(cx);
         let idx = self
             .list
@@ -113,6 +138,9 @@ impl Screen for FunctionListScreen {
 
     /// Skip Menu and return to throttle.
     fn on_cancel(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if self.list.clear_index() {
+            return;
+        }
         nav.root(ScreenId::Throttle);
     }
 }

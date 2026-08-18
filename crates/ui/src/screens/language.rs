@@ -2,7 +2,7 @@
 
 use longfred_proto::persist::Language;
 
-use super::helpers::{digit_key, page_list, set_list_hint};
+use super::helpers::{digit_key, list_label_digit, list_star_confirms, page_list, set_list_hint};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -84,12 +84,42 @@ impl Screen for LanguageScreen {
         }
     }
 
-    /// Digit jumps to that row and selects it.
+    /// Digit jumps to that row and selects it; `*` builds a 1-based index.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let Some(d) = digit_key(c) else { return };
         let labels = Self::labels(cx);
         let h = Self::height(cx);
-        if self.list.select_label_digit(d, &labels, h).is_some() {
+        if list_label_digit(&mut self.list, d, &labels, h).is_some() {
+            nav.emit(Intent::SetLanguage(self.current_at(&labels, h)));
+            if cx.session.boot_language {
+                cx.session.boot_language = false;
+            } else {
+                nav.back();
+            }
+        }
+    }
+
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let labels = Self::labels(cx);
+        let h = Self::height(cx);
+        if list_star_confirms(&mut self.list, &labels, h) {
+            nav.emit(Intent::SetLanguage(self.current_at(&labels, h)));
+            if cx.session.boot_language {
+                cx.session.boot_language = false;
+            } else {
+                nav.back();
+            }
+        }
+    }
+
+    fn on_fn_key(&mut self, k: u8, down: bool, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if !down {
+            return;
+        }
+        let labels = Self::labels(cx);
+        let h = Self::height(cx);
+        if self.list.select_fn_key(k, &labels, h).is_some() {
+            let _ = self.list.clear_index();
             nav.emit(Intent::SetLanguage(self.current_at(&labels, h)));
             if cx.session.boot_language {
                 cx.session.boot_language = false;
@@ -101,6 +131,7 @@ impl Screen for LanguageScreen {
 
     /// Persist the language. On first boot stay here so firmware can start the Wi-Fi wizard.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let _ = self.list.clear_index();
         nav.emit(Intent::SetLanguage(self.current(cx)));
         if cx.session.boot_language {
             cx.session.boot_language = false;
@@ -117,6 +148,9 @@ impl Screen for LanguageScreen {
 
     /// Back is ignored during the boot wizard; otherwise pop to Extras.
     fn on_cancel(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if self.list.clear_index() {
+            return;
+        }
         if cx.session.boot_language {
             return;
         }

@@ -1,6 +1,7 @@
 //! Per-screen objects. Each [`ScreenId`] has a concrete type in this module.
 
 mod addr_edit;
+mod choice;
 mod device;
 mod device_id;
 mod device_name;
@@ -19,6 +20,7 @@ mod pairing_wait;
 mod roster;
 mod server_entry;
 mod server_list;
+mod server_menu;
 mod server_proto;
 mod splash;
 mod throttle;
@@ -36,6 +38,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 
 pub use addr_edit::AddrEditScreen;
+pub use choice::ChoiceScreen;
 pub use device::DeviceScreen;
 pub use device_id::DeviceIdEditScreen;
 pub use device_name::DeviceNameEditScreen;
@@ -53,6 +56,7 @@ pub use pairing_wait::PairingWaitScreen;
 pub use roster::RosterListScreen;
 pub use server_entry::ServerEntryScreen;
 pub use server_list::ServerListScreen;
+pub use server_menu::ServerMenuScreen;
 pub use server_proto::ServerProtoScreen;
 pub use splash::SplashScreen;
 pub use throttle::ThrottleScreen;
@@ -78,6 +82,8 @@ pub enum ScreenState {
     Throttle(ThrottleScreen),
     Menu(MenuScreen),
     Extras(ExtrasScreen),
+    ServerMenu(ServerMenuScreen),
+    Choice(ChoiceScreen),
     RosterList(RosterListScreen),
     AddrEdit(AddrEditScreen),
     Pairing(PairingScreen),
@@ -111,6 +117,8 @@ pub fn new_screen(id: ScreenId) -> ScreenState {
         ScreenId::Throttle => ScreenState::Throttle(ThrottleScreen::new()),
         ScreenId::Menu => ScreenState::Menu(MenuScreen::new()),
         ScreenId::Extras => ScreenState::Extras(ExtrasScreen::new()),
+        ScreenId::ServerMenu => ScreenState::ServerMenu(ServerMenuScreen::new()),
+        ScreenId::Choice => ScreenState::Choice(ChoiceScreen::new()),
         ScreenId::RosterList => ScreenState::RosterList(RosterListScreen::new()),
         ScreenId::AddrEdit => ScreenState::AddrEdit(AddrEditScreen::new()),
         ScreenId::Pairing => ScreenState::Pairing(PairingScreen::new()),
@@ -145,6 +153,8 @@ macro_rules! dispatch_screen {
             ScreenState::Throttle(s) => s.$method($($arg),*),
             ScreenState::Menu(s) => s.$method($($arg),*),
             ScreenState::Extras(s) => s.$method($($arg),*),
+            ScreenState::ServerMenu(s) => s.$method($($arg),*),
+            ScreenState::Choice(s) => s.$method($($arg),*),
             ScreenState::RosterList(s) => s.$method($($arg),*),
             ScreenState::AddrEdit(s) => s.$method($($arg),*),
             ScreenState::Pairing(s) => s.$method($($arg),*),

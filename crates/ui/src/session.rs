@@ -66,6 +66,18 @@ impl NetField {
     }
 }
 
+/// Which option list [`crate::nav::ScreenId::Choice`] is showing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ChoiceKind {
+    /// Dead-man switch: leave on / turn off.
+    #[default]
+    DeadMan,
+    /// Roster source: auto / static / address.
+    RosterSource,
+    /// How to pick a command station: mDNS / manual IP.
+    ServerConnect,
+}
+
 /// Drafts and flags shared across screens (Wi-Fi wizard, device, net config).
 ///
 /// Screen objects are discarded on navigation, so anything the user typed that
@@ -108,6 +120,8 @@ pub struct UiSession {
     pub splash_done: bool,
     /// First-boot language wizard is still active.
     pub boot_language: bool,
+    /// Kind for [`crate::nav::ScreenId::Choice`] (screen is rebuilt on navigate).
+    pub choice: ChoiceKind,
 }
 
 impl UiSession {
@@ -127,6 +141,7 @@ impl UiSession {
             hash_functions: false,
             splash_done: false,
             boot_language: false,
+            choice: ChoiceKind::DeadMan,
             server_entry_from_list: false,
             ip_field: NetField::Dhcp,
             addr: heapless::String::new(),

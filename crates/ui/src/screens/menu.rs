@@ -1,10 +1,11 @@
-//! Main menu (Function / Locos or Change DCC address / Speed / Power / Extras).
+//! Main menu (Function / Locos / Server / Speed / Power / Extras).
 
 use longfred_proto::LocoSource;
 use longfred_proto::action::Action;
 
 use super::helpers::{
-    digit_key, next_speed_multiplier, overlay_prefixed_count, page_list, set_list_hint,
+    digit_key, list_digit, list_star_confirms, next_speed_multiplier, overlay_prefixed_count,
+    page_list, set_list_hint,
 };
 use crate::context::ScreenCtx;
 use crate::i18n::Strings;
@@ -18,15 +19,17 @@ use crate::widgets::PagedList;
 enum MenuItem {
     Function,
     Locos,
+    Server,
     SpeedMult,
     Power,
     Extras,
 }
 
 impl MenuItem {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Function,
         Self::Locos,
+        Self::Server,
         Self::SpeedMult,
         Self::Power,
         Self::Extras,
@@ -39,6 +42,7 @@ impl MenuItem {
                 LocoSource::AddressOnly => s.menu_change_addr,
                 LocoSource::ServerRoster | LocoSource::StaticRoster => s.menu_locos,
             },
+            Self::Server => s.menu_server,
             Self::SpeedMult => s.menu_speed_mult,
             Self::Power => s.menu_power,
             Self::Extras => s.menu_extras,
@@ -52,6 +56,7 @@ impl MenuItem {
                 LocoSource::AddressOnly => nav.go(ScreenId::AddrEdit),
                 LocoSource::ServerRoster | LocoSource::StaticRoster => nav.go(ScreenId::RosterList),
             },
+            Self::Server => nav.go(ScreenId::ServerMenu),
             Self::SpeedMult => {
                 nav.emit(Intent::Action(Action::SpeedMultiplier));
                 let next = next_speed_multiplier(cx.drive.speed_multiplier);
@@ -73,13 +78,13 @@ impl MenuItem {
     }
 }
 
-/// Main menu (Function / Locos / Speed / Power / Extras).
+/// Main menu (Function / Locos / Server / Speed / Power / Extras).
 pub struct MenuScreen {
     list: PagedList,
 }
 
 impl MenuScreen {
-    /// Numbered five-item main menu.
+    /// Numbered six-item main menu.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -87,7 +92,7 @@ impl MenuScreen {
         }
     }
 
-    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 5] {
+    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 6] {
         MenuItem::ALL.map(|item| item.label(cx.s, cx.drive.effective_loco_source))
     }
 
@@ -140,20 +145,45 @@ impl Screen for MenuScreen {
         }
     }
 
-    /// Digit 1–5 jumps to that row and selects it.
+    /// Digit 1–6 jumps to that row and selects it; `*` builds a longer index.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let Some(d) = digit_key(c) else { return };
         let labels = Self::labels(cx);
         let h = Self::height(cx);
-        if self.list.select_digit(d, &labels, h).is_some()
+        if list_digit(&mut self.list, d, &labels, h).is_some()
             && let Some(item) = self.current_at(&labels, h)
         {
             item.activate(cx, nav);
         }
     }
 
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let labels = Self::labels(cx);
+        let h = Self::height(cx);
+        if list_star_confirms(&mut self.list, &labels, h)
+            && let Some(item) = self.current_at(&labels, h)
+        {
+            item.activate(cx, nav);
+        }
+    }
+
+    fn on_fn_key(&mut self, k: u8, down: bool, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if !down {
+            return;
+        }
+        let labels = Self::labels(cx);
+        let h = Self::height(cx);
+        if self.list.select_fn_key(k, &labels, h).is_some() {
+            let _ = self.list.clear_index();
+            if let Some(item) = self.current_at(&labels, h) {
+                item.activate(cx, nav);
+            }
+        }
+    }
+
     /// Open Function/Roster/AddrEdit/Extras, or apply speed-mult / power and return to throttle.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let _ = self.list.clear_index();
         if let Some(item) = self.current(cx) {
             item.activate(cx, nav);
         }
@@ -161,6 +191,9 @@ impl Screen for MenuScreen {
 
     /// Back returns to throttle (menu is not stacked under drive).
     fn on_cancel(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if self.list.clear_index() {
+            return;
+        }
         nav.root(ScreenId::Throttle);
     }
 

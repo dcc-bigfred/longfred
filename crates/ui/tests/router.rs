@@ -163,8 +163,8 @@ fn menu_extras_pushes_stack() {
     let mut router = Router::new(&LONGFRED, ScreenId::Menu);
     {
         let mut cx = fx.ctx();
-        // items are 1-based numbered: 5 = Extras (index 4)
-        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+        // items are 1-based numbered: 6 = Extras (index 5)
+        let _ = router.handle(InputEvent::Digit('6'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Extras);
     {
@@ -235,6 +235,20 @@ fn extras_last_row_opens_diagnostics() {
         let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
     }
     {
+        let cx = fx.ctx();
+        let view = router.view(&cx);
+        assert!(
+            grid_line(&view, 1).starts_with("13:"),
+            "diagnostics row should be numbered 13, got {}",
+            grid_line(&view, 1)
+        );
+        assert!(
+            grid_line(&view, 1).contains("Diagnostics"),
+            "got {}",
+            grid_line(&view, 1)
+        );
+    }
+    {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Ok, &mut cx);
     }
@@ -242,7 +256,61 @@ fn extras_last_row_opens_diagnostics() {
 }
 
 #[test]
-fn extras_roster_row_cycles_preference() {
+fn extras_digit_one_opens_ip_config() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('1'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::IpConfig);
+}
+
+#[test]
+fn extras_star_thirteen_opens_diagnostics() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&MARKWTECH, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('*'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('1'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+        let view = router.view(&cx);
+        assert!(
+            grid_line(&view, 0).contains('*'),
+            "index-entry marker missing: {}",
+            grid_line(&view, 0)
+        );
+        let _ = router.handle(InputEvent::Digit('*'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Diagnostics);
+}
+
+#[test]
+fn extras_fn_thirteen_opens_diagnostics() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::FnPress(13), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Diagnostics);
+}
+
+#[test]
+fn extras_star_then_back_stays_on_extras() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&MARKWTECH, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('*'), &mut cx);
+        let _ = router.handle(InputEvent::Back, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Extras);
+}
+
+#[test]
+fn extras_roster_opens_choice_static() {
     use longfred_proto::persist::RosterMode;
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
@@ -250,9 +318,14 @@ fn extras_roster_row_cycles_preference() {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
     }
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Ok, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Choice);
     let intents = {
         let mut cx = fx.ctx();
-        router.handle(InputEvent::Ok, &mut cx)
+        router.handle(InputEvent::Digit('2'), &mut cx)
     };
     assert!(intents.contains(&Intent::SetRosterMode(RosterMode::Static)));
     assert_eq!(router.screen_id(), ScreenId::Extras);
@@ -466,14 +539,14 @@ fn server_list_page_right_stays_on_list() {
 }
 
 #[test]
-fn server_list_star_opens_proto_on_markwtech() {
+fn server_list_star_stays_on_list() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&MARKWTECH, ScreenId::ServerList);
     {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Digit('*'), &mut cx);
     }
-    assert_eq!(router.screen_id(), ScreenId::ServerProto);
+    assert_eq!(router.screen_id(), ScreenId::ServerList);
 }
 
 #[test]
@@ -582,6 +655,26 @@ fn extras_server_manual_opens_proto_then_z21_port() {
 }
 
 #[test]
+fn server_proto_digits_select_wit_and_z21() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::ServerProto);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('1'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::ServerEntry);
+    assert_eq!(fx.session.manual_protocol, Protocol::Z21);
+    fx = Fixture::new();
+    router = Router::new(&LONGFRED, ScreenId::ServerProto);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::ServerEntry);
+    assert_eq!(fx.session.manual_protocol, Protocol::WiThrottle);
+}
+
+#[test]
 fn keypad_strings_are_static_and_differ_from_joystick() {
     let joy = strings(Language::En, HintSet::Joystick);
     let pad = strings(Language::En, HintSet::Keypad);
@@ -594,14 +687,37 @@ fn keypad_strings_are_static_and_differ_from_joystick() {
 fn diagnostics_pages_wrap() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Diagnostics);
-    for _ in 0..6 {
+    {
+        let cx = fx.ctx();
+        assert!(grid_line(&router.view(&cx), 0).contains("Battery"));
+    }
+    for _ in 0..3 {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
+    }
+    {
+        let cx = fx.ctx();
+        let view = router.view(&cx);
+        assert!(
+            grid_line(&view, 0).contains("range") || grid_line(&view, 0).contains("WiFi"),
+            "RF+ping page title: {}",
+            grid_line(&view, 0)
+        );
+        assert!(
+            grid_line(&view, 1).contains("---") || grid_line(&view, 2).contains("---"),
+            "range/ping body: {} / {}",
+            grid_line(&view, 1),
+            grid_line(&view, 2)
+        );
+    }
+    for _ in 0..2 {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Diagnostics);
     {
         let cx = fx.ctx();
-        assert!(matches!(router.view(&cx), UiView::Grid(_)));
+        assert!(grid_line(&router.view(&cx), 0).contains("Battery"));
     }
 }
 
@@ -610,7 +726,8 @@ fn menu_digit_index_opens_expected_screen() {
     for (digit, want) in [
         ('1', ScreenId::FunctionList),
         ('2', ScreenId::AddrEdit),
-        ('5', ScreenId::Extras),
+        ('3', ScreenId::ServerMenu),
+        ('6', ScreenId::Extras),
     ] {
         let mut fx = Fixture::new();
         let mut router = Router::new(&LONGFRED, ScreenId::Menu);
@@ -837,7 +954,7 @@ fn menu_speed_mult_shows_overlay_and_returns_to_throttle() {
     let mut router = Router::new(&LONGFRED, ScreenId::Menu);
     let intents = {
         let mut cx = fx.ctx();
-        router.handle(InputEvent::Digit('3'), &mut cx)
+        router.handle(InputEvent::Digit('4'), &mut cx)
     };
     assert!(intents.contains(&Intent::Action(Action::SpeedMultiplier)));
     assert_eq!(router.screen_id(), ScreenId::Throttle);
@@ -851,7 +968,7 @@ fn menu_power_shows_overlay_on() {
     let mut router = Router::new(&LONGFRED, ScreenId::Menu);
     let intents = {
         let mut cx = fx.ctx();
-        router.handle(InputEvent::Digit('4'), &mut cx)
+        router.handle(InputEvent::Digit('5'), &mut cx)
     };
     assert!(intents.contains(&Intent::Action(Action::PowerToggle)));
     let cx = fx.ctx();
@@ -859,17 +976,28 @@ fn menu_power_shows_overlay_on() {
 }
 
 #[test]
-fn extras_dead_man_switch_shows_overlay_and_returns_to_throttle() {
+fn extras_dead_man_opens_choice_and_off_toggles() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Choice);
+    {
+        let cx = fx.ctx();
+        let view = router.view(&cx);
+        assert_eq!(grid_line(&view, 0), "Dead-man");
+        assert!(grid_line(&view, 1).starts_with("1:"));
+        assert!(grid_line(&view, 2).starts_with("2:"));
+        assert!(grid_line(&view, 3).is_empty());
+    }
     let intents = {
         let mut cx = fx.ctx();
-        router.handle(InputEvent::Digit('3'), &mut cx)
+        router.handle(InputEvent::Digit('2'), &mut cx)
     };
     assert!(intents.contains(&Intent::DeadManSwitchToggle));
-    assert_eq!(router.screen_id(), ScreenId::Throttle);
-    let cx = fx.ctx();
-    assert_eq!(overlay_first_line(&router.view(&cx)), "Dead-man OFF");
+    assert_eq!(router.screen_id(), ScreenId::Extras);
 }
 
 #[test]
@@ -880,18 +1008,25 @@ fn extras_digit_shortcuts_match_label_numbers() {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Digit('5'), &mut cx);
     }
-    assert_eq!(router.screen_id(), ScreenId::Throttle);
-    let view = router.view(&fx.ctx());
-    let overlay = overlay_first_line(&view);
-    assert!(
-        overlay.contains("Throttles"),
-        "expected throttles minus overlay, got {overlay}"
-    );
+    assert_eq!(router.screen_id(), ScreenId::Choice);
     fx = Fixture::new();
     router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Digit('6'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+    let view = router.view(&fx.ctx());
+    let overlay = overlay_first_line(&view);
+    assert!(
+        overlay.contains("Throttles"),
+        "expected throttles plus overlay, got {overlay}"
+    );
+    fx = Fixture::new();
+    router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Language);
 }
@@ -900,16 +1035,23 @@ fn extras_digit_shortcuts_match_label_numbers() {
 fn menu_pl_footer_keeps_extras_visible_on_64() {
     let mut fx = Fixture::new();
     fx.strings = strings(Language::Pl, HintSet::Joystick);
-    let router = Router::new(&LONGFRED, ScreenId::Menu);
+    let mut router = Router::new(&LONGFRED, ScreenId::Menu);
     let view = router.view(&fx.ctx());
-    assert_eq!(grid_line(&view, 5), "5:Dodatkowe");
+    assert_eq!(grid_line(&view, 5), "5:Zasilanie");
     assert_eq!(grid_line(&view, 6), "Nav OK  Fn+cyfry  Wst");
     assert!(grid_line(&view, 1).starts_with("1:"));
     assert!(grid_line(&view, 4).starts_with("4:"));
+    for _ in 0..5 {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
+    }
+    let view = router.view(&fx.ctx());
+    assert_eq!(grid_line(&view, 1), "6:Dodatkowe");
+    assert_eq!(grid_line(&view, 6), "Nav OK  Fn+cyfry  Wst");
 }
 
 #[test]
-fn menu_pl_footer_pages_on_32_and_digit_five_selects_extras() {
+fn menu_pl_footer_pages_on_32_and_digit_five_selects_power() {
     let mut fx = Fixture::new();
     fx.env.geometry = LAYOUT_128X32;
     fx.strings = strings(Language::Pl, HintSet::Joystick);
@@ -924,11 +1066,20 @@ fn menu_pl_footer_pages_on_32_and_digit_five_selects_extras() {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Digit('5'), &mut cx);
     }
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+    fx = Fixture::new();
+    fx.env.geometry = LAYOUT_128X32;
+    fx.strings = strings(Language::Pl, HintSet::Joystick);
+    router = Router::new(&LONGFRED, ScreenId::Menu);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('6'), &mut cx);
+    }
     assert_eq!(router.screen_id(), ScreenId::Extras);
 }
 
 #[test]
-fn extras_no_footer_three_rows_on_32_and_digit_six_opens_language() {
+fn extras_no_footer_three_rows_on_32_and_digit_zero_opens_language() {
     let mut fx = Fixture::new();
     fx.env.geometry = LAYOUT_128X32;
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
@@ -939,7 +1090,80 @@ fn extras_no_footer_three_rows_on_32_and_digit_six_opens_language() {
     assert!(grid_line(&view, 4).is_empty());
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('6'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Language);
+}
+
+#[test]
+fn server_menu_reconnect_without_saved_shows_overlay() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Menu);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::ServerMenu);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Digit('1'), &mut cx)
+    };
+    assert!(intents.is_empty());
+    assert_eq!(router.screen_id(), ScreenId::ServerMenu);
+    let cx = fx.ctx();
+    assert_eq!(overlay_first_line(&router.view(&cx)), "No saved server");
+}
+
+#[test]
+fn server_menu_reconnect_emits_intent_when_saved() {
+    use longfred_proto::persist::SavedServer;
+    let mut fx = Fixture::new();
+    fx.persist.last_server = Some(SavedServer {
+        ip: [192, 168, 4, 1],
+        port: 2560,
+        protocol: Protocol::WiThrottle,
+    });
+    let mut router = Router::new(&LONGFRED, ScreenId::ServerMenu);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Digit('1'), &mut cx)
+    };
+    assert!(intents.contains(&Intent::ServerReconnect));
+    assert_eq!(router.screen_id(), ScreenId::ServerMenu);
+}
+
+#[test]
+fn server_menu_change_find_opens_server_list() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::ServerMenu);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Choice);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Digit('1'), &mut cx)
+    };
+    assert!(intents.contains(&Intent::RequestMdns));
+    assert_eq!(router.screen_id(), ScreenId::ServerList);
+}
+
+#[test]
+fn server_menu_pair_and_disconnect() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::ServerMenu);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('2'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Pairing);
+    fx = Fixture::new();
+    router = Router::new(&LONGFRED, ScreenId::ServerMenu);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Digit('4'), &mut cx)
+    };
+    assert!(intents.contains(&Intent::ServerDisconnect));
+    assert_eq!(router.screen_id(), ScreenId::ServerMenu);
 }

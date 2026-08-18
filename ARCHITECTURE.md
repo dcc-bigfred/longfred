@@ -71,7 +71,40 @@ The throttle fights to stay driving. Manual pairing is a last resort.
 
 ---
 
-## 2. High-level architecture
+## 2. Coding Rules
+
+How we grow the code. Allocation, errors, and API shape are specified in
+[CODING-GUIDELINES.md](CODING-GUIDELINES.md); the points below are the
+review filter for structure and dispatch. They complement §1.3–1.4 and
+§1.7.
+
+1. **No God-structs.** Do not pile unrelated concerns into one type
+   (protocol, UI, persist, HAL, “and the rest”). Split along domain
+   boundaries: modules and types that own one job (`caps`, `catalog`,
+   `adapter`, a screen, an embassy task). A coordinator struct MAY hold
+   the live slice of one domain; it MUST NOT become a dumping ground for
+   every field and `match`.
+
+2. **Ask capabilities, not identity.** Avoid `if` / `match` ladders on
+   concrete variants (`Protocol`, board id, screen) to choose behaviour.
+   Prefer a trait (`ProtocolSpec`, `Screen`, `NavProfile`) with one
+   implementation per variant, and a capability query on that
+   implementation (`ProtocolCaps::supports_pairing`, `supports_source`,
+   `transport`). That is the Rust stand-in for “does this object offer
+   this feature?” — not Java `instanceof` and not `dyn Any` downcasts.
+   The protocol set is closed and known at compile time: dispatch with
+   an enum (`Adapter`), not `dyn Trait` or `Box`
+   ([CODING-GUIDELINES.md](CODING-GUIDELINES.md) §8.2). The sole
+   identity `match` on `Protocol` in proto remains `Protocol::info()`.
+
+3. **Follow the coding guidelines.** New and changed code MUST follow
+   [CODING-GUIDELINES.md](CODING-GUIDELINES.md): heapless / bounded
+   storage, typed errors, no `unwrap` on recoverable paths, explicit
+   ownership, enum or static dispatch in proto and UI.
+
+---
+
+## 3. High-level architecture
 
 ```mermaid
 flowchart TB
@@ -127,7 +160,7 @@ pairing HTTP, ping, storage, power, input, domain, and display tasks.
 
 ---
 
-## 3. Workspace layout
+## 4. Workspace layout
 
 ```
 longfred/
@@ -155,7 +188,7 @@ longfred/
 
 ---
 
-## 4. Crate responsibilities
+## 5. Crate responsibilities
 
 | Crate | Role | I/O? |
 |---|---|---|
@@ -169,7 +202,7 @@ that talks to hardware or the network stack.
 
 ---
 
-## 5. Tasks and channels
+## 6. Tasks and channels
 
 Static embassy primitives in firmware. Depths are compile-time constants.
 
@@ -196,10 +229,12 @@ Static embassy primitives in firmware. Depths are compile-time constants.
 | `UI_VIEW` | Watch | domain → display | `UiView` |
 | `BATTERY` | Watch | ADC → UI | sample |
 | `SLEEP_CTRL` | Signal | domain → sleep | reason |
+| `PING` | Watch | ping → UI | `PingStatus` |
+| `PING_ENABLE` | Watch | domain → ping | Diagnostics visible |
 
 ---
 
-## 6. Data flows
+## 7. Data flows
 
 ```mermaid
 flowchart LR
@@ -232,7 +267,7 @@ flowchart LR
 
 ---
 
-## 7. Protocol layer
+## 8. Protocol layer
 
 Each protocol module implements `ProtocolSpec` with a `const INFO:
 ProtocolInfo` (caps, HTTP probe, display name, glyph). `Protocol` is
@@ -274,7 +309,7 @@ Invariant, enforced by a host test: every protocol’s mask includes
 
 ---
 
-## 8. Persistence
+## 9. Persistence
 
 One flash sector, codec in `crates/proto/src/persist.rs`.
 
@@ -292,7 +327,7 @@ workflow.
 
 ---
 
-## 9. Board variants
+## 10. Board variants
 
 | Feature | Display | Input |
 |---|---|---|
@@ -307,7 +342,7 @@ tasks for Wokwi.
 
 ---
 
-## 10. Tests and CI
+## 11. Tests and CI
 
 Local:
 
@@ -323,7 +358,7 @@ flash/RAM budget (`scripts/check-esp32c6-size.sh`).
 
 ---
 
-## 11. Limitations / future
+## 12. Limitations / future
 
 - Firmware pairing HTTP is a dedicated embassy-net task; the stack
   socket budget (`NET_SOCKETS`) must cover session + HTTP + Soft-AP/OTA

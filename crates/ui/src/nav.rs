@@ -31,6 +31,10 @@ pub enum ScreenId {
     Menu,
     /// Settings / extras.
     Extras,
+    /// Server reconnect / pair / change / disconnect.
+    ServerMenu,
+    /// Generic numbered option list ([`crate::session::ChoiceKind`]).
+    Choice,
     /// Roster / loco picker.
     RosterList,
     /// Manual DCC address (menu row when the effective source is address-only).
@@ -59,7 +63,7 @@ pub enum ScreenId {
     FirmwareUpdate,
     /// STA join failed.
     WifiFailed,
-    /// Six-page diagnostics.
+    /// Five-page diagnostics (battery / version / board / RF+ping / Wi-Fi).
     Diagnostics,
 }
 

@@ -117,6 +117,12 @@ pub fn digit_display_num(n: u8) -> usize {
     if n == 0 { 10 } else { n as usize }
 }
 
+/// `LongFred` F-key (already shift-mapped): `0` → row 10, otherwise row `k`.
+#[must_use]
+pub fn fn_display_num(k: u8) -> usize {
+    if k == 0 { 10 } else { usize::from(k) }
+}
+
 fn push_decimal_digit(buf: &mut heapless::String<64>, n: usize) {
     let d = u8::try_from(n % 10).unwrap_or(0);
     let _ = buf.push(char::from(b'0' + d));

@@ -39,6 +39,10 @@ pub enum Intent {
     HashFunctionsToggle,
     /// Request device sleep.
     Sleep,
+    /// Reconnect to [`longfred_proto::persist::PersistRecord::last_server`].
+    ServerReconnect,
+    /// Drop the current command-station session (`SERVER` ← `None`).
+    ServerDisconnect,
     /// Refresh the mDNS server list.
     RequestMdns,
     /// Persist client IPv4 configuration.

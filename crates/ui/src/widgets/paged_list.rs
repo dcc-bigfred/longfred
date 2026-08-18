@@ -1,7 +1,7 @@
 //! Reusable full-width paged choice list (SSID / menu / servers / language).
 #![allow(missing_docs)]
 
-use crate::view::{GridView, fill_list_page, items_fitting, page_start};
+use crate::view::{GridView, Line, fill_list_page, items_fitting, page_start, push_oled};
 
 /// Visible slice of a wrap-aware list page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,6 +9,19 @@ pub struct PageLayout {
     pub start: usize,
     pub count: usize,
     pub has_next: bool,
+}
+
+/// Outcome of keypad `*` on a list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StarIndex {
+    /// Entered index-entry mode (empty buffer).
+    Started,
+    /// Empty `*` left index-entry mode.
+    Cancelled,
+    /// Confirmed 1-based number; value is the global row index.
+    Confirm(usize),
+    /// Typed a number that does not match any row.
+    Invalid,
 }
 
 /// Cursor + page for a wrap-aware choice list.
@@ -21,6 +34,8 @@ pub struct PagedList {
     pub numbered: bool,
     /// Reserve the last visible content row for a footer hint.
     pub footer: bool,
+    /// `*` index entry: `None` = off, `Some((value, digit_count))`.
+    pub(crate) index: Option<(u16, u8)>,
 }
 
 impl Default for PagedList {
@@ -37,6 +52,7 @@ impl PagedList {
             cursor: 0,
             numbered,
             footer: false,
+            index: None,
         }
     }
 
@@ -50,6 +66,7 @@ impl PagedList {
     pub fn reset(&mut self) {
         self.page = 0;
         self.cursor = 0;
+        self.index = None;
     }
 
     /// First item index, visible count, and whether another page exists.
@@ -66,9 +83,100 @@ impl PagedList {
 
     pub fn draw(&self, g: &mut GridView, title: Option<&str>, items: &[&str], height: u16) {
         if let Some(title) = title {
-            g.set(0, title, false);
+            let marked = self.title_with_index(title);
+            g.set(0, marked.as_str(), false);
         }
         fill_list_page(g, items, self, height);
+    }
+
+    /// Title plus `*13` while keypad index-entry is active.
+    #[must_use]
+    pub fn title_with_index(&self, title: &str) -> Line {
+        let mut line = Line::new();
+        match self.index {
+            None => push_oled(&mut line, title),
+            Some((n, len)) => {
+                push_oled(&mut line, title);
+                if line.len() < crate::view::LINE_LEN.saturating_sub(4) {
+                    let _ = line.push(' ');
+                    let _ = line.push('*');
+                    if len > 0 {
+                        if n >= 10 {
+                            let tens = u8::try_from(n / 10).unwrap_or(0);
+                            let _ = line.push(char::from(b'0' + tens));
+                        }
+                        let ones = u8::try_from(n % 10).unwrap_or(0);
+                        let _ = line.push(char::from(b'0' + ones));
+                    }
+                }
+            }
+        }
+        line
+    }
+
+    /// True while `*` index-entry is waiting for digits / confirm.
+    #[must_use]
+    pub fn index_active(&self) -> bool {
+        self.index.is_some()
+    }
+
+    /// Leave index-entry. Returns whether it was active.
+    pub fn clear_index(&mut self) -> bool {
+        self.index.take().is_some()
+    }
+
+    /// Keypad `*`: start, cancel (empty), or confirm a 1-based row number.
+    pub fn star(&mut self, items: &[&str], height: u16) -> StarIndex {
+        match self.index {
+            None => {
+                self.index = Some((0, 0));
+                StarIndex::Started
+            }
+            Some((_, 0)) => {
+                self.index = None;
+                StarIndex::Cancelled
+            }
+            Some((n, _)) => {
+                self.index = None;
+                match self.select_display_num(usize::from(n), items, height) {
+                    Some(idx) => StarIndex::Confirm(idx),
+                    None => StarIndex::Invalid,
+                }
+            }
+        }
+    }
+
+    /// Consume a digit in `*` mode (preview-focus). Returns `false` when not in that mode.
+    pub fn buffer_digit(&mut self, d: u8, items: &[&str], height: u16) -> bool {
+        let Some((n, len)) = self.index else {
+            return false;
+        };
+        if len >= 2 {
+            return true;
+        }
+        let next = n.saturating_mul(10).saturating_add(u16::from(d));
+        self.index = Some((next, len + 1));
+        let _ = self.select_display_num(usize::from(next), items, height);
+        true
+    }
+
+    /// 1-based display number on any page (`13` → global index 12).
+    pub fn select_display_num(&mut self, n: usize, items: &[&str], height: u16) -> Option<usize> {
+        if n == 0 {
+            return None;
+        }
+        for global in 0..items.len() {
+            if crate::view::item_display_num(global) == n {
+                self.focus_global(global, items, height);
+                return Some(global);
+            }
+        }
+        None
+    }
+
+    /// `LongFred` F-key / shift layer: `0` → row 10, otherwise row `k`.
+    pub fn select_fn_key(&mut self, k: u8, items: &[&str], height: u16) -> Option<usize> {
+        self.select_display_num(crate::view::fn_display_num(k), items, height)
     }
 
     #[must_use]
@@ -304,5 +412,40 @@ mod tests {
         assert_eq!(list.select_digit(5, &items, 32), Some(4));
         assert_eq!(list.global_index(&items, 32), 4);
         assert_eq!(list.page, 2);
+    }
+
+    #[test]
+    fn select_display_num_focuses_row_thirteen() {
+        let items = [
+            "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+        ];
+        let mut list = PagedList::new(true);
+        assert_eq!(list.select_display_num(13, &items, H), Some(12));
+        assert_eq!(list.global_index(&items, H), 12);
+        assert_eq!(list.select_fn_key(13, &items, H), Some(12));
+        assert_eq!(list.select_fn_key(0, &items, H), Some(9));
+    }
+
+    #[test]
+    fn star_types_thirteen_then_confirms() {
+        let items = [
+            "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+        ];
+        let mut list = PagedList::new(true);
+        assert_eq!(list.star(&items, H), StarIndex::Started);
+        assert!(list.buffer_digit(1, &items, H));
+        assert!(list.buffer_digit(3, &items, H));
+        assert_eq!(list.global_index(&items, H), 12);
+        assert_eq!(list.star(&items, H), StarIndex::Confirm(12));
+        assert!(!list.index_active());
+    }
+
+    #[test]
+    fn star_empty_cancels_and_bare_digit_still_immediate() {
+        let items = ["a", "b", "c"];
+        let mut list = PagedList::new(true);
+        assert_eq!(list.star(&items, H), StarIndex::Started);
+        assert_eq!(list.star(&items, H), StarIndex::Cancelled);
+        assert_eq!(list.select_digit(1, &items, H), Some(0));
     }
 }

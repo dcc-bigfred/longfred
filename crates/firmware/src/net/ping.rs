@@ -1,14 +1,19 @@
-//! ICMP echo to the selected command-station IP.
+//! ICMP echo to the selected command-station IP (Diagnostics screen only).
 
 use core::net::Ipv4Addr;
 
+use embassy_futures::select::select;
 use embassy_net::Stack;
 use embassy_net::icmp::PacketMetadata;
 use embassy_net::icmp::ping::{PingError, PingManager, PingParams};
 use embassy_time::{Duration, Timer};
 use log::info;
 
-use crate::net::{CONN, ConnState, PING, PingStatus, SERVER};
+use crate::net::{CONN, ConnState, PING, PING_ENABLE, PingStatus, SERVER};
+
+fn ping_enabled() -> bool {
+    PING_ENABLE.try_get() == Some(true)
+}
 
 #[embassy_executor::task]
 pub async fn task(stack: Stack<'static>) {
@@ -26,7 +31,12 @@ pub async fn task(stack: Stack<'static>) {
     let ping_tx = PING.sender();
 
     loop {
+        wait_enabled().await;
         stack.wait_config_up().await;
+        if !ping_enabled() {
+            ping_tx.send(PingStatus::Idle);
+            continue;
+        }
         let connected = CONN.try_get() == Some(ConnState::Connected);
         let target = SERVER.try_get().flatten();
         match (connected, target) {
@@ -50,15 +60,47 @@ pub async fn task(stack: Stack<'static>) {
                         ping_tx.send(PingStatus::Idle);
                     }
                 }
-                Timer::after(Duration::from_secs(5)).await;
+                wait_interval_or_disabled(Duration::from_secs(5)).await;
             }
             _ => {
                 ping_tx.send(PingStatus::Idle);
-                Timer::after(Duration::from_secs(2)).await;
+                wait_interval_or_disabled(Duration::from_secs(2)).await;
             }
         }
-        if !stack.is_config_up() {
+        if !ping_enabled() || !stack.is_config_up() {
             ping_tx.send(PingStatus::Idle);
         }
     }
+}
+
+async fn wait_enabled() {
+    if ping_enabled() {
+        return;
+    }
+    if let Some(mut rx) = PING_ENABLE.receiver() {
+        loop {
+            if rx.try_get() == Some(true) {
+                return;
+            }
+            rx.changed().await;
+        }
+    }
+    loop {
+        Timer::after(Duration::from_millis(200)).await;
+        if ping_enabled() {
+            return;
+        }
+    }
+}
+
+async fn wait_interval_or_disabled(dur: Duration) {
+    if !ping_enabled() {
+        return;
+    }
+    if let Some(mut rx) = PING_ENABLE.receiver() {
+        let _ = rx.try_get();
+        let _ = select(Timer::after(dur), rx.changed()).await;
+        return;
+    }
+    Timer::after(dur).await;
 }

@@ -3,7 +3,7 @@
 use longfred_proto::catalog::{Catalog, LocoCatalog};
 use longfred_proto::model::MAX_ROSTER;
 
-use super::helpers::{digit_key, height, page_list, step_list};
+use super::helpers::{digit_key, height, list_digit, list_star_confirms, page_list, step_list};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -103,7 +103,11 @@ impl Screen for RosterListScreen {
     /// Title plus numbered loco names for the current page.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
-        g.set(0, cx.s.menu_locos, false);
+        g.set(
+            0,
+            self.list.title_with_index(cx.s.menu_locos).as_str(),
+            false,
+        );
         let names = Self::names(cx);
         fill_list_page(&mut g, &names, &self.list, height(cx));
         UiView::Grid(g)
@@ -121,16 +125,40 @@ impl Screen for RosterListScreen {
         page_list(&mut self.list, d, &names, height(cx));
     }
 
-    /// Digit jumps to that row and acquires it.
+    /// Digit jumps to that row and acquires it; `*` builds a 1-based index.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         let Some(d) = digit_key(c) else { return };
         let idx = {
             let names = Self::names(cx);
             let h = height(cx);
-            self.list
-                .select_digit(d, &names, h)
-                .is_some()
-                .then(|| self.list.global_index(&names, h))
+            list_digit(&mut self.list, d, &names, h)
+        };
+        if let Some(idx) = idx {
+            Self::acquire_at(cx, nav, idx);
+        }
+    }
+
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let idx = {
+            let names = Self::names(cx);
+            let h = height(cx);
+            list_star_confirms(&mut self.list, &names, h).then(|| self.list.global_index(&names, h))
+        };
+        if let Some(idx) = idx {
+            Self::acquire_at(cx, nav, idx);
+        }
+    }
+
+    fn on_fn_key(&mut self, k: u8, down: bool, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if !down {
+            return;
+        }
+        let idx = {
+            let names = Self::names(cx);
+            let h = height(cx);
+            self.list.select_fn_key(k, &names, h).inspect(|_| {
+                let _ = self.list.clear_index();
+            })
         };
         if let Some(idx) = idx {
             Self::acquire_at(cx, nav, idx);
@@ -139,6 +167,7 @@ impl Screen for RosterListScreen {
 
     /// Acquire the highlighted WIT roster entry or static-roster address, then throttle.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        let _ = self.list.clear_index();
         let idx = {
             let names = Self::names(cx);
             self.list.global_index(&names, height(cx))
@@ -148,6 +177,9 @@ impl Screen for RosterListScreen {
 
     /// Skip Menu and return to throttle.
     fn on_cancel(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if self.list.clear_index() {
+            return;
+        }
         nav.root(ScreenId::Throttle);
     }
 }
