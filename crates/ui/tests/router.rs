@@ -15,7 +15,7 @@ use longfred_ui::screen::InputMode;
 use longfred_ui::view::UiView;
 use longfred_ui::widgets::{KeyboardMode, TextKeyboard};
 use longfred_ui::{
-    DriveInfo, LAYOUT_128X64, NetField, NetInfo, Router, ScreenCtx, UiEnv, UiSession,
+    DriveInfo, LAYOUT_128X32, LAYOUT_128X64, NetField, NetInfo, Router, ScreenCtx, UiEnv, UiSession,
 };
 
 struct Fixture {
@@ -72,7 +72,7 @@ impl Fixture {
                 message: None,
                 speed_multiplier: 1,
                 max_throttles: 2,
-                heartbeat_on: true,
+                dead_man_switch_on: true,
                 drop_before_acquire: false,
             },
             net: NetInfo {
@@ -100,6 +100,13 @@ impl Fixture {
 fn overlay_first_line(view: &UiView) -> &str {
     match view {
         UiView::Overlay(ov) => ov.grid.lines.first().map_or("", |l| l.as_str()),
+        _ => "",
+    }
+}
+
+fn grid_line(view: &UiView, idx: usize) -> &str {
+    match view {
+        UiView::Grid(g) => g.lines.get(idx).map_or("", |l| l.as_str()),
         _ => "",
     }
 }
@@ -766,15 +773,87 @@ fn menu_power_shows_overlay_on() {
 }
 
 #[test]
-fn extras_heartbeat_shows_overlay_and_returns_to_throttle() {
+fn extras_dead_man_switch_shows_overlay_and_returns_to_throttle() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     let intents = {
         let mut cx = fx.ctx();
-        router.handle(InputEvent::Digit('4'), &mut cx)
+        router.handle(InputEvent::Digit('3'), &mut cx)
     };
-    assert!(intents.contains(&Intent::HeartbeatToggle));
+    assert!(intents.contains(&Intent::DeadManSwitchToggle));
     assert_eq!(router.screen_id(), ScreenId::Throttle);
     let cx = fx.ctx();
-    assert_eq!(overlay_first_line(&router.view(&cx)), "Heartbeat OFF");
+    assert_eq!(overlay_first_line(&router.view(&cx)), "Dead-man OFF");
+}
+
+#[test]
+fn extras_digit_shortcuts_match_label_numbers() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+    let view = router.view(&fx.ctx());
+    let overlay = overlay_first_line(&view);
+    assert!(
+        overlay.contains("Throttles"),
+        "expected throttles minus overlay, got {overlay}"
+    );
+    fx = Fixture::new();
+    router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('6'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Language);
+}
+
+#[test]
+fn menu_pl_footer_keeps_extras_visible_on_64() {
+    let mut fx = Fixture::new();
+    fx.strings = strings(Language::Pl, HintSet::Joystick);
+    let router = Router::new(&LONGFRED, ScreenId::Menu);
+    let view = router.view(&fx.ctx());
+    assert_eq!(grid_line(&view, 5), "5:Dodatkowe");
+    assert_eq!(grid_line(&view, 6), "Nav OK  Fn+cyfry  Wst");
+    assert!(grid_line(&view, 1).starts_with("1:"));
+    assert!(grid_line(&view, 4).starts_with("4:"));
+}
+
+#[test]
+fn menu_pl_footer_pages_on_32_and_digit_five_selects_extras() {
+    let mut fx = Fixture::new();
+    fx.env.geometry = LAYOUT_128X32;
+    fx.strings = strings(Language::Pl, HintSet::Joystick);
+    let mut router = Router::new(&LONGFRED, ScreenId::Menu);
+    let view = router.view(&fx.ctx());
+    assert!(grid_line(&view, 1).starts_with("1:"));
+    assert!(grid_line(&view, 2).starts_with("2:"));
+    assert_eq!(grid_line(&view, 3), "Nav OK  Fn+cyfry  Wst");
+    assert!(!grid_line(&view, 1).contains("Dodatkowe"));
+    assert!(!grid_line(&view, 2).contains("Dodatkowe"));
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Extras);
+}
+
+#[test]
+fn extras_no_footer_three_rows_on_32_and_digit_six_opens_language() {
+    let mut fx = Fixture::new();
+    fx.env.geometry = LAYOUT_128X32;
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    let view = router.view(&fx.ctx());
+    assert!(!grid_line(&view, 1).is_empty());
+    assert!(!grid_line(&view, 2).is_empty());
+    assert!(!grid_line(&view, 3).is_empty());
+    assert!(grid_line(&view, 4).is_empty());
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('6'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Language);
 }

@@ -20,7 +20,7 @@ enum ExtrasItem {
     ServerManual,
     Device,
     HashFunctions,
-    Heartbeat,
+    DeadManSwitch,
     ThrottlesPlus,
     ThrottlesMinus,
     Sleep,
@@ -37,7 +37,7 @@ impl ExtrasItem {
         Self::ServerManual,
         Self::Device,
         Self::HashFunctions,
-        Self::Heartbeat,
+        Self::DeadManSwitch,
         Self::ThrottlesPlus,
         Self::ThrottlesMinus,
         Self::Sleep,
@@ -54,7 +54,7 @@ impl ExtrasItem {
             Self::ServerManual => s.extras_server_manual,
             Self::Device => s.extras_device,
             Self::HashFunctions => s.extras_fnc_key_tgl,
-            Self::Heartbeat => s.extras_heartbt_tgl,
+            Self::DeadManSwitch => s.extras_dead_man_tgl,
             Self::ThrottlesPlus => s.extras_throttles_plus,
             Self::ThrottlesMinus => s.extras_throttles_minus,
             Self::Sleep => s.extras_off_sleep,
@@ -89,13 +89,13 @@ impl ExtrasItem {
                 });
                 nav.root(ScreenId::Throttle);
             }
-            Self::Heartbeat => {
-                nav.emit(Intent::HeartbeatToggle);
-                let on = !cx.drive.heartbeat_on;
+            Self::DeadManSwitch => {
+                nav.emit(Intent::DeadManSwitchToggle);
+                let on = !cx.drive.dead_man_switch_on;
                 nav.overlay(if on {
-                    cx.s.overlay_heartbeat_on
+                    cx.s.overlay_dead_man_on
                 } else {
-                    cx.s.overlay_heartbeat_off
+                    cx.s.overlay_dead_man_off
                 });
                 nav.root(ScreenId::Throttle);
             }
@@ -205,7 +205,7 @@ impl Screen for ExtrasScreen {
         let Some(d) = digit_key(c) else { return };
         let labels = Self::labels(cx);
         let h = height(cx);
-        if self.list.select_digit(d, &labels, h).is_some()
+        if self.list.select_label_digit(d, &labels, h).is_some()
             && let Some(item) = self.current_at(&labels, h)
         {
             item.activate(cx, nav);

@@ -2,7 +2,7 @@
 
 use longfred_proto::persist::Language;
 
-use super::helpers::{digit_key, page_list};
+use super::helpers::{digit_key, page_list, set_list_hint};
 use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
@@ -22,7 +22,7 @@ impl LanguageScreen {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            list: PagedList::new(false),
+            list: PagedList::new(false).with_footer(true),
         }
     }
 
@@ -71,7 +71,7 @@ impl Screen for LanguageScreen {
         let labels = Self::labels(cx);
         self.list
             .draw(&mut g, Some(cx.s.msg_language), &labels, Self::height(cx));
-        g.set(5, cx.s.hint_language, false);
+        set_list_hint(&mut g, cx, cx.s.hint_language);
         UiView::Grid(g)
     }
 
@@ -89,7 +89,7 @@ impl Screen for LanguageScreen {
         let Some(d) = digit_key(c) else { return };
         let labels = Self::labels(cx);
         let h = Self::height(cx);
-        if self.list.select_digit(d, &labels, h).is_some() {
+        if self.list.select_label_digit(d, &labels, h).is_some() {
             nav.emit(Intent::SetLanguage(self.current_at(&labels, h)));
             if cx.session.boot_language {
                 cx.session.boot_language = false;

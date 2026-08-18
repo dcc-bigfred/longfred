@@ -99,7 +99,7 @@ impl Screen for ThrottleScreen {
             forward,
             consist_len,
             power_on: track_power_on(cx.drive.track_power),
-            heartbeat_on: cx.drive.heartbeat_on,
+            dead_man_switch_on: cx.drive.dead_man_switch_on,
             functions,
             loco,
             footer,

@@ -21,7 +21,7 @@ impl ServerListScreen {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            list: PagedList::new(true),
+            list: PagedList::new(true).with_footer(true),
         }
     }
 
@@ -87,7 +87,7 @@ impl Screen for ServerListScreen {
         nav.emit(Intent::RequestMdns);
     }
 
-    /// Discovered services; footer on 128×64 lists key hints.
+    /// Discovered services; last content row shows key hints.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         let bufs = Self::labels(cx);

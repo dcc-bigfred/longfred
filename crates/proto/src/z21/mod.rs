@@ -17,7 +17,7 @@ impl ProtocolSpec for Z21 {
         caps: ProtocolCaps {
             loco_sources: LocoSourceMask::SHARED,
             steal: false,
-            heartbeat: false,
+            dead_man_switch: false,
             function_labels: false,
             pairing: false,
             transport: Transport::Udp,

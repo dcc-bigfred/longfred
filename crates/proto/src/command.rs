@@ -109,7 +109,7 @@ pub enum ClientCommand {
         all: bool,
     },
     TrackPower(bool),
-    SetHeartbeat(bool),
+    SetDeadManSwitch(bool),
     Steal {
         throttle: u8,
         loco: LocoId,

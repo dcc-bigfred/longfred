@@ -186,8 +186,8 @@ fn interpret(
                 srv_tx.send(Some(ep));
             }
         }
-        Intent::HeartbeatToggle => {
-            let _ = state.toggle_heartbeat(out);
+        Intent::DeadManSwitchToggle => {
+            let _ = state.toggle_dead_man_switch(out);
         }
         Intent::DropBeforeAcquireToggle => state.toggle_drop_before_acquire(),
         Intent::HashFunctionsToggle => {

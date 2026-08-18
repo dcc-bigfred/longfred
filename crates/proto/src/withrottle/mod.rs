@@ -19,7 +19,7 @@ impl ProtocolSpec for WiThrottle {
         caps: ProtocolCaps {
             loco_sources: LocoSourceMask::ALL,
             steal: true,
-            heartbeat: true,
+            dead_man_switch: true,
             function_labels: true,
             pairing: false,
             transport: Transport::Tcp,

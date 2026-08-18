@@ -101,7 +101,7 @@ pub fn http_probe_matches(response: &[u8], expect: &[u8]) -> bool {
 pub struct ProtocolCaps {
     pub loco_sources: LocoSourceMask,
     pub steal: bool,
-    pub heartbeat: bool,
+    pub dead_man_switch: bool,
     pub function_labels: bool,
     pub pairing: bool,
     pub transport: Transport,

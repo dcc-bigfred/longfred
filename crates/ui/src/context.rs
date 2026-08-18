@@ -34,8 +34,8 @@ pub struct DriveInfo<'a> {
     pub speed_multiplier: u8,
     /// Active throttle slot count (`1..=MAX_THROTTLES`).
     pub max_throttles: usize,
-    /// `WiThrottle` heartbeat enabled.
-    pub heartbeat_on: bool,
+    /// WiThrottle dead-man switch enabled (`*+` sent to station).
+    pub dead_man_switch_on: bool,
     /// Drop locos before acquire.
     pub drop_before_acquire: bool,
 }
@@ -129,8 +129,8 @@ pub struct UiEnv {
 impl UiEnv {
     /// Content-row indices for a paged list on this geometry.
     #[must_use]
-    pub fn list_slots(&self) -> &'static [usize] {
-        crate::view::list_slots_for(self.geometry.height)
+    pub fn list_slots(&self, footer: bool) -> &'static [usize] {
+        crate::view::list_slots_for(self.geometry.height, footer)
     }
 }
 

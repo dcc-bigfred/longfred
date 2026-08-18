@@ -244,7 +244,7 @@ only the NVS/wire identity (`as_u8` / `from_u8`). Accessors
 |---|---|---|---|
 | `ServerRoster` | yes | no | yes |
 | `StaticRoster` / `AddressOnly` | yes | yes | yes |
-| steal / heartbeat / fn labels | yes | no | yes |
+| steal / dead-man / fn labels | yes | no | yes |
 | pairing | no | no | yes |
 | transport | TCP | UDP | TCP |
 | default port | 12090 | 21105 | 12090 |

@@ -3,7 +3,9 @@
 use longfred_proto::LocoSource;
 use longfred_proto::action::Action;
 
-use super::helpers::{digit_key, next_speed_multiplier, overlay_prefixed_count, page_list};
+use super::helpers::{
+    digit_key, next_speed_multiplier, overlay_prefixed_count, page_list, set_list_hint,
+};
 use crate::context::ScreenCtx;
 use crate::i18n::Strings;
 use crate::intent::Intent;
@@ -81,7 +83,7 @@ impl MenuScreen {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            list: PagedList::new(true),
+            list: PagedList::new(true).with_footer(true),
         }
     }
 
@@ -125,7 +127,7 @@ impl Screen for MenuScreen {
         let labels = Self::labels(cx);
         self.list
             .draw(&mut g, Some(cx.env.app_name), &labels, Self::height(cx));
-        g.set(5, cx.s.hint_menu, false);
+        set_list_hint(&mut g, cx, cx.s.hint_menu);
         UiView::Grid(g)
     }
 

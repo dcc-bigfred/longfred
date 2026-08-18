@@ -20,7 +20,7 @@ impl SsidScanScreen {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            list: PagedList::new(true),
+            list: PagedList::new(true).with_footer(true),
         }
     }
 

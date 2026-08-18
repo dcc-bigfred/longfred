@@ -21,8 +21,12 @@ fn quit_cmd() {
 #[test]
 fn heartbeat() {
     assert_eq!(p::heartbeat().as_str(), "*");
-    assert_eq!(p::heartbeat_enable(true).as_str(), "*+");
-    assert_eq!(p::heartbeat_enable(false).as_str(), "*-");
+}
+
+#[test]
+fn dead_man_switch_enable() {
+    assert_eq!(p::dead_man_switch_enable(true).as_str(), "*+");
+    assert_eq!(p::dead_man_switch_enable(false).as_str(), "*-");
 }
 
 #[test]

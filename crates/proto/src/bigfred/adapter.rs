@@ -37,10 +37,10 @@ impl BigFredAdapter {
         id: &str,
         hb_period: u32,
         send_leading_crlf: bool,
-        heartbeat_enabled: bool,
+        dead_man_switch_on: bool,
     ) -> Self {
         Self {
-            inner: WtAdapter::new(name, id, hb_period, send_leading_crlf, heartbeat_enabled),
+            inner: WtAdapter::new(name, id, hb_period, send_leading_crlf, dead_man_switch_on),
             pairing: PairState::Idle,
         }
     }

@@ -50,7 +50,7 @@ pub fn heartbeat() -> Cmd {
     cmd(&["*"])
 }
 
-pub fn heartbeat_enable(on: bool) -> Cmd {
+pub fn dead_man_switch_enable(on: bool) -> Cmd {
     if on {
         cmd(&["*", "+"])
     } else {

@@ -20,7 +20,7 @@ impl SsidListScreen {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            list: PagedList::new(true),
+            list: PagedList::new(true).with_footer(true),
         }
     }
 
@@ -46,7 +46,7 @@ impl Screen for SsidListScreen {
         ScreenId::SsidList
     }
 
-    /// Compiled SSIDs; footer on 128×64 lists key hints.
+    /// Compiled SSIDs; last content row shows key hints.
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         let names = compiled_ssids(cx);

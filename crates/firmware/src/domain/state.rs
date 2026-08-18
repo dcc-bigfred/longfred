@@ -34,7 +34,7 @@ pub struct DomainState {
     pub roster_count: u16,
     message: Option<(LongText, Instant)>,
     overlay_pending: Option<(LongText, u64)>,
-    pub heartbeat_on: bool,
+    pub dead_man_switch_on: bool,
     pub drop_before_acquire: bool,
     pub persist: PersistRecord,
     /// Session catalogue after connect-time resolution (not written to NVS).
@@ -62,7 +62,7 @@ impl DomainState {
             roster_count: 0,
             message: None,
             overlay_pending: None,
-            heartbeat_on: buttons::HEARTBEAT_ENABLED,
+            dead_man_switch_on: buttons::DEAD_MAN_SWITCH_ENABLED,
             drop_before_acquire: buttons::DROP_BEFORE_ACQUIRE,
             persist: PersistRecord::default(),
             effective_loco_source: LocoSource::AddressOnly,
@@ -92,8 +92,8 @@ impl DomainState {
         model::track_power_on(self.track_power)
     }
 
-    pub fn heartbeat_enabled(&self) -> bool {
-        self.heartbeat_on
+    pub fn dead_man_switch_on(&self) -> bool {
+        self.dead_man_switch_on
     }
 
     pub fn active_broadcast(&self) -> Option<&str> {
@@ -366,9 +366,12 @@ impl DomainState {
             .unwrap_or(false)
     }
 
-    pub fn toggle_heartbeat(&mut self, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
-        self.heartbeat_on = !self.heartbeat_on;
-        push_cmd(out, ClientCommand::SetHeartbeat(self.heartbeat_on));
+    pub fn toggle_dead_man_switch(
+        &mut self,
+        out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    ) -> bool {
+        self.dead_man_switch_on = !self.dead_man_switch_on;
+        push_cmd(out, ClientCommand::SetDeadManSwitch(self.dead_man_switch_on));
         true
     }
 

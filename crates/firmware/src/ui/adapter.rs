@@ -263,7 +263,7 @@ pub fn screen_ctx<'a>(
             message: state.active_broadcast(),
             speed_multiplier: state.speed_multiplier,
             max_throttles: state.max_throttles,
-            heartbeat_on: state.heartbeat_on,
+            dead_man_switch_on: state.dead_man_switch_on,
             drop_before_acquire: state.drop_before_acquire,
         },
         net: NetInfo {

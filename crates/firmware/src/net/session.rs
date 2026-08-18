@@ -134,14 +134,14 @@ fn make_adapter(ep: ServerEndpoint) -> Adapter {
             id.as_str(),
             config::buttons::DEFAULT_HEARTBEAT_PERIOD_S,
             config::network::SEND_LEADING_CR_LF,
-            config::buttons::HEARTBEAT_ENABLED,
+            config::buttons::DEAD_MAN_SWITCH_ENABLED,
         )),
         Protocol::BigFred => Adapter::BigFred(BigFredAdapter::new(
             dev.name.as_str(),
             id.as_str(),
             config::buttons::DEFAULT_HEARTBEAT_PERIOD_S,
             config::network::SEND_LEADING_CR_LF,
-            config::buttons::HEARTBEAT_ENABLED,
+            config::buttons::DEAD_MAN_SWITCH_ENABLED,
         )),
         Protocol::Z21 => Adapter::Z21(Z21Adapter::new()),
     }

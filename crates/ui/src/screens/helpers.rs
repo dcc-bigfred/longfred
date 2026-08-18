@@ -16,6 +16,19 @@ pub fn digit_key(c: char) -> Option<u8> {
     c.to_digit(10).and_then(|n| u8::try_from(n).ok())
 }
 
+/// Leading shortcut digit from a menu label (`"6 Language"` → `6`, `"0-4 Fn"` → `0`).
+#[must_use]
+pub fn label_shortcut_digit(label: &str) -> Option<u8> {
+    let trimmed = label.trim_start();
+    let Some(c) = trimmed.chars().next() else {
+        return None;
+    };
+    if !c.is_ascii_digit() {
+        return None;
+    }
+    c.to_digit(10).and_then(|d| u8::try_from(d).ok())
+}
+
 /// True when the current throttle slot has an acquired loco.
 pub fn has_loco(cx: &ScreenCtx<'_>) -> bool {
     cx.drive
@@ -76,11 +89,13 @@ pub fn page_list(list: &mut PagedList, d: PageDir, items: &[&str], h: u16) {
     }
 }
 
-/// Footer on row 7 of 128×64 lists (128×32 has no spare row).
+/// Hint on the last visible content row (6 on 128×64, 3 on 128×32).
 pub fn set_list_hint(g: &mut GridView, cx: &ScreenCtx<'_>, hint: &str) {
-    if cx.env.geometry.height > 32 {
-        g.set(7, hint, false);
-    }
+    g.set(
+        crate::view::list_hint_row(cx.env.geometry.height),
+        hint,
+        false,
+    );
 }
 
 /// Append `a.b.c.d` with zero-padded octets.
@@ -304,6 +319,13 @@ pub fn pick_ssid(cx: &mut ScreenCtx<'_>, ssid: &str) {
 mod tests {
     use super::*;
     use longfred_proto::persist::StaticIpConfig;
+
+    #[test]
+    fn label_shortcut_digit_reads_leading_key() {
+        assert_eq!(label_shortcut_digit("6 Jezyk"), Some(6));
+        assert_eq!(label_shortcut_digit("0-4 Funkcja"), Some(0));
+        assert_eq!(label_shortcut_digit("Firmware update"), None);
+    }
 
     #[test]
     fn commit_prefix_ignores_non_digits() {

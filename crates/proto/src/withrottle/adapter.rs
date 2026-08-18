@@ -13,7 +13,7 @@ pub struct WtAdapter {
     pub heartbeat_period: u32,
     leading_crlf: bool,
     send_leading_crlf: bool,
-    heartbeat_enabled: bool,
+    dead_man_switch_on: bool,
 }
 
 impl WtAdapter {
@@ -22,7 +22,7 @@ impl WtAdapter {
         id: &str,
         hb_period: u32,
         send_leading_crlf: bool,
-        heartbeat_enabled: bool,
+        dead_man_switch_on: bool,
     ) -> Self {
         let mut n = heapless::String::new();
         let _ = n.push_str(name);
@@ -35,14 +35,14 @@ impl WtAdapter {
             heartbeat_period: hb_period.max(1),
             leading_crlf: false,
             send_leading_crlf,
-            heartbeat_enabled,
+            dead_man_switch_on,
         }
     }
 
     pub fn on_connect(&mut self, out: &mut WireBuf, _emit: &mut dyn FnMut(ServerEvent)) {
         self.push_line(out, &protocol::handshake_id(self.id.as_str()));
         self.push_line(out, &protocol::handshake_name(self.name.as_str()));
-        self.push_line(out, &protocol::heartbeat_enable(self.heartbeat_enabled));
+        self.push_line(out, &protocol::dead_man_switch_enable(self.dead_man_switch_on));
     }
 
     pub fn on_disconnect(&mut self, out: &mut WireBuf) {
@@ -98,9 +98,9 @@ impl WtAdapter {
             ClientCommand::TrackPower(on) => {
                 self.push_line(out, &protocol::track_power(*on));
             }
-            ClientCommand::SetHeartbeat(on) => {
-                self.heartbeat_enabled = *on;
-                self.push_line(out, &protocol::heartbeat_enable(*on));
+            ClientCommand::SetDeadManSwitch(on) => {
+                self.dead_man_switch_on = *on;
+                self.push_line(out, &protocol::dead_man_switch_enable(*on));
             }
             ClientCommand::Steal { throttle, loco } => {
                 let a = loco.to_wire();

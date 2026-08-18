@@ -85,13 +85,24 @@ pub fn col_chars() -> usize {
 }
 
 /// Sequential content rows for paged lists (header index 0 unused).
+///
+/// When `footer` is set, the last visible content row is reserved for a hint
+/// (row 6 on 128×64, row 3 on 128×32) and is not a list slot.
 #[must_use]
-pub fn list_slots_for(height: u16) -> &'static [usize] {
+pub fn list_slots_for(height: u16, footer: bool) -> &'static [usize] {
     if height <= 32 {
-        &[1, 2, 3]
+        if footer { &[1, 2] } else { &[1, 2, 3] }
+    } else if footer {
+        &[1, 2, 3, 4, 5]
     } else {
         &[1, 2, 3, 4, 5, 6]
     }
+}
+
+/// Last visible content row — used for list / overlay hints.
+#[must_use]
+pub fn list_hint_row(height: u16) -> usize {
+    if height <= 32 { 3 } else { 6 }
 }
 
 /// 1-based number drawn next to a list item (`global` 0 → `1:`).
@@ -183,8 +194,14 @@ fn flush_line(out: &mut heapless::Vec<Line, 8>, cur: &mut Line) {
 
 /// How many `items` starting at `start` fit on one list page.
 #[must_use]
-pub fn items_fitting(items: &[&str], start: usize, numbered: bool, height: u16) -> usize {
-    let slots = list_slots_for(height).len();
+pub fn items_fitting(
+    items: &[&str],
+    start: usize,
+    numbered: bool,
+    height: u16,
+    footer: bool,
+) -> usize {
+    let slots = list_slots_for(height, footer).len();
     let mut used = 0usize;
     let mut n = 0usize;
     for (off, s) in items.iter().skip(start).enumerate() {
@@ -200,10 +217,10 @@ pub fn items_fitting(items: &[&str], start: usize, numbered: bool, height: u16) 
 
 /// First item index of `page` in a wrapped list.
 #[must_use]
-pub fn page_start(items: &[&str], page: usize, numbered: bool, height: u16) -> usize {
+pub fn page_start(items: &[&str], page: usize, numbered: bool, height: u16, footer: bool) -> usize {
     let mut idx = 0usize;
     for _ in 0..page {
-        let n = items_fitting(items, idx, numbered, height);
+        let n = items_fitting(items, idx, numbered, height, footer);
         if n == 0 {
             break;
         }
@@ -214,16 +231,28 @@ pub fn page_start(items: &[&str], page: usize, numbered: bool, height: u16) -> u
 
 /// How many items fit on `page` given wrap and numbering.
 #[must_use]
-pub fn page_item_count(items: &[&str], page: usize, numbered: bool, height: u16) -> usize {
-    let start = page_start(items, page, numbered, height);
-    items_fitting(items, start, numbered, height)
+pub fn page_item_count(
+    items: &[&str],
+    page: usize,
+    numbered: bool,
+    height: u16,
+    footer: bool,
+) -> usize {
+    let start = page_start(items, page, numbered, height, footer);
+    items_fitting(items, start, numbered, height, footer)
 }
 
 /// True when another page exists after `page`.
 #[must_use]
-pub fn has_next_page(items: &[&str], page: usize, numbered: bool, height: u16) -> bool {
-    let start = page_start(items, page, numbered, height);
-    start + items_fitting(items, start, numbered, height) < items.len()
+pub fn has_next_page(
+    items: &[&str],
+    page: usize,
+    numbered: bool,
+    height: u16,
+    footer: bool,
+) -> bool {
+    let start = page_start(items, page, numbered, height, footer);
+    start + items_fitting(items, start, numbered, height, footer) < items.len()
 }
 
 /// Place wrapped list items into grid slots using `list` page, cursor, and numbering.
@@ -246,10 +275,10 @@ pub fn fill_list_page_invert<F: Fn(usize, usize) -> bool>(
     height: u16,
     invert: F,
 ) {
-    g.foot_line = false;
-    let slots = list_slots_for(height);
+    g.foot_line = list.footer;
+    let slots = list_slots_for(height, list.footer);
     let col = col_chars();
-    let start = page_start(items, list.page, list.numbered, height);
+    let start = page_start(items, list.page, list.numbered, height, list.footer);
     let mut slot_i = 0usize;
     for (local, item) in items.iter().skip(start).enumerate() {
         let global = start + local;
@@ -319,8 +348,8 @@ pub struct ThrottleView {
     pub consist_len: u8,
     /// Track power on.
     pub power_on: bool,
-    /// Heartbeat enabled.
-    pub heartbeat_on: bool,
+    /// Dead-man switch enabled (icon when off).
+    pub dead_man_switch_on: bool,
     /// Bitmask of DCC functions 0–31.
     pub functions: u32,
     /// Loco name / address line.
@@ -343,7 +372,7 @@ impl Default for ThrottleView {
             forward: true,
             consist_len: 0,
             power_on: false,
-            heartbeat_on: true,
+            dead_man_switch_on: true,
             functions: 0,
             loco: Line::new(),
             footer: Line::new(),
@@ -368,12 +397,8 @@ impl OverlayView {
         let mut grid = GridView::new();
         grid.foot_line = height > 32;
         let chunks = wrap_text(text);
-        let (body_rows, footer_row) = if height <= 32 {
-            (3usize, 3usize)
-        } else {
-            (5usize, 5usize)
-        };
-        for (i, chunk) in chunks.iter().take(body_rows).enumerate() {
+        let footer_row = list_hint_row(height);
+        for (i, chunk) in chunks.iter().take(footer_row).enumerate() {
             grid.set(i, chunk.as_str(), false);
         }
         grid.set(footer_row, footer, false);
@@ -434,6 +459,23 @@ mod tests {
         let ov = OverlayView::from_text("vehicle_cap_exceeded extra", "EStop close", 64);
         assert!(ov.grid.lines[0].len() <= LINE_LEN);
         assert!(ov.grid.lines[0].as_str().starts_with("vehicle_cap"));
-        assert_eq!(ov.grid.lines[5].as_str(), "EStop close");
+        assert_eq!(ov.grid.lines[6].as_str(), "EStop close");
+    }
+
+    #[test]
+    fn overlay_footer_is_last_visible_row_on_32() {
+        let ov = OverlayView::from_text("hello world extra", "OK", 32);
+        assert_eq!(ov.grid.lines[3].as_str(), "OK");
+        assert!(ov.grid.lines.get(3).is_some());
+    }
+
+    #[test]
+    fn list_slots_reserve_last_row_when_footer() {
+        assert_eq!(list_slots_for(64, false), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(list_slots_for(64, true), &[1, 2, 3, 4, 5]);
+        assert_eq!(list_slots_for(32, false), &[1, 2, 3]);
+        assert_eq!(list_slots_for(32, true), &[1, 2]);
+        assert_eq!(list_hint_row(64), 6);
+        assert_eq!(list_hint_row(32), 3);
     }
 }

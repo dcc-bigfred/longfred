@@ -20,10 +20,10 @@ use crate::ui::{UI_VIEW, fonts, splash};
 
 const BLINK_PERIOD_MS: u64 = 200;
 const GRID_LEFT_X: i32 = 0;
-/// Content-row Y positions for 128×64 (header at y=0, then 6 full-width lines).
-const GRID_Y_64: [i32; 6] = [10, 20, 30, 40, 50, 60];
-/// Content-row Y positions for 128×32 (header at y=0, then 3 full-width lines).
-const GRID_Y_32: [i32; 3] = [8, 16, 24];
+/// Content-row Y for 128×64. `FONT_6X10` (h=10) at last y=48 ends at 58 ≤ 64.
+const GRID_Y_64: [i32; 6] = [8, 16, 24, 32, 40, 48];
+/// Content-row Y for 128×32. `FONT_6X10` at last y=21 ends at 31 ≤ 32.
+const GRID_Y_32: [i32; 3] = [7, 14, 21];
 
 #[cfg(feature = "variant-longfred-mini")]
 type PanelSize = DisplaySize128x32;
@@ -105,7 +105,7 @@ fn draw_grid(display: &mut Display, grid: &GridView, text_style: MonoTextStyle<'
     let grid_y: &[i32] = if is_mini { &GRID_Y_32 } else { &GRID_Y_64 };
 
     if grid.top_line && !is_mini {
-        Rectangle::new(Point::new(0, 11), Size::new(127, 1))
+        Rectangle::new(Point::new(0, 9), Size::new(127, 1))
             .into_styled(
                 PrimitiveStyleBuilder::new()
                     .fill_color(BinaryColor::On)
@@ -115,7 +115,7 @@ fn draw_grid(display: &mut Display, grid: &GridView, text_style: MonoTextStyle<'
             .ok();
     }
     if grid.foot_line && !is_mini {
-        Rectangle::new(Point::new(0, 51), Size::new(127, 1))
+        Rectangle::new(Point::new(0, 47), Size::new(127, 1))
             .into_styled(
                 PrimitiveStyleBuilder::new()
                     .fill_color(BinaryColor::On)
@@ -302,7 +302,7 @@ fn draw_throttle_standard(
         .draw(display)
         .ok();
 
-    if !t.heartbeat_on {
+    if !t.dead_man_switch_on {
         Rectangle::new(Point::new(100, 2), Size::new(8, 8))
             .into_styled(
                 PrimitiveStyleBuilder::new()

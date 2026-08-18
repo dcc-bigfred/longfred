@@ -233,6 +233,7 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
         page: 0,
         cursor: usize::MAX,
         numbered: false,
+        footer: false,
     };
     fill_list_page(g, &refs, &list, cx.env.geometry.height);
 }

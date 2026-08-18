@@ -31,8 +31,8 @@ pub enum Intent {
     ServerSelect(usize),
     /// Connect using [`crate::session::UiSession::server_digits`].
     ServerManual,
-    /// Toggle the `WiThrottle` heartbeat.
-    HeartbeatToggle,
+    /// Toggle WiThrottle dead-man switch (`*+` / `*-` on the wire).
+    DeadManSwitchToggle,
     /// Toggle drop-before-acquire.
     DropBeforeAcquireToggle,
     /// Toggle whether `#` opens the function list.

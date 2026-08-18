@@ -123,7 +123,7 @@ impl Screen for DirectCommandsScreen {
         let Some(d) = digit_key(c) else { return };
         let labels = Self::labels(cx);
         let h = height(cx);
-        if self.list.select_digit(d, &labels, h).is_some()
+        if self.list.select_label_digit(d, &labels, h).is_some()
             && let Some(item) = self.current_at(&labels, h)
         {
             item.activate(nav);
