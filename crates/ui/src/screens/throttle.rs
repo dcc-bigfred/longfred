@@ -2,7 +2,8 @@
 
 use core::fmt::Write as _;
 
-use longfred_proto::model::track_power_on;
+use longfred_proto::catalog::{Catalog, LocoCatalog};
+use longfred_proto::network::ConnState;
 use longfred_proto::{LocoId, LocoSource};
 
 use super::helpers::has_loco;
@@ -32,6 +33,26 @@ impl Default for ThrottleScreen {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// 1-based catalogue position and length for the HUD corner (`1/3`).
+fn list_index(cx: &ScreenCtx<'_>) -> Option<(u8, u8)> {
+    if cx.drive.effective_loco_source == LocoSource::AddressOnly {
+        return None;
+    }
+    let cat = Catalog::for_source(
+        cx.drive.effective_loco_source,
+        cx.drive.roster,
+        &cx.drive.persist.static_roster,
+    );
+    let n = u8::try_from(cat.len()).ok().filter(|&n| n > 0)?;
+    let slot = cx.drive.slots.get(cx.drive.current)?;
+    let idx = slot.list_idx.or_else(|| {
+        let have = slot.consist.first()?.as_str();
+        (0..usize::from(n)).find(|&i| cat.entry(i).is_some_and(|e| e.addr.as_str() == have))
+    })?;
+    let pos = u8::try_from(idx.saturating_add(1)).ok()?;
+    (pos >= 1 && pos <= n).then_some((pos, n))
 }
 
 impl Screen for ThrottleScreen {
@@ -94,21 +115,16 @@ impl Screen for ThrottleScreen {
             None => (0, true, 0),
         };
         UiView::Throttle(ThrottleView {
-            current: u8::try_from(cx.drive.current).unwrap_or(0),
+            list_index: list_index(cx),
             speed,
             forward,
             consist_len,
-            power_on: track_power_on(cx.drive.track_power),
-            dead_man_switch_on: cx.drive.dead_man_switch_on,
+            server_connected: matches!(cx.net.conn, ConnState::Connected),
             functions,
             loco,
             footer,
             next_hint: Line::new(),
             battery: cx.battery.map(|b| b.percent),
-            battery_show_percent: matches!(
-                cx.session.battery_mode,
-                crate::session::BatteryMode::IconPercent
-            ),
         })
     }
 

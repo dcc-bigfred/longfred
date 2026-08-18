@@ -336,20 +336,18 @@ impl Default for GridView {
 
 /// Drive HUD: speed, direction, loco name, battery.
 #[derive(Clone, PartialEq, Eq)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct ThrottleView {
-    /// Active throttle slot index.
-    pub current: u8,
+    /// 1-based roster / static-list position and catalogue length (`1/3`).
+    /// `None` in address-only mode or when the current loco is not on the list.
+    pub list_index: Option<(u8, u8)>,
     /// Speed step `0..=126`.
     pub speed: u8,
     /// `true` = forward.
     pub forward: bool,
     /// Consist size (1 = single loco).
     pub consist_len: u8,
-    /// Track power on.
-    pub power_on: bool,
-    /// Dead-man switch enabled (icon when off).
-    pub dead_man_switch_on: bool,
+    /// Command-station session is up (`ConnState::Connected`).
+    pub server_connected: bool,
     /// Bitmask of DCC functions 0–31.
     pub functions: u32,
     /// Loco name / address line.
@@ -360,25 +358,21 @@ pub struct ThrottleView {
     pub next_hint: Line,
     /// Battery percent when known.
     pub battery: Option<u8>,
-    /// Show numeric percent next to the icon.
-    pub battery_show_percent: bool,
 }
 
 impl Default for ThrottleView {
     fn default() -> Self {
         Self {
-            current: 0,
+            list_index: None,
             speed: 0,
             forward: true,
             consist_len: 0,
-            power_on: false,
-            dead_man_switch_on: true,
+            server_connected: false,
             functions: 0,
             loco: Line::new(),
             footer: Line::new(),
             next_hint: Line::new(),
             battery: None,
-            battery_show_percent: false,
         }
     }
 }

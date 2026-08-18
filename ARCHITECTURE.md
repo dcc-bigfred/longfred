@@ -264,7 +264,10 @@ picks a source the live protocol can honour; fallback is always
 `AddressOnly`. After connect, WiThrottle/BigFred wait
 `ROSTER_BURST_TIMEOUT_MS` (3 s) for a live roster before treating
 `ServerRoster` as unavailable. HUD Menu Left/Right walk the effective
-catalogue (`neighbour_index`).
+catalogue (`neighbour_index`). LongFred drives a single loco per throttle
+slot — every acquire releases the slot first, so `*` on the wire always
+means that one loco. Consists (MU) are BigFred's responsibility, not the
+handset's.
 
 Invariant, enforced by a host test: every protocol’s mask includes
 `StaticRoster | AddressOnly`.

@@ -6,7 +6,7 @@ use embedded_graphics::{
     mono_font::{MonoTextStyle, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{PrimitiveStyleBuilder, Rectangle, Triangle},
+    primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
     text::{Baseline, Text},
 };
 use ssd1306::{I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode, prelude::*};
@@ -212,15 +212,110 @@ fn draw_fn_active(
     }
 }
 
-fn draw_battery_icon(
+fn stroke_on() -> PrimitiveStyle<BinaryColor> {
+    PrimitiveStyleBuilder::new()
+        .stroke_color(BinaryColor::On)
+        .stroke_width(1)
+        .build()
+}
+
+fn draw_direction_arrow(display: &mut Display, forward: bool, x: i32, y: i32) {
+    const W: i32 = 11;
+    const H: i32 = 6;
+    let style = stroke_on();
+    let mid_y = y + H / 2;
+    let right = x + W;
+    Line::new(Point::new(x, mid_y), Point::new(right, mid_y))
+        .into_styled(style)
+        .draw(display)
+        .ok();
+    if forward {
+        Line::new(Point::new(right, mid_y), Point::new(right - 4, mid_y - 3))
+            .into_styled(style)
+            .draw(display)
+            .ok();
+        Line::new(Point::new(right, mid_y), Point::new(right - 4, mid_y + 3))
+            .into_styled(style)
+            .draw(display)
+            .ok();
+    } else {
+        Line::new(Point::new(x, mid_y), Point::new(x + 4, mid_y - 3))
+            .into_styled(style)
+            .draw(display)
+            .ok();
+        Line::new(Point::new(x, mid_y), Point::new(x + 4, mid_y + 3))
+            .into_styled(style)
+            .draw(display)
+            .ok();
+    }
+}
+
+fn draw_conn_icon(display: &mut Display, connected: bool, x: i32, y: i32) {
+    let style = stroke_on();
+    if connected {
+        Line::new(Point::new(x, y + 4), Point::new(x + 3, y + 7))
+            .into_styled(style)
+            .draw(display)
+            .ok();
+        Line::new(Point::new(x + 3, y + 7), Point::new(x + 8, y + 1))
+            .into_styled(style)
+            .draw(display)
+            .ok();
+    } else {
+        Line::new(Point::new(x, y + 1), Point::new(x + 7, y + 8))
+            .into_styled(style)
+            .draw(display)
+            .ok();
+        Line::new(Point::new(x + 7, y + 1), Point::new(x, y + 8))
+            .into_styled(style)
+            .draw(display)
+            .ok();
+    }
+}
+
+fn draw_battery_percent(
     display: &mut Display,
     percent: u8,
-    show_percent: bool,
     text_style: MonoTextStyle<'_, BinaryColor>,
 ) {
-    let x = 114i32;
-    let y = 0i32;
-    Rectangle::new(Point::new(x, y), Size::new(12, 8))
+    let mut s = heapless::String::<4>::new();
+    if percent >= 100 {
+        let _ = s.push_str("100");
+    } else if percent >= 10 {
+        let _ = s.push((b'0' + percent / 10) as char);
+        let _ = s.push((b'0' + percent % 10) as char);
+    } else {
+        let _ = s.push((b'0' + percent) as char);
+    }
+    let _ = s.push('%');
+    let x = 128 - 2 - (s.len() as i32) * 6;
+    Text::with_baseline(s.as_str(), Point::new(x, 2), text_style, Baseline::Top)
+        .draw(display)
+        .ok();
+}
+
+fn push_u8(s: &mut heapless::String<7>, n: u8) {
+    if n >= 100 {
+        let _ = s.push((b'0' + n / 100) as char);
+    }
+    if n >= 10 {
+        let _ = s.push((b'0' + (n / 10) % 10) as char);
+    }
+    let _ = s.push((b'0' + n % 10) as char);
+}
+
+fn draw_list_index(
+    display: &mut Display,
+    pos: u8,
+    len: u8,
+    text_style: MonoTextStyle<'_, BinaryColor>,
+) {
+    let mut label = heapless::String::<7>::new();
+    push_u8(&mut label, pos);
+    let _ = label.push('/');
+    push_u8(&mut label, len);
+    let w = (label.len() as u32 * 6 + 4).max(14);
+    Rectangle::new(Point::new(0, 0), Size::new(w, 14))
         .into_styled(
             PrimitiveStyleBuilder::new()
                 .stroke_color(BinaryColor::On)
@@ -229,34 +324,9 @@ fn draw_battery_icon(
         )
         .draw(display)
         .ok();
-    let thresholds = [10u8, 25, 50, 75, 90];
-    for (i, th) in thresholds.iter().enumerate() {
-        if percent >= *th {
-            Rectangle::new(Point::new(x + 2 + i as i32, y + 6), Size::new(1, 2))
-                .into_styled(
-                    PrimitiveStyleBuilder::new()
-                        .fill_color(BinaryColor::On)
-                        .build(),
-                )
-                .draw(display)
-                .ok();
-        }
-    }
-    if show_percent {
-        let mut s = heapless::String::<4>::new();
-        if percent >= 100 {
-            let _ = s.push_str("100");
-        } else if percent >= 10 {
-            let _ = s.push((b'0' + percent / 10) as char);
-            let _ = s.push((b'0' + percent % 10) as char);
-        } else {
-            let _ = s.push((b'0' + percent) as char);
-        }
-        let _ = s.push('%');
-        Text::with_baseline(s.as_str(), Point::new(96, 0), text_style, Baseline::Top)
-            .draw(display)
-            .ok();
-    }
+    Text::with_baseline(label.as_str(), Point::new(2, 2), text_style, Baseline::Top)
+        .draw(display)
+        .ok();
 }
 
 fn draw_throttle_standard(
@@ -265,25 +335,9 @@ fn draw_throttle_standard(
     title_style: MonoTextStyle<'_, BinaryColor>,
     text_style: MonoTextStyle<'_, BinaryColor>,
 ) {
-    let mut throttle_label = heapless::String::<4>::new();
-    let _ = throttle_label.push((b'0' + t.current) as char);
-    Rectangle::new(Point::new(0, 0), Size::new(14, 14))
-        .into_styled(
-            PrimitiveStyleBuilder::new()
-                .stroke_color(BinaryColor::On)
-                .stroke_width(1)
-                .build(),
-        )
-        .draw(display)
-        .ok();
-    Text::with_baseline(
-        throttle_label.as_str(),
-        Point::new(4, 2),
-        text_style,
-        Baseline::Top,
-    )
-    .draw(display)
-    .ok();
+    if let Some((pos, len)) = t.list_index {
+        draw_list_index(display, pos, len, text_style);
+    }
 
     let mut spd = heapless::String::<4>::new();
     if t.speed >= 100 {
@@ -297,54 +351,11 @@ fn draw_throttle_standard(
         .draw(display)
         .ok();
 
-    let dir = if t.forward { "Fwd" } else { "Rev" };
-    Text::with_baseline(dir, Point::new(90, 4), text_style, Baseline::Top)
-        .draw(display)
-        .ok();
-
-    if !t.dead_man_switch_on {
-        Rectangle::new(Point::new(100, 2), Size::new(8, 8))
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .stroke_color(BinaryColor::On)
-                    .stroke_width(1)
-                    .build(),
-            )
-            .draw(display)
-            .ok();
-        Rectangle::new(Point::new(100, 6), Size::new(8, 1))
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .fill_color(BinaryColor::On)
-                    .build(),
-            )
-            .draw(display)
-            .ok();
-    }
-
-    if t.power_on {
-        Rectangle::new(Point::new(112, 2), Size::new(8, 8))
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .fill_color(BinaryColor::On)
-                    .build(),
-            )
-            .draw(display)
-            .ok();
-    } else {
-        Rectangle::new(Point::new(112, 2), Size::new(8, 8))
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .stroke_color(BinaryColor::On)
-                    .stroke_width(1)
-                    .build(),
-            )
-            .draw(display)
-            .ok();
-    }
+    draw_direction_arrow(display, t.forward, 76, 4);
+    draw_conn_icon(display, t.server_connected, 94, 2);
 
     if let Some(pct) = t.battery {
-        draw_battery_icon(display, pct, t.battery_show_percent, text_style);
+        draw_battery_percent(display, pct, text_style);
     }
 
     Text::with_baseline(

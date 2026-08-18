@@ -197,6 +197,7 @@ impl DomainState {
         let Some(loco_id) = parse_acquire_addr(digits) else {
             return false;
         };
+        let _ = self.release_all(out);
         self.acquire_loco(loco_id, ShortText::new(), out)
     }
 
@@ -273,6 +274,7 @@ impl DomainState {
             return false;
         };
         let name = entry.name.clone();
+        let _ = self.release_all(out);
         let ok = self.acquire_loco(loco, name, out);
         if ok {
             self.current_slot_mut().list_idx = Some(index);
@@ -319,14 +321,10 @@ impl DomainState {
         let Some(pick) = pick else {
             return false;
         };
-        let drop = self.drop_before_acquire;
-        self.drop_before_acquire = false;
-        let _ = self.release_all(out);
         let (ok, idx) = match pick {
             Pick::Roster(i) => (self.acquire_roster(i, out), i),
             Pick::Addr(i, addr) => (self.acquire_addr(addr.as_str(), out), i),
         };
-        self.drop_before_acquire = drop;
         if ok {
             self.current_slot_mut().list_idx = Some(idx);
         }
@@ -1121,5 +1119,82 @@ fn build_loco_addr(digits: &str) -> Option<LocoAddr> {
 fn push_cmd(out: &mut heapless::Vec<ClientCommand, CMD_BUF>, cmd: ClientCommand) {
     if out.push(cmd).is_err() {
         warn!("command buffer full");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn roster_entry(name: &str, address: i32, length: char) -> RosterEntry {
+        let mut n = ShortText::new();
+        let _ = n.push_str(name);
+        RosterEntry {
+            name: n,
+            address,
+            length,
+        }
+    }
+
+    fn consist_addrs(state: &DomainState) -> heapless::Vec<&str, 10> {
+        let mut v = heapless::Vec::new();
+        for addr in &state.current_slot().consist {
+            let _ = v.push(addr.as_str());
+        }
+        v
+    }
+
+    fn has_release(out: &[ClientCommand]) -> bool {
+        out.iter()
+            .any(|c| matches!(c, ClientCommand::ReleaseThrottle { .. }))
+    }
+
+    fn last_add_addr(out: &[ClientCommand]) -> Option<u16> {
+        out.iter().rev().find_map(|c| match c {
+            ClientCommand::AddLoco { loco, .. } => Some(loco.addr),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn acquire_roster_replaces_current_loco() {
+        let mut state = DomainState::new();
+        let _ = state.roster.push(roster_entry("Vectron", 8, 'S'));
+        let _ = state.roster.push(roster_entry("SM42", 9, 'S'));
+        let mut out = heapless::Vec::new();
+
+        assert!(state.acquire_roster(0, &mut out));
+        assert_eq!(consist_addrs(&state).as_slice(), ["S8"]);
+        assert!(!has_release(&out));
+        assert_eq!(last_add_addr(&out), Some(8));
+
+        out.clear();
+        assert!(state.acquire_roster(1, &mut out));
+        assert_eq!(consist_addrs(&state).as_slice(), ["S9"]);
+        assert!(has_release(&out));
+        assert_eq!(last_add_addr(&out), Some(9));
+        let rel = out
+            .iter()
+            .position(|c| matches!(c, ClientCommand::ReleaseThrottle { .. }));
+        let add = out
+            .iter()
+            .position(|c| matches!(c, ClientCommand::AddLoco { .. }));
+        assert!(rel.is_some_and(|r| add.is_some_and(|a| r < a)));
+    }
+
+    #[test]
+    fn acquire_addr_replaces_current_loco() {
+        let mut state = DomainState::new();
+        let mut out = heapless::Vec::new();
+
+        assert!(state.acquire_addr("8", &mut out));
+        assert_eq!(consist_addrs(&state).as_slice(), ["S8"]);
+        assert!(!has_release(&out));
+
+        out.clear();
+        assert!(state.acquire_addr("9", &mut out));
+        assert_eq!(consist_addrs(&state).as_slice(), ["S9"]);
+        assert!(has_release(&out));
+        assert_eq!(last_add_addr(&out), Some(9));
     }
 }

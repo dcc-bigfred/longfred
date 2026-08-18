@@ -27,6 +27,7 @@ struct Fixture {
     session: UiSession,
     env: UiEnv,
     strings: &'static longfred_ui::i18n::Strings,
+    conn: ConnState,
 }
 
 impl Fixture {
@@ -57,6 +58,7 @@ impl Fixture {
                 battery_factor: 1.7,
             },
             strings: strings(Language::En, HintSet::Joystick),
+            conn: ConnState::Disconnected,
         }
     }
 
@@ -77,7 +79,7 @@ impl Fixture {
             },
             net: NetInfo {
                 status: NetStatus::Disconnected,
-                conn: ConnState::Disconnected,
+                conn: self.conn,
                 server: None,
                 scanned_ssids: &self.scanned,
                 found_servers: &self.servers,
@@ -329,6 +331,90 @@ fn throttle_title_shows_only_dcc_address_without_name() {
         return;
     };
     assert_eq!(view.loco.as_str(), "8");
+}
+
+#[test]
+fn throttle_hides_list_index_in_address_only_mode() {
+    let mut fx = Fixture::new();
+    let mut addr = heapless::String::new();
+    let _ = addr.push_str("S8");
+    let _ = fx.slots[0].consist.push(addr);
+    let router = Router::new(&LONGFRED, ScreenId::Throttle);
+    let cx = fx.ctx();
+    let view = router.view(&cx);
+    let UiView::Throttle(view) = view else {
+        return;
+    };
+    assert_eq!(view.list_index, None);
+}
+
+#[test]
+fn throttle_shows_list_index_from_roster() {
+    let mut fx = Fixture::new();
+    let mut name = heapless::String::new();
+    let _ = name.push_str("Vectron");
+    let _ = fx.roster.push(RosterEntry {
+        name,
+        address: 431,
+        length: 'L',
+    });
+    let mut name = heapless::String::new();
+    let _ = name.push_str("SM42");
+    let _ = fx.roster.push(RosterEntry {
+        name,
+        address: 955,
+        length: 'L',
+    });
+    let mut addr = heapless::String::new();
+    let _ = addr.push_str("L431");
+    let _ = fx.slots[0].consist.push(addr);
+    fx.slots[0].list_idx = Some(0);
+    let router = Router::new(&LONGFRED, ScreenId::Throttle);
+    let view = {
+        let mut cx = fx.ctx();
+        cx.drive.effective_loco_source = longfred_proto::LocoSource::ServerRoster;
+        router.view(&cx)
+    };
+    let UiView::Throttle(view) = view else {
+        return;
+    };
+    assert_eq!(view.list_index, Some((1, 2)));
+
+    fx.slots[0].list_idx = Some(1);
+    let view = {
+        let mut cx = fx.ctx();
+        cx.drive.effective_loco_source = longfred_proto::LocoSource::ServerRoster;
+        router.view(&cx)
+    };
+    let UiView::Throttle(view) = view else {
+        return;
+    };
+    assert_eq!(view.list_index, Some((2, 2)));
+}
+
+#[test]
+fn throttle_server_connected_follows_conn_state() {
+    let mut fx = Fixture::new();
+    let router = Router::new(&LONGFRED, ScreenId::Throttle);
+    {
+        let cx = fx.ctx();
+        let view = router.view(&cx);
+        assert!(matches!(view, UiView::Throttle(_)));
+        let UiView::Throttle(view) = view else {
+            return;
+        };
+        assert!(!view.server_connected);
+    }
+    fx.conn = ConnState::Connected;
+    {
+        let cx = fx.ctx();
+        let view = router.view(&cx);
+        assert!(matches!(view, UiView::Throttle(_)));
+        let UiView::Throttle(view) = view else {
+            return;
+        };
+        assert!(view.server_connected);
+    }
 }
 
 #[test]
