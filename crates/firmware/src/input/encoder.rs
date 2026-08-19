@@ -1,4 +1,4 @@
-//! Rotary encoder (quadrature on pin A edge) + encoder button.
+//! Rotary encoder (Gray-code quadrature + detent) and encoder button.
 //! Emits [`RawEvent`] for the board ControlSurface bridge.
 
 use embassy_time::{Duration, Timer};
@@ -6,8 +6,10 @@ use esp_hal::gpio::{AnyPin, Input, InputConfig, Pull};
 
 use crate::board::raw::{ButtonId, RawEvent, RawSender};
 use crate::config::board;
+use crate::input::quadrature::QuadratureDecoder;
 
 const BTN_DEBOUNCE_MS: u64 = 50;
+const POLL_MS: u64 = 1;
 
 pub struct Pins {
     pub a: Input<'static>,
@@ -35,15 +37,14 @@ pub fn build() -> Pins {
 }
 
 #[embassy_executor::task]
-pub async fn task(mut a: Input<'static>, b: Input<'static>, sender: RawSender) {
+pub async fn task(a: Input<'static>, b: Input<'static>, sender: RawSender) {
+    let mut decoder = QuadratureDecoder::new(a.is_high(), b.is_high());
     loop {
-        a.wait_for_falling_edge().await;
-        // Direction from B at the A edge (KY-040/EC11 detent).
-        let cw = b.is_high();
-        let delta: i8 = if cw { 1 } else { -1 };
-        log::info!("input: encoder {}", if cw { "CW" } else { "CCW" });
-        let _ = sender.try_send(RawEvent::Encoder(delta));
-        Timer::after(Duration::from_millis(2)).await;
+        Timer::after(Duration::from_millis(POLL_MS)).await;
+        if let Some(delta) = decoder.update(a.is_high(), b.is_high()) {
+            log::info!("input: encoder {}", if delta > 0 { "CW" } else { "CCW" });
+            let _ = sender.try_send(RawEvent::Encoder(delta));
+        }
     }
 }
 

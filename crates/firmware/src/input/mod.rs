@@ -10,6 +10,7 @@ pub mod gpio_nav;
 pub mod i2c_bus;
 #[cfg(feature = "variant-markwtech")]
 pub mod keypad;
+pub(crate) mod quadrature;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
