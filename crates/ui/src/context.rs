@@ -36,8 +36,6 @@ pub struct DriveInfo<'a> {
     pub max_throttles: usize,
     /// WiThrottle dead-man switch enabled (`*+` sent to station).
     pub dead_man_switch_on: bool,
-    /// Drop locos before acquire.
-    pub drop_before_acquire: bool,
 }
 
 /// Borrowed network snapshot.

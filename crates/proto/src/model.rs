@@ -1,4 +1,4 @@
-pub const MAX_THROTTLES: usize = 6;
+pub const MAX_THROTTLES: usize = 9;
 pub const MAX_FUNCTIONS: usize = 32;
 pub const MAX_LOCOS: usize = 10;
 pub const MAX_SPEED: u8 = 126;
@@ -63,7 +63,7 @@ impl TrackPower {
     }
 }
 
-/// Throttle slot index (0..=5) to WiThrottle throttle character (`'0'`..`'5'`).
+/// Throttle slot index (`0..MAX_THROTTLES`) to WiThrottle throttle character (`'0'`..`'8'`).
 pub fn throttle_char(index: usize) -> char {
     (b'0' + index as u8) as char
 }
@@ -73,7 +73,7 @@ pub fn throttle_char_u8(throttle: u8) -> char {
     (b'0' + throttle) as char
 }
 
-/// Wire throttle character (`'0'`..`'5'`) to slot index.
+/// Wire throttle character (`'0'`..`'8'`) to slot index.
 pub fn throttle_index(c: char) -> Option<usize> {
     if c.is_ascii_digit() {
         let i = (c as u8 - b'0') as usize;

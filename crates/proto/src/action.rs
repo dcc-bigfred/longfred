@@ -28,8 +28,8 @@ pub enum Action {
     DirectionForward,
     DirectionReverse,
 
-    MaxThrottleIncrease,
-    MaxThrottleDecrease,
+    /// Set the number of active throttle slots (`1..=MAX_THROTTLES`).
+    SetMaxThrottles(u8),
 
     PowerToggle,
     PowerOn,
@@ -39,7 +39,7 @@ pub enum Action {
     Sleep,
 
     NextThrottle,
-    /// Switch to throttle 1-6 (THROTTLE_1..THROTTLE_6).
+    /// Switch to throttle 1-9 (THROTTLE_1..THROTTLE_9).
     Throttle(u8),
 
     /// User command 1-7 (CUSTOM_1..CUSTOM_7).
@@ -59,6 +59,7 @@ impl Action {
                 | Action::Sleep
                 | Action::NextThrottle
                 | Action::Throttle(_)
+                | Action::SetMaxThrottles(_)
                 | Action::Custom(_)
         )
     }

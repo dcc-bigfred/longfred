@@ -197,7 +197,6 @@ fn interpret(
         Intent::DeadManSwitchToggle => {
             let _ = state.toggle_dead_man_switch(out);
         }
-        Intent::DropBeforeAcquireToggle => state.toggle_drop_before_acquire(),
         Intent::HashFunctionsToggle => {
             session.hash_functions = !session.hash_functions;
         }

@@ -75,7 +75,6 @@ impl Fixture {
                 speed_multiplier: 1,
                 max_throttles: 2,
                 dead_man_switch_on: true,
-                drop_before_acquire: false,
             },
             net: NetInfo {
                 status: NetStatus::Disconnected,
@@ -104,6 +103,16 @@ fn overlay_first_line(view: &UiView) -> &str {
         UiView::Overlay(ov) => ov.grid.lines.first().map_or("", |l| l.as_str()),
         _ => "",
     }
+}
+
+fn overlay_joined(view: &UiView) -> heapless::String<64> {
+    let mut s = heapless::String::new();
+    if let UiView::Overlay(ov) = view {
+        for line in &ov.grid.lines {
+            let _ = s.push_str(line.as_str());
+        }
+    }
+    s
 }
 
 fn grid_line(view: &UiView, idx: usize) -> &str {
@@ -230,7 +239,7 @@ fn extras_ok_opens_ip_config() {
 fn extras_last_row_opens_diagnostics() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
-    for _ in 0..12 {
+    for _ in 0..9 {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
     }
@@ -238,14 +247,14 @@ fn extras_last_row_opens_diagnostics() {
         let cx = fx.ctx();
         let view = router.view(&cx);
         assert!(
-            grid_line(&view, 1).starts_with("13:"),
-            "diagnostics row should be numbered 13, got {}",
-            grid_line(&view, 1)
+            grid_line(&view, 4).starts_with("10:"),
+            "diagnostics row should be numbered 10, got {}",
+            grid_line(&view, 4)
         );
         assert!(
-            grid_line(&view, 1).contains("Diagnostics"),
+            grid_line(&view, 4).contains("Diagnostics"),
             "got {}",
-            grid_line(&view, 1)
+            grid_line(&view, 4)
         );
     }
     {
@@ -267,14 +276,54 @@ fn extras_digit_one_opens_ip_config() {
 }
 
 #[test]
-fn extras_star_thirteen_opens_diagnostics() {
+fn extras_slot_count_saves_and_overlays() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::SlotCountEdit);
+    let intents = {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+        router.handle(InputEvent::Ok, &mut cx)
+    };
+    assert!(intents.contains(&Intent::Action(Action::SetMaxThrottles(3))));
+    assert_eq!(router.screen_id(), ScreenId::Extras);
+    let joined = overlay_joined(&router.view(&fx.ctx()));
+    assert!(
+        joined.contains('3') && joined.contains("locos"),
+        "overlay missing slot count: {joined}"
+    );
+}
+
+#[test]
+fn extras_slot_count_rejects_zero() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+    }
+    let intents = {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
+        router.handle(InputEvent::Ok, &mut cx)
+    };
+    assert!(intents.is_empty());
+    assert_eq!(router.screen_id(), ScreenId::SlotCountEdit);
+}
+
+#[test]
+fn extras_star_ten_opens_diagnostics() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&MARKWTECH, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Digit('*'), &mut cx);
         let _ = router.handle(InputEvent::Digit('1'), &mut cx);
-        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
         let view = router.view(&cx);
         assert!(
             grid_line(&view, 0).contains('*'),
@@ -287,12 +336,12 @@ fn extras_star_thirteen_opens_diagnostics() {
 }
 
 #[test]
-fn extras_fn_thirteen_opens_diagnostics() {
+fn extras_fn_ten_opens_diagnostics() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::FnPress(13), &mut cx);
+        let _ = router.handle(InputEvent::FnPress(10), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Diagnostics);
 }
@@ -314,7 +363,7 @@ fn extras_roster_opens_choice_static() {
     use longfred_proto::persist::RosterMode;
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
-    for _ in 0..10 {
+    for _ in 0..7 {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
     }
@@ -620,13 +669,22 @@ fn server_list_truncates_long_label_and_keeps_glyph() {
 }
 
 #[test]
-fn extras_server_manual_opens_proto_then_z21_port() {
+fn server_menu_manual_opens_proto_then_z21_port() {
     let mut fx = Fixture::new();
-    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    let mut router = Router::new(&LONGFRED, ScreenId::Menu);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
-        let _ = router.handle(InputEvent::Ok, &mut cx);
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::ServerMenu);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Choice);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('2'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::ServerProto);
     {
@@ -981,7 +1039,7 @@ fn extras_dead_man_opens_choice_and_off_toggles() {
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('4'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Choice);
     {
@@ -1006,27 +1064,21 @@ fn extras_digit_shortcuts_match_label_numbers() {
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('4'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Choice);
     fx = Fixture::new();
     router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('6'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
     }
-    assert_eq!(router.screen_id(), ScreenId::Throttle);
-    let view = router.view(&fx.ctx());
-    let overlay = overlay_first_line(&view);
-    assert!(
-        overlay.contains("Throttles"),
-        "expected throttles plus overlay, got {overlay}"
-    );
+    assert_eq!(router.screen_id(), ScreenId::SlotCountEdit);
     fx = Fixture::new();
     router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('7'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Language);
 }
@@ -1090,7 +1142,7 @@ fn extras_no_footer_three_rows_on_32_and_digit_zero_opens_language() {
     assert!(grid_line(&view, 4).is_empty());
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('7'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Language);
 }

@@ -35,7 +35,6 @@ pub struct DomainState {
     message: Option<(LongText, Instant)>,
     overlay_pending: Option<(LongText, u64)>,
     pub dead_man_switch_on: bool,
-    pub drop_before_acquire: bool,
     pub persist: PersistRecord,
     /// Session catalogue after connect-time resolution (not written to NVS).
     pub effective_loco_source: LocoSource,
@@ -63,7 +62,6 @@ impl DomainState {
             message: None,
             overlay_pending: None,
             dead_man_switch_on: buttons::DEAD_MAN_SWITCH_ENABLED,
-            drop_before_acquire: buttons::DROP_BEFORE_ACQUIRE,
             persist: PersistRecord::default(),
             effective_loco_source: LocoSource::AddressOnly,
             session_caps: None,
@@ -146,21 +144,8 @@ impl DomainState {
             Action::DirectionReverse => {
                 self.change_direction(self.current, Direction::Reverse, out)
             }
-            Action::MaxThrottleIncrease => {
-                if self.max_throttles < config::sizes::MAX_THROTTLES {
-                    self.max_throttles += 1;
-                }
-                true
-            }
-            Action::MaxThrottleDecrease => {
-                if self.max_throttles > 1 {
-                    let idx = self.max_throttles - 1;
-                    self.release_throttle(idx, out);
-                    self.max_throttles -= 1;
-                    if self.current >= self.max_throttles {
-                        self.current = self.max_throttles - 1;
-                    }
-                }
+            Action::SetMaxThrottles(n) => {
+                self.set_max_throttles(usize::from(n), out);
                 true
             }
             Action::PowerToggle => {
@@ -207,15 +192,6 @@ impl DomainState {
         name: ShortText,
         out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
     ) -> bool {
-        if self.drop_before_acquire {
-            push_cmd(
-                out,
-                ClientCommand::ReleaseThrottle {
-                    throttle: self.current as u8,
-                },
-            );
-            self.clear_consist(self.current);
-        }
         let current = self.current;
         let addr = loco.to_wire();
         let slot = self.current_slot_mut();
@@ -376,8 +352,17 @@ impl DomainState {
         true
     }
 
-    pub fn toggle_drop_before_acquire(&mut self) {
-        self.drop_before_acquire = !self.drop_before_acquire;
+    fn set_max_throttles(&mut self, n: usize, out: &mut heapless::Vec<ClientCommand, CMD_BUF>) {
+        let n = n.clamp(1, config::sizes::MAX_THROTTLES);
+        while self.max_throttles > n {
+            let idx = self.max_throttles - 1;
+            self.release_throttle(idx, out);
+            self.max_throttles -= 1;
+        }
+        self.max_throttles = n;
+        if self.current >= n {
+            self.current = n - 1;
+        }
     }
 
     pub fn show_message(&mut self, text: &str) {
@@ -1199,5 +1184,38 @@ mod tests {
         assert_eq!(consist_addrs(&state).as_slice(), ["S9"]);
         assert!(has_release(&out));
         assert_eq!(last_add_addr(&out), Some(9));
+    }
+
+    #[test]
+    fn set_max_throttles_releases_trimmed_slots() {
+        let mut state = DomainState::new();
+        let mut out = heapless::Vec::new();
+        assert!(state.apply_action(Action::SetMaxThrottles(3), true, &mut out));
+        assert_eq!(state.max_throttles, 3);
+
+        state.current = 1;
+        assert!(state.acquire_addr("8", &mut out));
+        state.current = 2;
+        out.clear();
+        assert!(state.acquire_addr("9", &mut out));
+        assert!(state.throttles[1].has_loco());
+        assert!(state.throttles[2].has_loco());
+
+        out.clear();
+        assert!(state.apply_action(Action::SetMaxThrottles(1), true, &mut out));
+        assert_eq!(state.max_throttles, 1);
+        assert_eq!(state.current, 0);
+        assert!(!state.throttles[1].has_loco());
+        assert!(!state.throttles[2].has_loco());
+        let released: heapless::Vec<u8, 4> = {
+            let mut v = heapless::Vec::new();
+            for c in &out {
+                if let ClientCommand::ReleaseThrottle { throttle } = c {
+                    let _ = v.push(*throttle);
+                }
+            }
+            v
+        };
+        assert_eq!(released.as_slice(), &[2, 1]);
     }
 }

@@ -4,7 +4,7 @@ use core::fmt::Write as _;
 
 use longfred_proto::persist::StaticIpConfig;
 
-use crate::context::{MAX_COMPILED_NETWORKS, ScreenCtx};
+use crate::context::{ScreenCtx, MAX_COMPILED_NETWORKS};
 use crate::nav::{PageDir, Step};
 use crate::session::NetField;
 use crate::view::{GridView, Line};
@@ -47,24 +47,22 @@ pub fn next_speed_multiplier(current: u8) -> u8 {
     }
 }
 
-/// Predicted throttle count after extras +/- (`1..=MAX_THROTTLES`).
-#[must_use]
-pub fn next_throttle_count(current: usize, plus: bool) -> usize {
-    if plus {
-        current
-            .saturating_add(1)
-            .min(longfred_proto::model::MAX_THROTTLES)
-    } else {
-        current.saturating_sub(1).max(1)
-    }
-}
-
 /// `prefix` plus a small decimal (overlay status lines).
 #[must_use]
 pub fn overlay_prefixed_count(prefix: &str, n: usize) -> heapless::String<64> {
     let mut s = heapless::String::new();
     let _ = s.push_str(prefix);
     let _ = write!(s, "{n}");
+    s
+}
+
+/// Overlay body: `prefix` `{n}` `suffix`.
+#[must_use]
+pub fn overlay_count_message(prefix: &str, n: usize, suffix: &str) -> heapless::String<64> {
+    let mut s = heapless::String::new();
+    let _ = s.push_str(prefix);
+    let _ = write!(s, "{n}");
+    let _ = s.push_str(suffix);
     s
 }
 
@@ -396,10 +394,10 @@ mod tests {
     }
 
     #[test]
-    fn next_throttle_count_clamps() {
-        assert_eq!(next_throttle_count(2, true), 3);
-        assert_eq!(next_throttle_count(6, true), 6);
-        assert_eq!(next_throttle_count(2, false), 1);
-        assert_eq!(next_throttle_count(1, false), 1);
+    fn overlay_count_message_inserts_n() {
+        assert_eq!(
+            overlay_count_message("among ", 3, " locos").as_str(),
+            "among 3 locos"
+        );
     }
 }

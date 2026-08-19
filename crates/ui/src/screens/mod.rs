@@ -22,6 +22,7 @@ mod server_entry;
 mod server_list;
 mod server_menu;
 mod server_proto;
+mod slot_count;
 mod splash;
 mod throttle;
 mod wifi_connecting;
@@ -58,6 +59,7 @@ pub use server_entry::ServerEntryScreen;
 pub use server_list::ServerListScreen;
 pub use server_menu::ServerMenuScreen;
 pub use server_proto::ServerProtoScreen;
+pub use slot_count::SlotCountEditScreen;
 pub use splash::SplashScreen;
 pub use throttle::ThrottleScreen;
 pub use wifi_connecting::ConnectingScreen;
@@ -95,6 +97,7 @@ pub enum ScreenState {
     Device(DeviceScreen),
     DeviceNameEdit(DeviceNameEditScreen),
     DeviceIdEdit(DeviceIdEditScreen),
+    SlotCountEdit(SlotCountEditScreen),
     Language(LanguageScreen),
     FirmwareUpdate(FirmwareUpdateScreen),
     WifiFailed(WifiFailedScreen),
@@ -130,6 +133,7 @@ pub fn new_screen(id: ScreenId) -> ScreenState {
         ScreenId::Device => ScreenState::Device(DeviceScreen::new()),
         ScreenId::DeviceNameEdit => ScreenState::DeviceNameEdit(DeviceNameEditScreen::new()),
         ScreenId::DeviceIdEdit => ScreenState::DeviceIdEdit(DeviceIdEditScreen::new()),
+        ScreenId::SlotCountEdit => ScreenState::SlotCountEdit(SlotCountEditScreen::new()),
         ScreenId::Language => ScreenState::Language(LanguageScreen::new()),
         ScreenId::FirmwareUpdate => ScreenState::FirmwareUpdate(FirmwareUpdateScreen),
         ScreenId::WifiFailed => ScreenState::WifiFailed(WifiFailedScreen),
@@ -166,6 +170,7 @@ macro_rules! dispatch_screen {
             ScreenState::Device(s) => s.$method($($arg),*),
             ScreenState::DeviceNameEdit(s) => s.$method($($arg),*),
             ScreenState::DeviceIdEdit(s) => s.$method($($arg),*),
+            ScreenState::SlotCountEdit(s) => s.$method($($arg),*),
             ScreenState::Language(s) => s.$method($($arg),*),
             ScreenState::FirmwareUpdate(s) => s.$method($($arg),*),
             ScreenState::WifiFailed(s) => s.$method($($arg),*),

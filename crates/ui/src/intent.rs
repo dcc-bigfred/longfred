@@ -33,8 +33,6 @@ pub enum Intent {
     ServerManual,
     /// Toggle WiThrottle dead-man switch (`*+` / `*-` on the wire).
     DeadManSwitchToggle,
-    /// Toggle drop-before-acquire.
-    DropBeforeAcquireToggle,
     /// Toggle whether `#` opens the function list.
     HashFunctionsToggle,
     /// Request device sleep.

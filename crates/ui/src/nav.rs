@@ -57,6 +57,8 @@ pub enum ScreenId {
     DeviceNameEdit,
     /// Device numeric-id editor.
     DeviceIdEdit,
+    /// Number of active throttle slots (`1..=9`).
+    SlotCountEdit,
     /// Language picker.
     Language,
     /// HTTP OTA / firmware page.

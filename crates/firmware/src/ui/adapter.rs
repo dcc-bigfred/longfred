@@ -264,7 +264,6 @@ pub fn screen_ctx<'a>(
             speed_multiplier: state.speed_multiplier,
             max_throttles: state.max_throttles,
             dead_man_switch_on: state.dead_man_switch_on,
-            drop_before_acquire: state.drop_before_acquire,
         },
         net: NetInfo {
             status: net_status,
