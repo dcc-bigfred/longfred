@@ -42,7 +42,10 @@ impl WtAdapter {
     pub fn on_connect(&mut self, out: &mut WireBuf, _emit: &mut dyn FnMut(ServerEvent)) {
         self.push_line(out, &protocol::handshake_id(self.id.as_str()));
         self.push_line(out, &protocol::handshake_name(self.name.as_str()));
-        self.push_line(out, &protocol::dead_man_switch_enable(self.dead_man_switch_on));
+        self.push_line(
+            out,
+            &protocol::dead_man_switch_enable(self.dead_man_switch_on),
+        );
     }
 
     pub fn on_disconnect(&mut self, out: &mut WireBuf) {
