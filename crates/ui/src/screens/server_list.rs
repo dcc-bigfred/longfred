@@ -27,19 +27,32 @@ impl ServerListScreen {
         }
     }
 
-    /// `"label W|Z|B"` rows for discovered endpoints.
+    /// `"label W|Z"` or `{layoutName}/BigFred` rows for discovered endpoints.
     fn labels(cx: &ScreenCtx<'_>) -> heapless::Vec<Line, MAX_FOUND_SERVERS> {
         let mut v = heapless::Vec::new();
         for s in cx.net.found_servers {
-            let mut name = Line::new();
-            push_oled(&mut name, s.label.as_str());
-            while name.len() > LINE_LEN.saturating_sub(2) {
-                let _ = name.pop();
-            }
             let mut line = Line::new();
-            push_oled(&mut line, name.as_str());
-            let _ = line.push(' ');
-            let _ = line.push(s.protocol.glyph());
+            if s.protocol.caps().supports_pairing() && !s.layout_name.is_empty() {
+                let display = s.protocol.display_name();
+                let budget = LINE_LEN.saturating_sub(1 + display.len());
+                let mut name = Line::new();
+                push_oled(&mut name, s.layout_name.as_str());
+                while name.len() > budget {
+                    let _ = name.pop();
+                }
+                push_oled(&mut line, name.as_str());
+                let _ = line.push('/');
+                push_oled(&mut line, display);
+            } else {
+                let mut name = Line::new();
+                push_oled(&mut name, s.label.as_str());
+                while name.len() > LINE_LEN.saturating_sub(2) {
+                    let _ = name.pop();
+                }
+                push_oled(&mut line, name.as_str());
+                let _ = line.push(' ');
+                let _ = line.push(s.protocol.glyph());
+            }
             let _ = v.push(line);
         }
         v

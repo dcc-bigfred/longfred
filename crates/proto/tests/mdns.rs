@@ -117,7 +117,12 @@ fn build_bigfred_txt_fixture() -> Vec<u8> {
     push_txt(
         &mut pkt,
         &["BigFred #5", "_withrottle", "_tcp", "local"],
-        &["proto=tcp", "layoutId=1", "commandStationId=5"],
+        &[
+            "proto=tcp",
+            "layoutId=1",
+            "commandStationId=5",
+            "layoutName=Klubowa",
+        ],
     );
     push_a(&mut pkt, &["cs", "local"], [192, 168, 0, 10]);
     pkt
@@ -176,6 +181,35 @@ fn txt_layout_and_station_tags_bigfred() {
     assert_eq!(servers[0].port, 12090);
     assert_eq!(servers[0].ipv4, Some([192, 168, 0, 10]));
     assert_eq!(servers[0].protocol, Protocol::BigFred);
+    assert_eq!(servers[0].layout_name.as_str(), "Klubowa");
+}
+
+#[test]
+fn sort_bigfred_first_is_stable() {
+    use longfred_proto::network::{WitServer, sort_bigfred_first};
+
+    fn srv(label: &str, protocol: Protocol) -> WitServer {
+        let mut l = heapless::String::new();
+        let _ = l.push_str(label);
+        WitServer {
+            label: l,
+            layout_name: heapless::String::new(),
+            port: 12090,
+            ipv4: None,
+            protocol,
+        }
+    }
+    let mut v = [
+        srv("JMRI", Protocol::WiThrottle),
+        srv("BigA", Protocol::BigFred),
+        srv("Z21", Protocol::Z21),
+        srv("BigB", Protocol::BigFred),
+    ];
+    sort_bigfred_first(&mut v);
+    assert_eq!(v[0].label.as_str(), "BigA");
+    assert_eq!(v[1].label.as_str(), "BigB");
+    assert_eq!(v[2].label.as_str(), "JMRI");
+    assert_eq!(v[3].label.as_str(), "Z21");
 }
 
 #[test]

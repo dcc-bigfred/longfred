@@ -640,6 +640,7 @@ fn server_list_truncates_long_label_and_keeps_glyph() {
     let _ = label.push_str("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
     let _ = fx.servers.push(WitServer {
         label,
+        layout_name: heapless::String::new(),
         port: 12090,
         ipv4: Some([192, 168, 1, 50]),
         protocol: Protocol::WiThrottle,
@@ -665,6 +666,43 @@ fn server_list_truncates_long_label_and_keeps_glyph() {
     assert!(
         g.lines.iter().any(|l| l.as_str().contains('W')),
         "glyph missing in {joined:?}"
+    );
+}
+
+#[test]
+fn server_list_bigfred_uses_layout_name_without_glyph() {
+    let mut fx = Fixture::new();
+    let mut label = heapless::String::new();
+    let _ = label.push_str("BigFred #5");
+    let mut layout_name = heapless::String::new();
+    let _ = layout_name.push_str("Klubowa");
+    let _ = fx.servers.push(WitServer {
+        label,
+        layout_name,
+        port: 12090,
+        ipv4: Some([192, 168, 1, 50]),
+        protocol: Protocol::BigFred,
+    });
+    let router = Router::new(&LONGFRED, ScreenId::ServerList);
+    let cx = fx.ctx();
+    let view = router.view(&cx);
+    let UiView::Grid(g) = view else {
+        panic!("expected grid");
+    };
+    let joined: heapless::String<128> = {
+        let mut s = heapless::String::new();
+        for line in &g.lines {
+            let _ = s.push_str(line.as_str());
+        }
+        s
+    };
+    assert!(
+        joined.contains("Klubowa/BigFred"),
+        "layout row missing in {joined:?}"
+    );
+    assert!(
+        !joined.contains(" B"),
+        "glyph B should be omitted in {joined:?}"
     );
 }
 

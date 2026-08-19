@@ -20,6 +20,8 @@ pub type Name = heapless::String<128>;
 pub struct WitServer {
     /// First instance label (e.g. "JMRI") for display.
     pub label: heapless::String<32>,
+    /// TXT `layoutName=` when present (BigFred). Empty otherwise.
+    pub layout_name: heapless::String<64>,
     pub port: u16,
     pub ipv4: Option<[u8; 4]>,
     pub protocol: Protocol,
@@ -79,9 +81,12 @@ fn is_service_instance(owner: &str, service: &str) -> bool {
 }
 
 /// TXT strings used by BigFred's `microdns` (`layoutId=` + `commandStationId=`).
-fn txt_marks_bigfred(rdata: &[u8]) -> bool {
+/// Returns `Some(layout_name)` when the record marks BigFred; `layout_name` may
+/// be empty if `layoutName=` is absent.
+fn parse_bigfred_txt(rdata: &[u8]) -> Option<heapless::String<64>> {
     let mut has_layout = false;
     let mut has_station = false;
+    let mut layout_name = heapless::String::<64>::new();
     let mut i = 0usize;
     while i < rdata.len() {
         let n = usize::from(rdata[i]);
@@ -97,8 +102,29 @@ fn txt_marks_bigfred(rdata: &[u8]) -> bool {
         if chunk.starts_with(b"commandStationId=") {
             has_station = true;
         }
+        if let Some(val) = chunk.strip_prefix(b"layoutName=") {
+            if let Ok(s) = core::str::from_utf8(val) {
+                layout_name.clear();
+                for c in s.chars() {
+                    if layout_name.push(c).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
     }
-    has_layout && has_station
+    (has_layout && has_station).then_some(layout_name)
+}
+
+/// Stable partition: BigFred first, other relative order unchanged.
+pub fn sort_bigfred_first(servers: &mut [WitServer]) {
+    let mut write = 0;
+    for i in 0..servers.len() {
+        if servers[i].protocol == Protocol::BigFred {
+            servers[write..=i].rotate_right(1);
+            write += 1;
+        }
+    }
 }
 
 fn read_name(pkt: &[u8], start: usize) -> Option<(Name, usize)> {
@@ -145,7 +171,8 @@ pub fn collect_servers<const N: usize>(
     let mut servers: heapless::Vec<WitServer, N> = heapless::Vec::new();
     let mut addrs: heapless::Vec<(Name, [u8; 4]), N> = heapless::Vec::new();
     let mut srvs: heapless::Vec<(Name, u16, heapless::String<32>), N> = heapless::Vec::new();
-    let mut txt_bigfred: heapless::Vec<heapless::String<32>, N> = heapless::Vec::new();
+    let mut txt_bigfred: heapless::Vec<(heapless::String<32>, heapless::String<64>), N> =
+        heapless::Vec::new();
 
     let qd = match be16(pkt, 4) {
         Some(v) => v,
@@ -194,11 +221,11 @@ pub fn collect_servers<const N: usize>(
             }
             TYPE_TXT => {
                 if is_service_instance(owner.as_str(), service)
-                    && txt_marks_bigfred(&pkt[rdata..rdata + rdlen])
+                    && let Some(layout_name) = parse_bigfred_txt(&pkt[rdata..rdata + rdlen])
                 {
                     let label = first_label(owner.as_str());
                     if !label.is_empty() {
-                        let _ = txt_bigfred.push(label);
+                        let _ = txt_bigfred.push((label, layout_name));
                     }
                 }
             }
@@ -215,14 +242,20 @@ pub fn collect_servers<const N: usize>(
 
     for (target, port, label) in srvs {
         let ipv4 = addrs.iter().find(|(n, _)| *n == target).map(|(_, ip)| *ip);
-        let tagged = if protocol == Protocol::WiThrottle && txt_bigfred.iter().any(|l| l == &label)
-        {
-            Protocol::BigFred
-        } else {
-            protocol
-        };
+        let tagged =
+            if protocol == Protocol::WiThrottle && txt_bigfred.iter().any(|(l, _)| l == &label) {
+                Protocol::BigFred
+            } else {
+                protocol
+            };
+        let layout_name = txt_bigfred
+            .iter()
+            .find(|(l, _)| l == &label)
+            .map(|(_, n)| n.clone())
+            .unwrap_or_default();
         let _ = servers.push(WitServer {
             label,
+            layout_name,
             port,
             ipv4,
             protocol: tagged,

@@ -363,8 +363,10 @@ flash/RAM budget (`scripts/check-esp32c6-size.sh`).
 - Firmware pairing HTTP is a dedicated embassy-net task; the stack
   socket budget (`NET_SOCKETS`) must cover session + HTTP + Soft-AP/OTA
   together.
-- BigFred is detected by an HTTP probe on WiThrottle mDNS hits; there
-  is no BigFred-specific mDNS service.
+- BigFred is tagged from mDNS TXT (`layoutId` + `commandStationId`); an
+  HTTP probe on remaining WiThrottle hits is the fallback. There is no
+  `_bigfred._tcp` service. The OLED list sorts BigFred first and shows
+  `{layoutName}/BigFred` when TXT `layoutName=` is present.
 - Headless `heiko-wifred` has no roster UI; address/static lists are
   still provisioned over Soft-AP.
 - Historical loco-source and pairing design:
