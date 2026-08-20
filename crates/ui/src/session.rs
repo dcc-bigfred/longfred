@@ -104,6 +104,8 @@ pub struct UiSession {
     pub manual_protocol: Protocol,
     /// `true` when server entry was opened from the mDNS list (Back returns there).
     pub server_entry_from_list: bool,
+    /// Index in [`crate::context::NetInfo::found_servers`] awaiting confirm.
+    pub pending_server_idx: Option<usize>,
     /// Manual `aaa.bbb.ccc.ddd:port` digits.
     pub server_digits: heapless::String<17>,
 
@@ -143,6 +145,7 @@ impl UiSession {
             boot_language: false,
             choice: ChoiceKind::DeadMan,
             server_entry_from_list: false,
+            pending_server_idx: None,
             ip_field: NetField::Dhcp,
             addr: heapless::String::new(),
             server_digits: heapless::String::new(),

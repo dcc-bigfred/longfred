@@ -18,6 +18,7 @@ mod menu;
 mod pairing;
 mod pairing_wait;
 mod roster;
+mod server_confirm;
 mod server_entry;
 mod server_list;
 mod server_menu;
@@ -55,6 +56,7 @@ pub use menu::MenuScreen;
 pub use pairing::PairingScreen;
 pub use pairing_wait::PairingWaitScreen;
 pub use roster::RosterListScreen;
+pub use server_confirm::ServerConfirmScreen;
 pub use server_entry::ServerEntryScreen;
 pub use server_list::ServerListScreen;
 pub use server_menu::ServerMenuScreen;
@@ -78,6 +80,7 @@ pub enum ScreenState {
     SsidScanning(SsidScanningScreen),
     Password(PasswordScreen),
     ServerList(ServerListScreen),
+    ServerConfirm(ServerConfirmScreen),
     ServerProto(ServerProtoScreen),
     ServerEntry(ServerEntryScreen),
     Connecting(ConnectingScreen),
@@ -114,6 +117,7 @@ pub fn new_screen(id: ScreenId) -> ScreenState {
         ScreenId::SsidScanning => ScreenState::SsidScanning(SsidScanningScreen),
         ScreenId::Password => ScreenState::Password(PasswordScreen::new()),
         ScreenId::ServerList => ScreenState::ServerList(ServerListScreen::new()),
+        ScreenId::ServerConfirm => ScreenState::ServerConfirm(ServerConfirmScreen),
         ScreenId::ServerProto => ScreenState::ServerProto(ServerProtoScreen::new()),
         ScreenId::ServerEntry => ScreenState::ServerEntry(ServerEntryScreen::new()),
         ScreenId::Connecting => ScreenState::Connecting(ConnectingScreen),
@@ -151,6 +155,7 @@ macro_rules! dispatch_screen {
             ScreenState::SsidScanning(s) => s.$method($($arg),*),
             ScreenState::Password(s) => s.$method($($arg),*),
             ScreenState::ServerList(s) => s.$method($($arg),*),
+            ScreenState::ServerConfirm(s) => s.$method($($arg),*),
             ScreenState::ServerProto(s) => s.$method($($arg),*),
             ScreenState::ServerEntry(s) => s.$method($($arg),*),
             ScreenState::Connecting(s) => s.$method($($arg),*),
