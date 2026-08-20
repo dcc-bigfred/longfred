@@ -641,6 +641,7 @@ fn server_list_truncates_long_label_and_keeps_glyph() {
     let _ = fx.servers.push(WitServer {
         label,
         layout_name: heapless::String::new(),
+        host: heapless::String::new(),
         port: 12090,
         ipv4: Some([192, 168, 1, 50]),
         protocol: Protocol::WiThrottle,
@@ -670,18 +671,27 @@ fn server_list_truncates_long_label_and_keeps_glyph() {
 }
 
 #[test]
-fn server_list_bigfred_uses_layout_name_without_glyph() {
+fn server_list_bigfred_uses_layout_name_with_protocol_mark() {
     let mut fx = Fixture::new();
     let mut label = heapless::String::new();
     let _ = label.push_str("BigFred #5");
     let mut layout_name = heapless::String::new();
     let _ = layout_name.push_str("Klubowa");
     let _ = fx.servers.push(WitServer {
-        label,
-        layout_name,
+        label: label.clone(),
+        layout_name: layout_name.clone(),
+        host: heapless::String::new(),
         port: 12090,
         ipv4: Some([192, 168, 1, 50]),
         protocol: Protocol::BigFred,
+    });
+    let _ = fx.servers.push(WitServer {
+        label,
+        layout_name,
+        host: heapless::String::new(),
+        port: 21105,
+        ipv4: Some([192, 168, 1, 50]),
+        protocol: Protocol::Z21,
     });
     let router = Router::new(&LONGFRED, ScreenId::ServerList);
     let cx = fx.ctx();
@@ -697,12 +707,119 @@ fn server_list_bigfred_uses_layout_name_without_glyph() {
         s
     };
     assert!(
-        joined.contains("Klubowa/BigFred"),
-        "layout row missing in {joined:?}"
+        joined.contains("Klubowa/BigFred B"),
+        "BigFred row missing in {joined:?}"
     );
     assert!(
-        !joined.contains(" B"),
-        "glyph B should be omitted in {joined:?}"
+        joined.contains("Klubowa/BigFred Z21"),
+        "Z21 row missing in {joined:?}"
+    );
+    let b = joined.find("Klubowa/BigFred B").expect("B row");
+    let z = joined.find("Klubowa/BigFred Z21").expect("Z21 row");
+    assert!(b < z, "B must be listed above Z21 in {joined:?}");
+}
+
+fn push_test_server(fx: &mut Fixture, label: &str, host: &str, proto: Protocol) {
+    let mut l = heapless::String::new();
+    let _ = l.push_str(label);
+    let mut h = heapless::String::new();
+    let _ = h.push_str(host);
+    let mut layout_name = heapless::String::new();
+    let _ = layout_name.push_str("Domowa");
+    let _ = fx.servers.push(WitServer {
+        label: l,
+        layout_name,
+        host: h,
+        port: 12090,
+        ipv4: Some([192, 168, 1, 50]),
+        protocol: proto,
+    });
+}
+
+#[test]
+fn server_list_ok_opens_confirm_back_returns() {
+    let mut fx = Fixture::new();
+    push_test_server(&mut fx, "BigFred #2", "bigfred", Protocol::BigFred);
+    let mut router = Router::new(&LONGFRED, ScreenId::ServerList);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Ok, &mut cx)
+    };
+    assert_eq!(router.screen_id(), ScreenId::ServerConfirm);
+    assert!(!intents.iter().any(|i| matches!(i, Intent::ServerSelect(_))));
+    {
+        let cx = fx.ctx();
+        let view = router.view(&cx);
+        let UiView::Grid(g) = view else {
+            panic!("expected grid");
+        };
+        let joined: heapless::String<128> = {
+            let mut s = heapless::String::new();
+            for line in &g.lines {
+                let _ = s.push_str(line.as_str());
+            }
+            s
+        };
+        assert!(
+            joined.contains("Domowa/BigFred B"),
+            "name missing in {joined:?}"
+        );
+        assert!(joined.contains("BigFred"), "protocol missing in {joined:?}");
+        assert!(
+            joined.contains("bigfred.local:12090"),
+            "dns addr missing in {joined:?}"
+        );
+    }
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Back, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::ServerList);
+}
+
+#[test]
+fn server_confirm_menu_connects() {
+    let mut fx = Fixture::new();
+    push_test_server(&mut fx, "BigFred #2", "bigfred", Protocol::BigFred);
+    let mut router = Router::new(&LONGFRED, ScreenId::ServerList);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Ok, &mut cx);
+    }
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Menu, &mut cx)
+    };
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+    assert!(intents.contains(&Intent::ServerSelect(0)));
+}
+
+#[test]
+fn server_confirm_ip_when_host_missing() {
+    let mut fx = Fixture::new();
+    push_test_server(&mut fx, "RB1110", "", Protocol::WiThrottle);
+    fx.servers[0].layout_name.clear();
+    let mut router = Router::new(&LONGFRED, ScreenId::ServerList);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Ok, &mut cx);
+    }
+    let cx = fx.ctx();
+    let view = router.view(&cx);
+    let UiView::Grid(g) = view else {
+        panic!("expected grid");
+    };
+    let joined: heapless::String<128> = {
+        let mut s = heapless::String::new();
+        for line in &g.lines {
+            let _ = s.push_str(line.as_str());
+        }
+        s
+    };
+    assert!(joined.contains("WiThrottle"), "proto missing in {joined:?}");
+    assert!(
+        joined.contains("192.168.1.50:12090"),
+        "ip addr missing in {joined:?}"
     );
 }
 

@@ -2,12 +2,14 @@
 
 use core::fmt::Write as _;
 
+use longfred_proto::command::Protocol;
+use longfred_proto::network::WitServer;
 use longfred_proto::persist::StaticIpConfig;
 
 use crate::context::{MAX_COMPILED_NETWORKS, ScreenCtx};
 use crate::nav::{PageDir, Step};
 use crate::session::NetField;
-use crate::view::{GridView, Line};
+use crate::view::{GridView, LINE_LEN, Line, push_oled};
 use crate::widgets::PagedList;
 
 /// Keypad digit `0..=9` from a character. Non-digits yield `None`.
@@ -134,12 +136,100 @@ fn dec_digit(n: u16) -> char {
     char::from(b'0' + u8::try_from(n % 10).unwrap_or(0))
 }
 
+/// Append a decimal `u16` without leading zeros.
+pub fn write_u16(line: &mut Line, n: u16) {
+    if n >= 10000 {
+        let _ = line.push(dec_digit(n / 10000));
+    }
+    if n >= 1000 {
+        let _ = line.push(dec_digit(n / 1000));
+    }
+    if n >= 100 {
+        let _ = line.push(dec_digit(n / 100));
+    }
+    if n >= 10 {
+        let _ = line.push(dec_digit(n / 10));
+    }
+    let _ = line.push(dec_digit(n));
+}
+
+/// Append `a.b.c.d` without zero-padding.
+pub fn write_ip_compact(line: &mut Line, ip: [u8; 4]) {
+    for (i, oct) in ip.iter().enumerate() {
+        if i > 0 {
+            let _ = line.push('.');
+        }
+        write_u16(line, u16::from(*oct));
+    }
+}
+
 /// Append a 4-digit decimal (leading zeros).
 pub fn write_u16_padded(line: &mut Line, n: u16) {
     let _ = line.push(dec_digit(n / 1000));
     let _ = line.push(dec_digit(n / 100));
     let _ = line.push(dec_digit(n / 10));
     let _ = line.push(dec_digit(n));
+}
+
+/// Protocol mark after `{layoutName}/BigFred`.
+#[must_use]
+pub fn layout_protocol_mark(protocol: Protocol) -> &'static str {
+    match protocol {
+        Protocol::BigFred => "B",
+        Protocol::Z21 => "Z21",
+        Protocol::WiThrottle => "W",
+    }
+}
+
+/// List / confirm label: `{layoutName}/BigFred B|Z21` or `{label} W|Z`.
+#[must_use]
+pub fn format_found_server_name(s: &WitServer) -> Line {
+    let mut line = Line::new();
+    if s.layout_name.is_empty() {
+        let mut name = Line::new();
+        push_oled(&mut name, s.label.as_str());
+        while name.len() > LINE_LEN.saturating_sub(2) {
+            let _ = name.pop();
+        }
+        push_oled(&mut line, name.as_str());
+        let _ = line.push(' ');
+        let _ = line.push(s.protocol.glyph());
+    } else {
+        let mark = layout_protocol_mark(s.protocol);
+        let budget = LINE_LEN.saturating_sub(1 + "BigFred".len() + 1 + mark.len());
+        let mut name = Line::new();
+        push_oled(&mut name, s.layout_name.as_str());
+        while name.len() > budget {
+            let _ = name.pop();
+        }
+        push_oled(&mut line, name.as_str());
+        let _ = line.push('/');
+        push_oled(&mut line, "BigFred");
+        let _ = line.push(' ');
+        push_oled(&mut line, mark);
+    }
+    line
+}
+
+/// Host shown on the confirm screen: DNS name if the SRV target is known, else IPv4.
+#[must_use]
+pub fn format_found_server_addr(s: &WitServer) -> Line {
+    let mut line = Line::new();
+    if !s.host.is_empty() {
+        push_oled(&mut line, s.host.as_str());
+        if !line.as_str().contains('.') {
+            push_oled(&mut line, ".local");
+        }
+    } else if let Some(ip) = s.ipv4 {
+        write_ip_compact(&mut line, ip);
+    } else {
+        return line;
+    }
+    if s.port != 0 && line.len() < LINE_LEN.saturating_sub(2) {
+        let _ = line.push(':');
+        write_u16(&mut line, s.port);
+    }
+    line
 }
 
 /// Append `aa:bb:cc:dd:ee:ff`.

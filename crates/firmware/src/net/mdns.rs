@@ -142,6 +142,7 @@ async fn run_discovery(
         let _ = v.push(WitServer {
             label,
             layout_name: heapless::String::new(),
+            host: heapless::String::new(),
             ipv4: Some(network::DEFAULT_WIT_IP),
             port: network::DEFAULT_WIT_PORT,
             protocol: Protocol::WiThrottle,

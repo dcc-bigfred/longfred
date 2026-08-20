@@ -22,6 +22,8 @@ pub struct WitServer {
     pub label: heapless::String<32>,
     /// TXT `layoutName=` when present (BigFred). Empty otherwise.
     pub layout_name: heapless::String<64>,
+    /// SRV target hostname (first label, e.g. `bigfred` from `bigfred.local`).
+    pub host: heapless::String<32>,
     pub port: u16,
     pub ipv4: Option<[u8; 4]>,
     pub protocol: Protocol,
@@ -256,6 +258,7 @@ pub fn collect_servers<const N: usize>(
         let _ = servers.push(WitServer {
             label,
             layout_name,
+            host: first_label(target.as_str()),
             port,
             ipv4,
             protocol: tagged,

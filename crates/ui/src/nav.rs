@@ -19,6 +19,8 @@ pub enum ScreenId {
     Password,
     /// mDNS command-station list.
     ServerList,
+    /// Confirm a discovered server before connecting.
+    ServerConfirm,
     /// WIT vs Z21 protocol pick.
     ServerProto,
     /// Manual IP:port entry.
