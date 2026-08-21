@@ -1,20 +1,24 @@
-//! Domain task: menu FSM + state + network + UI_VIEW publication.
+//! Domain task: screen router + state + network + UI_VIEW publication.
 
 use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
-use log::info;
-#[cfg(feature = "sim")]
-use log::warn;
+use log::{info, warn};
 use longfred_proto::command::ClientCommand;
+use longfred_proto::menu::parse_ip_endpoint;
 use longfred_proto::model::Direction;
-use longfred_proto::persist::PersistRecord;
+use longfred_proto::persist::{PersistRecord, SavedServer};
+use longfred_ui::nav::{PageDir, ScreenId};
+use longfred_ui::{AppEvent, Intent, UiSession};
 
 use crate::config::{self, power, sizes};
 use crate::domain::actions::Action;
 use crate::domain::state::{CMD_BUF, DomainState};
 use crate::input;
+use crate::net::pairing_http::{
+    HandsetHttpOp, PAIRING_HTTP_CTRL, PAIRING_HTTP_RESULT, PairingHttpRequest, PairingHttpResult,
+};
 use crate::net::{
     self, CONN, ConnState, DEVICE, FOUND_SERVERS, MDNS_CTRL, NET_CONFIG_CTRL, NetStatus,
     PROTO_COMMANDS, PROTO_EVENTS, SERVER, STATE, ServerEndpoint, WIFI_CTRL, WIFI_HOSTNAME,
@@ -23,8 +27,7 @@ use crate::net::{
 use crate::power::battery::BATTERY;
 use crate::power::sleep::{SLEEP_CTRL, SleepReason};
 use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, StorageCmd};
-use crate::ui::menu::{Intent, ListRef, MenuFsm, Screen};
-use crate::ui::view::ViewCtx;
+use crate::ui::adapter;
 use crate::ui::{UI_VIEW, i18n};
 
 async fn flush_cmds(
@@ -49,44 +52,9 @@ async fn flush_cmds(
     }
 }
 
-fn publish_view(
-    fsm: &MenuFsm,
-    state: &DomainState,
-    net_status: NetStatus,
-    conn: ConnState,
-    server: Option<ServerEndpoint>,
-    scanned: &heapless::Vec<net::SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
-    servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
-    pw_preview: &str,
-    ip_formatted: &str,
-    battery: Option<u8>,
-    ui_tx: &embassy_sync::watch::Sender<
-        'static,
-        CriticalSectionRawMutex,
-        crate::ui::view::UiView,
-        2,
-    >,
-) {
-    let (ssid, _) = fsm.ssid_for_connect(scanned, state);
-    let ctx = ViewCtx {
-        domain: state,
-        net_status,
-        conn,
-        server,
-        scanned_ssids: scanned,
-        found_servers: servers,
-        selected_ssid: ssid,
-        password_preview: pw_preview,
-        pw_picker_char: fsm.pw_picker_char(),
-        ip_formatted,
-        broadcast: state.active_broadcast(),
-        battery,
-    };
-    ui_tx.send(fsm.view(&ctx));
-}
-
 fn apply_persist(state: &mut DomainState, rec: PersistRecord) {
     let net = rec.network;
+    let net_changed = net != state.persist.network;
     let device = rec.device.clone();
     let hostname = rec.wifi_hostname.clone();
     let language = rec.language;
@@ -96,19 +64,18 @@ fn apply_persist(state: &mut DomainState, rec: PersistRecord) {
     if !hostname.is_empty() {
         WIFI_HOSTNAME.sender().send(hostname);
     }
-    if let Some(cfg) = net {
+    if net_changed && let Some(cfg) = net {
         NET_CONFIG_CTRL.signal(cfg);
     }
 }
 
 fn interpret(
-    fsm: &mut MenuFsm,
+    session: &mut UiSession,
+    screen: ScreenId,
     state: &mut DomainState,
     intent: Intent,
     spdt_direction: Direction,
     out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
-    scanned: &heapless::Vec<net::SsidInfo, { sizes::MAX_FOUND_SSIDS }>,
-    servers: &heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }>,
     wifi_tx: &embassy_sync::channel::Sender<
         'static,
         CriticalSectionRawMutex,
@@ -122,19 +89,20 @@ fn interpret(
         2,
     >,
     storage_tx: &embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, StorageCmd, 4>,
+    servers: &heapless::Vec<longfred_proto::network::WitServer, { sizes::MAX_FOUND_SERVERS }>,
 ) {
     match intent {
-        Intent::None => {}
-        Intent::Action(Action::ShowHideBattery) => fsm.cycle_battery_mode(),
+        Intent::Action(Action::ShowHideBattery) => session.cycle_battery_mode(),
         Intent::Action(Action::Sleep) => {
+            net::set_http_ota_enabled(false);
             SLEEP_CTRL.signal(SleepReason::Command);
         }
         Intent::Action(a) => {
             let _ = state.apply_action(a, true, out);
         }
         Intent::AcquireAddr => {
-            let _ = state.acquire_addr(fsm.addr.as_str(), out);
-            fsm.addr.clear();
+            let _ = state.acquire_addr(session.addr.as_str(), out);
+            session.addr.clear();
             if state.current_slot_has_loco() {
                 let dir_action = if spdt_direction == Direction::Forward {
                     Action::DirectionForward
@@ -155,37 +123,39 @@ fn interpret(
                 let _ = state.apply_action(dir_action, true, out);
             }
         }
+        Intent::SelectLoco(d) => {
+            let _ = state.select_loco(d == PageDir::Next, out);
+            if state.current_slot_has_loco() {
+                let dir_action = if spdt_direction == Direction::Forward {
+                    Action::DirectionForward
+                } else {
+                    Action::DirectionReverse
+                };
+                let _ = state.apply_action(dir_action, true, out);
+            }
+        }
+        Intent::Pair(code) => {
+            state.persist.bigfred_pairing_code = code.clone();
+            let _ = storage_tx.try_send(StorageCmd::SavePairingCode(code.clone()));
+            if out.push(ClientCommand::Pair { code }).is_err() {
+                warn!("domain: pairing command queue full");
+            }
+        }
         Intent::ReleaseAll => {
             let _ = state.release_all(out);
         }
-        Intent::Function(f, on) => {
-            let _ = state.apply_function(f, on, out);
-        }
-        Intent::Turnout(action, ListRef::Addr) => {
-            let _ = state.turnout_by_addr(action, fsm.addr.as_str(), out);
-            fsm.addr.clear();
-        }
-        Intent::Turnout(action, ListRef::Index(i)) => {
-            let _ = state.turnout_by_index(action, i, out);
-        }
-        Intent::Route(ListRef::Addr) => {
-            let _ = state.route_by_addr(fsm.addr.as_str(), out);
-            fsm.addr.clear();
-        }
-        Intent::Route(ListRef::Index(i)) => {
-            let _ = state.route_by_index(i, out);
+        Intent::Function(f) => {
+            let _ = state.toggle_function(f, out);
         }
         Intent::WifiScan => {
             let _ = wifi_tx.try_send(WifiCmd::Scan);
         }
-        Intent::WifiSelect(_, _) => {}
         Intent::WifiConnect => {
-            let (ssid, pw) = fsm.ssid_for_connect(scanned, state);
-            if !ssid.is_empty() {
+            if !session.selected_ssid.is_empty() {
                 let mut ss = String::<32>::new();
                 let mut pp = String::<64>::new();
-                let _ = ss.push_str(ssid);
-                let _ = pp.push_str(pw);
+                let _ = ss.push_str(session.selected_ssid.as_str());
+                let _ = pp.push_str(session.password.as_str());
                 let _ = wifi_tx.try_send(WifiCmd::Connect {
                     ssid: ss,
                     password: pp,
@@ -193,43 +163,49 @@ fn interpret(
             }
         }
         Intent::ServerSelect(i) => {
-            if let Some(s) = servers.get(i) {
-                if let Some(ip) = s.ipv4 {
-                    srv_tx.send(Some(ServerEndpoint {
-                        ip,
-                        port: s.port,
-                        protocol: s.protocol,
-                    }));
-                    fsm.screen = Screen::Throttle;
-                }
+            if let Some(s) = servers.get(i)
+                && let Some(ip) = s.ipv4
+            {
+                let ep = ServerEndpoint {
+                    ip,
+                    port: s.port,
+                    protocol: s.protocol,
+                };
+                persist_last_server(storage_tx, state, ep);
+                srv_tx.send(Some(ep));
             }
         }
         Intent::ServerManual => {
-            if let Some((ip, port)) = fsm.ip_endpoint() {
-                srv_tx.send(Some(ServerEndpoint {
+            if let Some((ip, port)) = parse_ip_endpoint(session.server_digits.as_str()) {
+                let ep = ServerEndpoint {
                     ip,
                     port,
-                    protocol: fsm.manual_protocol(),
-                }));
-                fsm.screen = Screen::Throttle;
+                    protocol: session.manual_protocol,
+                };
+                persist_last_server(storage_tx, state, ep);
+                srv_tx.send(Some(ep));
             }
         }
-        Intent::HeartbeatToggle => {
-            let _ = state.toggle_heartbeat(out);
+        Intent::ServerReconnect => {
+            if let Some(saved) = state.persist.last_server {
+                srv_tx.send(Some(endpoint_from_saved(saved)));
+            }
         }
-        Intent::DropBeforeAcquireToggle => state.toggle_drop_before_acquire(),
-        Intent::HashFunctionsToggle => fsm.toggle_hash_functions(),
-        Intent::Sleep => SLEEP_CTRL.signal(SleepReason::Command),
-        Intent::SaveLocos => {
-            let locos = state.collect_saved_locos();
-            let _ = storage_tx.try_send(StorageCmd::SaveLocos(locos));
-            state.show_message(i18n::tr().saved_locos);
+        Intent::ServerDisconnect => {
+            srv_tx.send(None);
+        }
+        Intent::DeadManSwitchToggle => {
+            let _ = state.toggle_dead_man_switch(out);
+        }
+        Intent::HashFunctionsToggle => {
+            session.hash_functions = !session.hash_functions;
+        }
+        Intent::Sleep => {
+            net::set_http_ota_enabled(false);
+            SLEEP_CTRL.signal(SleepReason::Command);
         }
         Intent::RequestMdns => {
             let _ = MDNS_CTRL.try_send(());
-        }
-        Intent::NetConfig => {
-            fsm.screen = Screen::IpConfig;
         }
         Intent::SaveNetwork(cfg) => {
             let _ = storage_tx.try_send(StorageCmd::SaveNetwork(cfg));
@@ -250,19 +226,186 @@ fn interpret(
             i18n::set_language(lang);
             let _ = storage_tx.try_send(StorageCmd::SaveLanguage(lang));
             state.persist.language = lang;
-            state.show_message(i18n::tr().saved_language);
+            state.persist.language_chosen = true;
+            if screen != ScreenId::Language {
+                state.show_message(i18n::tr().saved_language);
+            }
+        }
+        Intent::SetRosterMode(mode) => {
+            state.persist.roster_mode = mode;
+            let _ = storage_tx.try_send(StorageCmd::SaveRosterMode(mode));
+            state.refresh_effective_source();
+            state.show_message(i18n::tr().saved_roster);
         }
         Intent::EnterProgrammingMode => {
-            // Handled eagerly in the input loop (persist + software_reset).
             log::info!("domain: EnterProgrammingMode intent (already applied)");
+        }
+        Intent::SetHttpOta(on) => {
+            net::set_http_ota_enabled(on);
         }
     }
 }
 
+fn run_intents(
+    ui: &mut adapter::UiWorld,
+    intents: heapless::Vec<Intent, 4>,
+    spdt_direction: Direction,
+    out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    wifi_tx: &embassy_sync::channel::Sender<
+        'static,
+        CriticalSectionRawMutex,
+        WifiCmd,
+        { net::WIFI_CTRL_DEPTH },
+    >,
+    srv_tx: &embassy_sync::watch::Sender<
+        'static,
+        CriticalSectionRawMutex,
+        Option<ServerEndpoint>,
+        2,
+    >,
+    storage_tx: &embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, StorageCmd, 4>,
+) {
+    let screen = ui.router.screen_id();
+    for intent in intents {
+        interpret(
+            &mut ui.session,
+            screen,
+            &mut ui.state,
+            intent,
+            spdt_direction,
+            out,
+            wifi_tx,
+            srv_tx,
+            storage_tx,
+            &ui.servers,
+        );
+    }
+}
+
+fn persist_last_server(
+    storage_tx: &embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, StorageCmd, 4>,
+    state: &mut DomainState,
+    ep: ServerEndpoint,
+) {
+    let saved = SavedServer {
+        ip: ep.ip,
+        port: ep.port,
+        protocol: ep.protocol,
+    };
+    state.persist.last_server = Some(saved);
+    let _ = storage_tx.try_send(StorageCmd::SaveServer(saved));
+}
+
+fn last_ssid_owned(state: &DomainState) -> Option<heapless::String<32>> {
+    state.persist.last_credential().map(|c| {
+        let mut s = heapless::String::new();
+        let _ = s.push_str(c.ssid.as_str());
+        s
+    })
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BootWait {
+    Splash,
+    Language,
+    WifiConnect,
+    WifiFailed,
+    ServerConnect,
+    Done,
+}
+
+fn endpoint_from_saved(s: SavedServer) -> ServerEndpoint {
+    ServerEndpoint {
+        ip: s.ip,
+        port: s.port,
+        protocol: s.protocol,
+    }
+}
+
+fn on_wifi_wizard(id: ScreenId) -> bool {
+    matches!(
+        id,
+        ScreenId::Connecting
+            | ScreenId::Password
+            | ScreenId::SsidList
+            | ScreenId::SsidScan
+            | ScreenId::SsidScanning
+            | ScreenId::WifiFailed
+    )
+}
+
+fn has_pairing_creds(state: &DomainState) -> bool {
+    !state.persist.bigfred_login.is_empty() && !state.persist.bigfred_pin.is_empty()
+}
+
+fn start_handset_http(state: &DomainState, op: HandsetHttpOp) -> bool {
+    let Some(endpoint) = SERVER.sender().try_get().flatten() else {
+        return false;
+    };
+    if !endpoint.protocol.caps().supports_pairing() || !has_pairing_creds(state) {
+        return false;
+    }
+    PAIRING_HTTP_CTRL
+        .try_send(PairingHttpRequest {
+            op,
+            endpoint,
+            login: state.persist.bigfred_login.clone(),
+            pin: state.persist.bigfred_pin.clone(),
+            device_id: state.persist.device.id_wire(),
+        })
+        .is_ok()
+}
+
+fn start_pairing_http(state: &DomainState) -> bool {
+    start_handset_http(state, HandsetHttpOp::Pair)
+}
+
+fn start_session_http(state: &DomainState) -> bool {
+    start_handset_http(state, HandsetHttpOp::Session)
+}
+
+fn show_pairing_overlay(ui: &mut adapter::UiWorld) {
+    ui.state.show_message_for(
+        adapter::strings_for(&ui.state).msg_pairing,
+        longfred_ui::i18n::PAIRING_OVERLAY_TIMEOUT_MS,
+    );
+}
+
+enum PairingStart {
+    Busy,
+    Overlay,
+    CodeDialog,
+}
+
+fn begin_pairing_flow(
+    state: &DomainState,
+    pairing_active: &mut bool,
+    pairing_http_tried: &mut bool,
+    pairing_user_initiated: &mut bool,
+    out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+) -> PairingStart {
+    if *pairing_active {
+        return PairingStart::Busy;
+    }
+    *pairing_user_initiated = false;
+    if !state.persist.bigfred_pairing_code.is_empty() {
+        *pairing_active = true;
+        let code = state.persist.bigfred_pairing_code.clone();
+        let _ = out.push(ClientCommand::Pair { code });
+        return PairingStart::Overlay;
+    }
+    if !*pairing_http_tried && start_pairing_http(state) {
+        *pairing_active = true;
+        *pairing_http_tried = true;
+        return PairingStart::Overlay;
+    }
+    *pairing_active = true;
+    PairingStart::CodeDialog
+}
+
 #[embassy_executor::task]
 pub async fn task() {
-    let mut state = DomainState::new();
-    let mut fsm = MenuFsm::new();
+    let mut ui = adapter::UiWorld::new();
     let input_rx = input::INPUT_CHANNEL.receiver();
     let events_rx = PROTO_EVENTS.receiver();
     let cmd_tx = PROTO_COMMANDS.sender();
@@ -270,65 +413,80 @@ pub async fn task() {
     let srv_tx = SERVER.sender();
     let storage_tx = STORAGE_CTRL.sender();
     let ui_tx = UI_VIEW.sender();
+    let pairing_http_rx = PAIRING_HTTP_RESULT.receiver();
 
     let mut out: heapless::Vec<ClientCommand, CMD_BUF> = heapless::Vec::new();
-    // Epoch: do not use `now - 1s` — Instant wraps/panics when uptime < 1s (Wokwi, cold boot).
     let mut last_cmd = Instant::from_ticks(0);
 
-    let mut net_status = NetStatus::Disconnected;
-    let mut conn = ConnState::Disconnected;
-    let mut server: Option<ServerEndpoint> = None;
-    let mut scanned: heapless::Vec<net::SsidInfo, { sizes::MAX_FOUND_SSIDS }> =
-        heapless::Vec::new();
-    let mut servers: heapless::Vec<longfred_proto::mdns::WitServer, { sizes::MAX_FOUND_SERVERS }> =
-        heapless::Vec::new();
-    let mut battery: Option<u8> = None;
     let mut restored_this_session = false;
     let mut last_activity = Instant::now();
     let mut spdt_direction = Direction::Forward;
+    let mut pairing_active = false;
+    let mut pairing_http_tried = false;
+    let mut pairing_user_initiated = false;
+    let mut handset_session_paired = false;
 
     let mut net_rx = STATE.receiver();
     let mut conn_rx = CONN.receiver();
     let mut srv_rx = SERVER.receiver();
     let mut battery_rx = BATTERY.receiver();
+    let mut persist_rx = PERSIST_LOADED.receiver();
 
-    let mut pw_buf = heapless::String::<36>::new();
-    let mut ip_buf = heapless::String::<24>::new();
-
-    if let Some(rec) = PERSIST_LOADED.try_take() {
-        apply_persist(&mut state, rec);
+    if let Some(rx) = persist_rx.as_mut() {
+        if let Some(rec) = rx.try_get() {
+            info!(
+                "domain: persist ready lang_chosen={} creds={}",
+                rec.language_chosen,
+                rec.credentials.len()
+            );
+            apply_persist(&mut ui.state, rec);
+        } else {
+            #[cfg(not(feature = "sim"))]
+            {
+                let rec = rx.get().await;
+                info!(
+                    "domain: persist ready lang_chosen={} creds={}",
+                    rec.language_chosen,
+                    rec.credentials.len()
+                );
+                apply_persist(&mut ui.state, rec);
+            }
+        }
+    } else {
+        warn!("domain: persist watch has no free receiver");
     }
 
-    let splash_intent = fsm.tick_splash();
-    if splash_intent != Intent::None {
-        interpret(
-            &mut fsm,
-            &mut state,
-            splash_intent,
+    let mut boot_wait = BootWait::Splash;
+    let mut phase_until = Some(Instant::now() + Duration::from_millis(config::network::SPLASH_MS));
+    let mut saw_wifi_connecting = false;
+
+    if crate::board::active_variant().display.is_none() {
+        let ssid = last_ssid_owned(&ui.state);
+        let intents = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+            adapter::begin_wifi_setup(router, cx, ssid.as_deref())
+        });
+        let follow_wifi = intents.iter().any(|i| *i == Intent::WifiConnect);
+        if follow_wifi {
+            boot_wait = BootWait::WifiConnect;
+            phase_until = Some(
+                Instant::now() + Duration::from_millis(config::network::SSID_CONNECTION_TIMEOUT_MS),
+            );
+        } else {
+            boot_wait = BootWait::Done;
+            phase_until = None;
+        }
+        run_intents(
+            &mut ui,
+            intents,
             spdt_direction,
             &mut out,
-            &scanned,
-            &servers,
             &wifi_tx,
             &srv_tx,
             &storage_tx,
         );
-        flush_cmds(&cmd_tx, &mut out, &mut last_cmd).await;
     }
 
-    publish_view(
-        &fsm,
-        &state,
-        net_status,
-        conn,
-        server,
-        &scanned,
-        &servers,
-        pw_buf.as_str(),
-        ip_buf.as_str(),
-        battery,
-        &ui_tx,
-    );
+    ui.publish_view(Instant::now().as_millis(), &ui_tx);
 
     loop {
         match select3(
@@ -340,10 +498,39 @@ pub async fn task() {
         {
             Either3::First(ev) => {
                 last_activity = Instant::now();
+                let splash_active =
+                    boot_wait == BootWait::Splash || ui.router.screen_id() == ScreenId::Splash;
+                if splash_active {
+                    if matches!(
+                        ev,
+                        input::InputEvent::Stop
+                            | input::InputEvent::EStop
+                            | input::InputEvent::EnterProgrammingMode
+                    ) {
+                        info!("domain: splash STOP — programming mode");
+                        let _ = storage_tx.try_send(StorageCmd::SetProgrammingMode(true));
+                        if !STORAGE_ACK.wait().await {
+                            warn!("domain: programming_mode persist failed — not resetting");
+                            continue;
+                        }
+                        Timer::after(Duration::from_millis(50)).await;
+                        #[cfg(not(feature = "sim"))]
+                        esp_hal::system::software_reset();
+                        #[cfg(feature = "sim")]
+                        {
+                            warn!("sim: software_reset skipped");
+                            continue;
+                        }
+                    }
+                    continue;
+                }
                 if matches!(ev, input::InputEvent::EnterProgrammingMode) {
                     info!("domain: enter programming mode — saving flag and resetting");
                     let _ = storage_tx.try_send(StorageCmd::SetProgrammingMode(true));
-                    STORAGE_ACK.wait().await;
+                    if !STORAGE_ACK.wait().await {
+                        warn!("domain: programming_mode persist failed — not resetting");
+                        continue;
+                    }
                     Timer::after(Duration::from_millis(50)).await;
                     #[cfg(not(feature = "sim"))]
                     esp_hal::system::software_reset();
@@ -357,118 +544,511 @@ pub async fn task() {
                     spdt_direction = dir;
                 }
                 out.clear();
-                let intent = fsm.handle(ev, &state, &scanned);
-                interpret(
-                    &mut fsm,
-                    &mut state,
-                    intent,
-                    spdt_direction,
-                    &mut out,
-                    &scanned,
-                    &servers,
-                    &wifi_tx,
-                    &srv_tx,
-                    &storage_tx,
-                );
+                if net::http_ota_busy() {
+                    if matches!(ev, input::InputEvent::EStop)
+                        || (matches!(ev, input::InputEvent::Stop)
+                            && ui.router.screen_id() == ScreenId::Throttle)
+                    {
+                        let _ = ui.state.apply_action(Action::EStop, true, &mut out);
+                    }
+                } else {
+                    let intents = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                        router.handle(adapter::map_input(ev), cx)
+                    });
+                    let screen_after = ui.router.screen_id();
+                    let wifi_after_lang =
+                        intents.iter().any(|i| matches!(i, Intent::SetLanguage(_)))
+                            && screen_after == ScreenId::Language;
+                    if intents.iter().any(|i| matches!(i, Intent::Pair(_))) {
+                        pairing_active = true;
+                        pairing_user_initiated = true;
+                    }
+                    run_intents(
+                        &mut ui,
+                        intents,
+                        spdt_direction,
+                        &mut out,
+                        &wifi_tx,
+                        &srv_tx,
+                        &storage_tx,
+                    );
+                    if ui.router.screen_id() == ScreenId::ServerList
+                        && boot_wait != BootWait::ServerConnect
+                    {
+                        boot_wait = BootWait::Done;
+                        phase_until = None;
+                    }
+                    if wifi_after_lang {
+                        let ssid = last_ssid_owned(&ui.state);
+                        let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                            adapter::begin_wifi_setup(router, cx, ssid.as_deref())
+                        });
+                        if follow.iter().any(|i| *i == Intent::WifiConnect) {
+                            boot_wait = BootWait::WifiConnect;
+                            saw_wifi_connecting = false;
+                            phase_until = Some(
+                                Instant::now()
+                                    + Duration::from_millis(
+                                        config::network::SSID_CONNECTION_TIMEOUT_MS,
+                                    ),
+                            );
+                        } else {
+                            boot_wait = BootWait::Done;
+                            phase_until = None;
+                        }
+                        run_intents(
+                            &mut ui,
+                            follow,
+                            spdt_direction,
+                            &mut out,
+                            &wifi_tx,
+                            &srv_tx,
+                            &storage_tx,
+                        );
+                    }
+                }
             }
             Either3::Second(sev) => {
                 out.clear();
-                let _ = state.apply_event(sev, &mut out);
+                let app_event = match &sev {
+                    longfred_proto::ServerEvent::Alert(text) if text.as_str() == "Not paired" => {
+                        handset_session_paired = false;
+                        match begin_pairing_flow(
+                            &ui.state,
+                            &mut pairing_active,
+                            &mut pairing_http_tried,
+                            &mut pairing_user_initiated,
+                            &mut out,
+                        ) {
+                            PairingStart::Busy => None,
+                            PairingStart::Overlay => {
+                                show_pairing_overlay(&mut ui);
+                                None
+                            }
+                            PairingStart::CodeDialog => Some(AppEvent::PairingRequired),
+                        }
+                    }
+                    longfred_proto::ServerEvent::PairingRequired
+                        if pairing_active || handset_session_paired =>
+                    {
+                        None
+                    }
+                    longfred_proto::ServerEvent::PairingRequired => {
+                        match begin_pairing_flow(
+                            &ui.state,
+                            &mut pairing_active,
+                            &mut pairing_http_tried,
+                            &mut pairing_user_initiated,
+                            &mut out,
+                        ) {
+                            PairingStart::Busy => None,
+                            PairingStart::Overlay => {
+                                show_pairing_overlay(&mut ui);
+                                None
+                            }
+                            PairingStart::CodeDialog => Some(AppEvent::PairingRequired),
+                        }
+                    }
+                    longfred_proto::ServerEvent::PairingSucceeded(_) => {
+                        pairing_active = false;
+                        pairing_http_tried = false;
+                        handset_session_paired = true;
+                        ui.router.dismiss_overlay();
+                        ui.state.reacquire_session_locos(&mut out);
+                        restored_this_session = true;
+                        let app_event =
+                            pairing_user_initiated.then_some(AppEvent::PairingSucceeded);
+                        pairing_user_initiated = false;
+                        app_event
+                    }
+                    longfred_proto::ServerEvent::PairingFailed => {
+                        handset_session_paired = false;
+                        ui.state.persist.bigfred_pairing_code.clear();
+                        let _ = storage_tx
+                            .try_send(StorageCmd::SavePairingCode(heapless::String::new()));
+                        if has_pairing_creds(&ui.state) {
+                            if !pairing_http_tried && start_pairing_http(&ui.state) {
+                                pairing_active = true;
+                                pairing_http_tried = true;
+                                show_pairing_overlay(&mut ui);
+                                None
+                            } else {
+                                pairing_active = false;
+                                pairing_http_tried = false;
+                                pairing_user_initiated = false;
+                                None
+                            }
+                        } else {
+                            pairing_active = true;
+                            let app_event = if pairing_user_initiated {
+                                AppEvent::PairingFailed
+                            } else {
+                                AppEvent::PairingRequired
+                            };
+                            pairing_user_initiated = false;
+                            Some(app_event)
+                        }
+                    }
+                    _ => None,
+                };
+                let _ = ui.state.apply_event(sev, &mut out);
+                if let Some(event) = app_event {
+                    let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                        router.on_app_event(event, cx)
+                    });
+                    run_intents(
+                        &mut ui,
+                        follow,
+                        spdt_direction,
+                        &mut out,
+                        &wifi_tx,
+                        &srv_tx,
+                        &storage_tx,
+                    );
+                }
             }
             Either3::Third(_) => {
-                if power::AUTO_SLEEP_INACTIVITY_MS > 0
-                    && conn != ConnState::Connected
+                let now = Instant::now();
+                let timed_out = phase_until.is_some_and(|t| now >= t);
+                match boot_wait {
+                    BootWait::Splash if timed_out => {
+                        if !ui.state.persist.language_chosen {
+                            ui.session.splash_done = true;
+                            ui.session.boot_language = true;
+                            let _ = ui.with_ctx(now.as_millis(), |router, cx| {
+                                router.replace_screen(ScreenId::Language, cx)
+                            });
+                            boot_wait = BootWait::Language;
+                            phase_until = None;
+                        } else {
+                            let ssid = last_ssid_owned(&ui.state);
+                            let follow = ui.with_ctx(now.as_millis(), |router, cx| {
+                                adapter::begin_wifi_setup(router, cx, ssid.as_deref())
+                            });
+                            if follow.iter().any(|i| *i == Intent::WifiConnect) {
+                                boot_wait = BootWait::WifiConnect;
+                                saw_wifi_connecting = false;
+                                phase_until = Some(
+                                    now + Duration::from_millis(
+                                        config::network::SSID_CONNECTION_TIMEOUT_MS,
+                                    ),
+                                );
+                            } else {
+                                boot_wait = BootWait::Done;
+                                phase_until = None;
+                            }
+                            run_intents(
+                                &mut ui,
+                                follow,
+                                spdt_direction,
+                                &mut out,
+                                &wifi_tx,
+                                &srv_tx,
+                                &storage_tx,
+                            );
+                        }
+                    }
+                    BootWait::WifiConnect if timed_out => {
+                        info!("domain: Wi-Fi connect timed out");
+                        let _ = ui.with_ctx(now.as_millis(), |router, cx| {
+                            router.replace_screen(ScreenId::WifiFailed, cx)
+                        });
+                        boot_wait = BootWait::WifiFailed;
+                        phase_until =
+                            Some(now + Duration::from_millis(config::network::WIFI_FAIL_MSG_MS));
+                    }
+                    BootWait::WifiFailed if timed_out => {
+                        let follow = ui.with_ctx(now.as_millis(), |router, cx| {
+                            router.replace_screen(ScreenId::SsidScanning, cx)
+                        });
+                        boot_wait = BootWait::Done;
+                        phase_until = None;
+                        run_intents(
+                            &mut ui,
+                            follow,
+                            spdt_direction,
+                            &mut out,
+                            &wifi_tx,
+                            &srv_tx,
+                            &storage_tx,
+                        );
+                    }
+                    BootWait::ServerConnect if timed_out => {
+                        info!("domain: server connect timed out");
+                        srv_tx.send(None);
+                        let follow = ui.with_ctx(now.as_millis(), |router, cx| {
+                            router.replace_screen(ScreenId::ServerList, cx)
+                        });
+                        boot_wait = BootWait::Done;
+                        phase_until = None;
+                        run_intents(
+                            &mut ui,
+                            follow,
+                            spdt_direction,
+                            &mut out,
+                            &wifi_tx,
+                            &srv_tx,
+                            &storage_tx,
+                        );
+                    }
+                    _ => {}
+                }
+                if !net::http_ota_busy()
+                    && power::AUTO_SLEEP_INACTIVITY_MS > 0
+                    && ui.conn != ConnState::Connected
+                    && boot_wait == BootWait::Done
                     && last_activity.elapsed().as_millis() > power::AUTO_SLEEP_INACTIVITY_MS
                 {
+                    net::set_http_ota_enabled(false);
                     SLEEP_CTRL.signal(SleepReason::Inactivity);
                 }
             }
         }
 
         if let Some(s) = net_rx.as_mut().and_then(|r| r.try_get()) {
-            if s != net_status {
-                net_status = s;
+            if s != ui.net_status {
+                ui.net_status = s;
+                if s == NetStatus::Connecting {
+                    saw_wifi_connecting = true;
+                }
                 if s == NetStatus::Ready {
-                    fsm.on_wifi_ready();
-                    if fsm.screen == Screen::ServerList {
-                        let _ = MDNS_CTRL.try_send(());
-                    }
-                    if let Some((ssid, pw)) = fsm.take_pending_password_save() {
+                    if let Some((ssid, pw)) = adapter::take_pending_password_save(&mut ui.session) {
                         let _ =
                             storage_tx.try_send(StorageCmd::SavePassword { ssid, password: pw });
                     }
+                    if on_wifi_wizard(ui.router.screen_id()) {
+                        if let Some(saved) = ui.state.persist.last_server {
+                            srv_tx.send(Some(endpoint_from_saved(saved)));
+                            let _ = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                                router.replace_screen(ScreenId::Connecting, cx)
+                            });
+                            boot_wait = BootWait::ServerConnect;
+                            phase_until = Some(
+                                Instant::now()
+                                    + Duration::from_millis(
+                                        config::network::SERVER_CONNECTION_TIMEOUT_MS,
+                                    ),
+                            );
+                        } else {
+                            let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                                router.replace_screen(ScreenId::ServerList, cx)
+                            });
+                            boot_wait = BootWait::Done;
+                            phase_until = None;
+                            run_intents(
+                                &mut ui,
+                                follow,
+                                spdt_direction,
+                                &mut out,
+                                &wifi_tx,
+                                &srv_tx,
+                                &storage_tx,
+                            );
+                        }
+                    } else {
+                        let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                            router.on_app_event(AppEvent::WifiReady, cx)
+                        });
+                        run_intents(
+                            &mut ui,
+                            follow,
+                            spdt_direction,
+                            &mut out,
+                            &wifi_tx,
+                            &srv_tx,
+                            &storage_tx,
+                        );
+                        if ui.router.screen_id() == ScreenId::ServerList {
+                            let _ = MDNS_CTRL.try_send(());
+                        }
+                    }
+                } else if s == NetStatus::Disconnected
+                    && boot_wait == BootWait::WifiConnect
+                    && saw_wifi_connecting
+                {
+                    let _ = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                        router.replace_screen(ScreenId::WifiFailed, cx)
+                    });
+                    boot_wait = BootWait::WifiFailed;
+                    phase_until = Some(
+                        Instant::now() + Duration::from_millis(config::network::WIFI_FAIL_MSG_MS),
+                    );
                 }
             }
         }
 
         if let Some(w) = conn_rx.as_mut().and_then(|r| r.try_get()) {
-            if w != conn {
-                conn = w;
+            if w != ui.conn {
+                ui.conn = w;
                 if w == ConnState::Connected {
                     last_activity = Instant::now();
-                    fsm.on_server_connected();
-                    if !restored_this_session {
+                    boot_wait = BootWait::Done;
+                    phase_until = None;
+                    let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                        router.on_app_event(AppEvent::ServerConnected, cx)
+                    });
+                    run_intents(
+                        &mut ui,
+                        follow,
+                        spdt_direction,
+                        &mut out,
+                        &wifi_tx,
+                        &srv_tx,
+                        &storage_tx,
+                    );
+                    if let Some(ep) = SERVER.sender().try_get().flatten() {
+                        persist_last_server(&storage_tx, &mut ui.state, ep);
+                        ui.state.ensure_session(ep.protocol.caps());
+                    }
+                    let defer_reacquire = SERVER.sender().try_get().flatten().is_some_and(|ep| {
+                        ep.protocol.caps().supports_pairing() && has_pairing_creds(&ui.state)
+                    });
+                    if defer_reacquire && start_session_http(&ui.state) {
+                        pairing_active = true;
+                    } else if !restored_this_session {
                         out.clear();
-                        state.restore_locos(&mut out);
+                        ui.state.reacquire_session_locos(&mut out);
                         restored_this_session = true;
                     }
                 } else if w == ConnState::Disconnected {
+                    ui.state.end_session();
+                    pairing_active = false;
+                    pairing_http_tried = false;
+                    pairing_user_initiated = false;
+                    handset_session_paired = false;
                     restored_this_session = false;
                 }
             }
         }
 
         if let Some(ep) = srv_rx.as_mut().and_then(|r| r.try_get()) {
-            server = ep;
+            ui.server = ep;
+            if ui.conn == ConnState::Connected
+                && let Some(ep) = ep
+            {
+                ui.state.ensure_session(ep.protocol.caps());
+            }
         }
 
         if let Some(v) = WIFI_SCAN.try_take() {
-            scanned = v;
-            fsm.on_scan_done();
+            ui.scanned = v;
+            let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                router.on_app_event(AppEvent::ScanDone, cx)
+            });
+            run_intents(
+                &mut ui,
+                follow,
+                spdt_direction,
+                &mut out,
+                &wifi_tx,
+                &srv_tx,
+                &storage_tx,
+            );
         }
 
         if let Some(v) = FOUND_SERVERS.try_take() {
-            servers = v;
+            ui.servers = v;
         }
 
-        if let Some(rec) = PERSIST_LOADED.try_take() {
-            apply_persist(&mut state, rec);
+        if let Some(rec) = persist_rx.as_mut().and_then(|r| r.try_changed()) {
+            apply_persist(&mut ui.state, rec);
         }
 
         if let Some(b) = battery_rx.as_mut().and_then(|r| r.try_get()) {
-            battery = b;
+            ui.battery = b;
         }
 
-        pw_buf.clear();
-        if fsm.screen == Screen::DeviceNameEdit {
-            let _ = pw_buf.push_str(fsm.device_name_preview().as_str());
-        } else {
-            let _ = pw_buf.push_str(fsm.password_preview().as_str());
+        if let Ok(result) = pairing_http_rx.try_receive() {
+            let endpoint = match &result {
+                PairingHttpResult::Code { endpoint, .. }
+                | PairingHttpResult::Session { endpoint, .. }
+                | PairingHttpResult::Failed { endpoint, .. } => *endpoint,
+            };
+            let still_current = CONN.sender().try_get() == Some(ConnState::Connected)
+                && SERVER.sender().try_get().flatten() == Some(endpoint);
+            if still_current {
+                let app_event = match result {
+                    PairingHttpResult::Code { code, .. } => {
+                        ui.state.persist.bigfred_pairing_code = code.clone();
+                        let _ = storage_tx.try_send(StorageCmd::SavePairingCode(code.clone()));
+                        let _ = out.push(ClientCommand::Pair { code });
+                        show_pairing_overlay(&mut ui);
+                        None
+                    }
+                    PairingHttpResult::Session { paired: true, .. } => {
+                        pairing_active = false;
+                        pairing_http_tried = false;
+                        handset_session_paired = true;
+                        ui.router.dismiss_overlay();
+                        if !restored_this_session {
+                            ui.state.reacquire_session_locos(&mut out);
+                            restored_this_session = true;
+                        }
+                        None
+                    }
+                    PairingHttpResult::Session { paired: false, .. } => {
+                        handset_session_paired = false;
+                        pairing_http_tried = false;
+                        if start_pairing_http(&ui.state) {
+                            pairing_active = true;
+                            pairing_http_tried = true;
+                            show_pairing_overlay(&mut ui);
+                        } else {
+                            pairing_active = false;
+                        }
+                        None
+                    }
+                    PairingHttpResult::Failed { error, .. } => {
+                        pairing_active = false;
+                        pairing_http_tried = false;
+                        if !error.is_empty() {
+                            ui.state.show_message(error.as_str());
+                        }
+                        if has_pairing_creds(&ui.state) {
+                            None
+                        } else {
+                            Some(AppEvent::PairingRequired)
+                        }
+                    }
+                };
+                if let Some(event) = app_event {
+                    let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                        router.on_app_event(event, cx)
+                    });
+                    run_intents(
+                        &mut ui,
+                        follow,
+                        spdt_direction,
+                        &mut out,
+                        &wifi_tx,
+                        &srv_tx,
+                        &storage_tx,
+                    );
+                }
+            }
         }
-        ip_buf.clear();
-        if fsm.screen == Screen::IpEdit {
-            let _ = ip_buf.push_str(fsm.format_net_display().as_str());
-        } else if fsm.screen == Screen::DeviceIdEdit {
-            let _ = ip_buf.push_str(fsm.format_device_id_display().as_str());
-        } else {
-            let _ = ip_buf.push_str(fsm.format_ip_display().as_str());
-        };
 
-        state.flush_pending_speed(&mut out);
+        ui.state.poll_roster_timeout(Instant::now());
 
-        publish_view(
-            &fsm,
-            &state,
-            net_status,
-            conn,
-            server,
-            &scanned,
-            &servers,
-            pw_buf.as_str(),
-            ip_buf.as_str(),
-            battery,
-            &ui_tx,
-        );
+        {
+            let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| router.tick(cx));
+            run_intents(
+                &mut ui,
+                follow,
+                spdt_direction,
+                &mut out,
+                &wifi_tx,
+                &srv_tx,
+                &storage_tx,
+            );
+        }
+
+        ui.state.flush_pending_speed(&mut out);
+
+        net::set_ping_enabled(ui.router.screen_id() == ScreenId::Diagnostics);
+
+        ui.apply_pending_overlay(Instant::now().as_millis());
+        ui.publish_view(Instant::now().as_millis(), &ui_tx);
 
         flush_cmds(&cmd_tx, &mut out, &mut last_cmd).await;
     }

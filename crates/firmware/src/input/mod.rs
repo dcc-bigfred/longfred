@@ -1,13 +1,16 @@
-//! Input: GPIO nav cluster, MCP23017 tact/F-keys, encoder, keypad.
+//! Input: GPIO nav cluster, MCP23017 tact/F-keys, encoder, keypad, extra buttons.
 //! Drivers emit [`crate::board::raw::RawEvent`] to `RAW_CHANNEL`;
 //! the board bridge maps them to [`InputEvent`] on `INPUT_CHANNEL`.
 
 pub mod encoder;
 pub mod expander;
+#[cfg(feature = "variant-markwtech")]
+pub mod extra_buttons;
 pub mod gpio_nav;
 pub mod i2c_bus;
 #[cfg(feature = "variant-markwtech")]
 pub mod keypad;
+pub(crate) mod quadrature;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};

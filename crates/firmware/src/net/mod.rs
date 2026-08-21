@@ -1,6 +1,10 @@
 //! Network layer: WiFi STA + embassy-net stack, mDNS, protocol session.
 
 pub mod mdns;
+pub mod pairing_http;
+#[cfg(not(feature = "sim"))]
+pub mod ping;
+pub mod probe;
 #[cfg(not(feature = "sim"))]
 pub mod provisioning;
 pub mod session;
@@ -11,51 +15,30 @@ use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use heapless::String;
-use longfred_proto::command::{ClientCommand, Protocol};
+use longfred_proto::command::ClientCommand;
 use longfred_proto::events::ServerEvent;
-use longfred_proto::mdns::WitServer;
+use longfred_proto::network::WitServer;
 use longfred_proto::persist::{DeviceIdentity, StaticIpConfig};
 
 use crate::config::sizes;
 
-/// Network connection status published to UI / logs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NetStatus {
-    Disconnected,
-    Connecting,
-    WifiConnected,
-    /// Stack has an IPv4 address (DHCP complete).
-    Ready,
-}
+pub use longfred_proto::network::{
+    ConnState, NetStatus, PingStatus, ServerEndpoint, SsidInfo, StaNet, WifiLink,
+};
 
 /// Single source of truth for network status. Two subscribers: UI + mDNS task.
 pub static STATE: Watch<CriticalSectionRawMutex, NetStatus, 2> =
     Watch::new_with(NetStatus::Disconnected);
 
-/// Selected command-station endpoint (address + port + protocol).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ServerEndpoint {
-    pub ip: [u8; 4],
-    pub port: u16,
-    pub protocol: Protocol,
-}
-
 /// Published selected server. Two subscribers: session client + domain task.
 pub static SERVER: Watch<CriticalSectionRawMutex, Option<ServerEndpoint>, 2> =
     Watch::new_with(None);
 
-/// Command-station session connection status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConnState {
-    Disconnected,
-    Connecting,
-    Connected,
-}
-
 pub static CONN: Watch<CriticalSectionRawMutex, ConnState, 2> =
     Watch::new_with(ConnState::Disconnected);
 
-pub const PROTO_EVENTS_DEPTH: usize = 16;
+/// One WiThrottle roster line can decode to count + 70 entry events in one read.
+pub const PROTO_EVENTS_DEPTH: usize = 80;
 pub const PROTO_COMMANDS_DEPTH: usize = 16;
 pub const WIFI_CTRL_DEPTH: usize = 4;
 
@@ -78,14 +61,6 @@ pub enum WifiCmd {
 }
 
 pub static WIFI_CTRL: Channel<CriticalSectionRawMutex, WifiCmd, WIFI_CTRL_DEPTH> = Channel::new();
-
-/// WiFi scan results (WiFi task → domain).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SsidInfo {
-    pub ssid: String<32>,
-    pub rssi: i8,
-    pub open: bool,
-}
 
 pub static WIFI_SCAN: Signal<
     CriticalSectionRawMutex,
@@ -111,6 +86,50 @@ pub static WIFI_HOSTNAME: Watch<CriticalSectionRawMutex, heapless::String<16>, 2
 
 /// Live IPv4 stack configuration (domain → config_task).
 pub static NET_CONFIG_CTRL: Signal<CriticalSectionRawMutex, StaticIpConfig> = Signal::new();
+
+/// STA IPv4 once DHCP/static config is up (UI + mDNS OTA announce).
+pub static STA_IPV4: Watch<CriticalSectionRawMutex, Option<[u8; 4]>, 2> = Watch::new_with(None);
+
+pub static STA_NET: Watch<CriticalSectionRawMutex, Option<StaNet>, 2> = Watch::new_with(None);
+
+pub static WIFI_LINK: Watch<CriticalSectionRawMutex, Option<WifiLink>, 2> = Watch::new_with(None);
+
+pub static PING: Watch<CriticalSectionRawMutex, PingStatus, 2> = Watch::new_with(PingStatus::Idle);
+
+/// ICMP echo runs only while Diagnostics is on screen (domain → ping task).
+pub static PING_ENABLE: Watch<CriticalSectionRawMutex, bool, 2> = Watch::new_with(false);
+
+/// User-enabled STA HTTP OTA server (menu screen).
+pub static HTTP_OTA_ENABLE: Watch<CriticalSectionRawMutex, bool, 4> = Watch::new_with(false);
+
+/// Firmware POST in progress (OLED "Updating").
+pub static HTTP_OTA_BUSY: Watch<CriticalSectionRawMutex, bool, 2> = Watch::new_with(false);
+
+pub fn http_ota_enabled() -> bool {
+    HTTP_OTA_ENABLE.try_get().unwrap_or(false)
+}
+
+pub fn http_ota_busy() -> bool {
+    HTTP_OTA_BUSY.try_get().unwrap_or(false)
+}
+
+pub fn sta_ipv4() -> Option<[u8; 4]> {
+    STA_IPV4.try_get().flatten()
+}
+
+pub fn set_http_ota_enabled(on: bool) {
+    HTTP_OTA_ENABLE.sender().send(on);
+}
+
+pub fn set_ping_enabled(on: bool) {
+    if PING_ENABLE.try_get() == Some(on) {
+        return;
+    }
+    PING_ENABLE.sender().send(on);
+    if !on {
+        PING.sender().send(PingStatus::Idle);
+    }
+}
 
 // Legacy type aliases for gradual migration.
 pub type WitEndpoint = ServerEndpoint;

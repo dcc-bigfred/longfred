@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/firmware", "crates/proto"]
-default-members = ["crates/proto"]
+members = ["crates/firmware", "crates/proto", "crates/ui"]
+default-members = ["crates/proto", "crates/ui"]
 
 [workspace.package]
 edition = "2024"
@@ -34,6 +34,11 @@ codegen-units = 1
 debug = 2
 lto = "fat"
 opt-level = "s"
+
+[profile.release-assertions]
+inherits = "release"
+debug-assertions = true
+overflow-checks = true
 
 [profile.dev.package.esp-radio]
 opt-level = 3

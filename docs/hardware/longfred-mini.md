@@ -27,6 +27,10 @@ Menu grids use 3 rows × 2 columns (~6 lines) instead of 12.
 
 Same as [longfred-standard.md](longfred-standard.md); swap the OLED for a 128×32 module.
 
+## Programming mode
+
+**Stop** during the 2 s boot splash, or hold **Shift1 + Stop** for 8 seconds. Soft-AP `longfred_prog_XXXXXX` at `192.168.0.1` (DHCP). The 128×32 OLED shows the SSID, then the URL (no QR). Firmware OTA: pairing page, or Extras → Firmware update on layout Wi‑Fi. See [provisioning.md](../provisioning.md).
+
 ## BOM delta
 
 - OLED 0.91" SSD1306 128×32 I2C (e.g. Allegro 0.91" modules) instead of 128×64

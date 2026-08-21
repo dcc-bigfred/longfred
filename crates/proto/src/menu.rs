@@ -10,11 +10,6 @@ pub enum MenuFinish {
     ReleaseAll,
     DirectionToggle,
     SpeedMultiplier,
-    TurnoutThrowAddr(heapless::String<8>),
-    TurnoutCloseAddr(heapless::String<8>),
-    TurnoutList { throw: bool },
-    RouteAddr(heapless::String<8>),
-    RouteList,
     PowerToggle,
     FunctionPress(u8),
     FunctionList,
@@ -51,28 +46,7 @@ pub fn finish_menu(cmd: &str) -> MenuFinish {
         '2' => MenuFinish::ReleaseAll,
         '3' => MenuFinish::DirectionToggle,
         '4' => MenuFinish::SpeedMultiplier,
-        '5' => {
-            if rest.is_empty() {
-                MenuFinish::TurnoutList { throw: true }
-            } else {
-                MenuFinish::TurnoutThrowAddr(rest)
-            }
-        }
-        '6' => {
-            if rest.is_empty() {
-                MenuFinish::TurnoutList { throw: false }
-            } else {
-                MenuFinish::TurnoutCloseAddr(rest)
-            }
-        }
-        '7' => {
-            if rest.is_empty() {
-                MenuFinish::RouteList
-            } else {
-                MenuFinish::RouteAddr(rest)
-            }
-        }
-        '8' => MenuFinish::PowerToggle,
+        '5' => MenuFinish::PowerToggle,
         _ => MenuFinish::None,
     }
 }
@@ -129,8 +103,8 @@ mod tests {
     }
 
     #[test]
-    fn menu_turnout_list_throw() {
-        assert_eq!(finish_menu("5"), MenuFinish::TurnoutList { throw: true });
+    fn menu_power_toggle() {
+        assert_eq!(finish_menu("5"), MenuFinish::PowerToggle);
     }
 
     #[test]

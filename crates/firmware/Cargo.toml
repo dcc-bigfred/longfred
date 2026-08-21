@@ -29,6 +29,7 @@ sim_domain = ["sim"]
 
 [dependencies]
 longfred-proto = { path = "../proto" }
+longfred-ui = { path = "../ui" }
 
 esp-hal = { version = "1.1.0", features = ["esp32c6", "unstable", "log-04"] }
 esp-rtos = { version = "0.3.0", features = ["embassy", "esp32c6", "log-04", "esp-radio"] }
@@ -42,18 +43,19 @@ esp-backtrace = { version = "0.19.0", features = ["esp32c6", "panic-handler", "p
 
 embassy-executor = { version = "0.10.0", features = ["log"] }
 embassy-futures = "0.1"
-embassy-net = { version = "0.9", features = ["dhcpv4", "dhcpv4-hostname", "tcp", "udp", "dns", "medium-ethernet", "proto-ipv4", "multicast", "log", "auto-icmp-echo-reply"] }
+embassy-net = { version = "0.9", features = ["dhcpv4", "dhcpv4-hostname", "tcp", "udp", "dns", "medium-ethernet", "proto-ipv4", "multicast", "log", "auto-icmp-echo-reply", "icmp"] }
 embassy-sync = { version = "0.8", features = ["log"] }
 embassy-time = { version = "0.5.0", features = ["log"] }
 
 ssd1306 = { version = "0.10", default-features = false, features = ["graphics"] }
 embedded-graphics = "0.8"
 embedded-hal = "1.0"
+embassy-embedded-hal = "0.6"
 
 log = "0.4"
 heapless = "0.9"
 nb = "1.1"
 static_cell = "2.1"
-embassy-embedded-hal = "0.6"
+esp-hal-dhcp-server = { version = "0.4.0", default-features = false, features = ["log"] }
 embedded-hal-async = "1.0"
 critical-section = "1.2"

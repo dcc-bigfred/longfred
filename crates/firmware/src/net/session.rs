@@ -1,20 +1,24 @@
 //! Generic protocol session: TCP (WiThrottle) or UDP (Z21) with shared adapter loop.
 
-use embassy_futures::select::{Either3, select3};
+use embassy_futures::select::{Either4, select4};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
 use embassy_time::{Duration, Instant, Timer};
 use log::{info, warn};
 use longfred_proto::adapter::{Adapter, WireBuf};
+use longfred_proto::bigfred::BigFredAdapter;
+use longfred_proto::caps::Transport as WireTransport;
 use longfred_proto::command::Protocol;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::persist::DeviceIdentity;
-use longfred_proto::wt::WtAdapter;
+use longfred_proto::withrottle::WtAdapter;
 use longfred_proto::z21::Z21Adapter;
 
 use crate::config;
-use crate::net::{CONN, ConnState, DEVICE, PROTO_COMMANDS, PROTO_EVENTS, SERVER, ServerEndpoint};
+use crate::net::{
+    CONN, ConnState, DEVICE, PROTO_COMMANDS, PROTO_EVENTS, SERVER, ServerEndpoint, probe,
+};
 
 const TCP_RX_SIZE: usize = 1024;
 const TCP_TX_SIZE: usize = 1024;
@@ -104,6 +108,20 @@ async fn write_all(sock: &mut TcpSocket<'_>, mut data: &[u8]) -> bool {
     true
 }
 
+async fn classify_endpoint(
+    stack: Stack<'static>,
+    mut ep: ServerEndpoint,
+    rx: &mut [u8],
+    tx: &mut [u8],
+) -> ServerEndpoint {
+    if ep.protocol == Protocol::WiThrottle && probe::is_bigfred(stack, ep.ip, rx, tx).await {
+        ep.protocol = Protocol::BigFred;
+        SERVER.sender().send(Some(ep));
+        info!("HTTP probe identified BigFred");
+    }
+    ep
+}
+
 fn make_adapter(ep: ServerEndpoint) -> Adapter {
     let dev = DEVICE
         .sender()
@@ -116,7 +134,14 @@ fn make_adapter(ep: ServerEndpoint) -> Adapter {
             id.as_str(),
             config::buttons::DEFAULT_HEARTBEAT_PERIOD_S,
             config::network::SEND_LEADING_CR_LF,
-            config::buttons::HEARTBEAT_ENABLED,
+            config::buttons::DEAD_MAN_SWITCH_ENABLED,
+        )),
+        Protocol::BigFred => Adapter::BigFred(BigFredAdapter::new(
+            dev.name.as_str(),
+            id.as_str(),
+            config::buttons::DEFAULT_HEARTBEAT_PERIOD_S,
+            config::network::SEND_LEADING_CR_LF,
+            config::buttons::DEAD_MAN_SWITCH_ENABLED,
         )),
         Protocol::Z21 => Adapter::Z21(Z21Adapter::new()),
     }
@@ -131,21 +156,31 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
 
     let cmd_rx = PROTO_COMMANDS.receiver();
     let mut rx = [0u8; 512];
-    let mut last_rx = Instant::now();
     let mut hb_last = Instant::now();
+    let mut srv_rx = SERVER.receiver();
+    if let Some(rx) = srv_rx.as_mut() {
+        let _ = rx.try_get();
+    }
 
     loop {
         let hb_period = Duration::from_secs(adapter.tick_period_s() as u64);
-        match select3(
+        let server_changed = async {
+            if let Some(rx) = srv_rx.as_mut() {
+                let _ = rx.changed().await;
+            } else {
+                core::future::pending::<()>().await;
+            }
+        };
+        match select4(
             tr.recv(&mut rx),
             cmd_rx.receive(),
             Timer::after(SESSION_TICK),
+            server_changed,
         )
         .await
         {
-            Either3::First(None) => return true,
-            Either3::First(Some(n)) => {
-                last_rx = Instant::now();
+            Either4::First(None) => break,
+            Either4::First(Some(n)) => {
                 let mut hb_cfg = None;
                 adapter.decode(&rx[..n], &mut |ev| {
                     if let ServerEvent::HeartbeatConfig { seconds } = &ev {
@@ -157,36 +192,44 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                     adapter.set_heartbeat_period(seconds);
                 }
             }
-            Either3::Second(cmd) => {
+            Either4::Second(cmd) => {
                 let mut out = WireBuf::new();
                 adapter.encode(&cmd, &mut out, &mut |ev| emit_event(ev));
                 if !out.is_empty() && !tr.send(&out).await {
-                    return true;
+                    break;
                 }
             }
-            Either3::Third(_) => {
+            Either4::Third(_) => {
+                let mut out = WireBuf::new();
+                let polled = adapter.poll(&mut out, &mut |ev| emit_event(ev));
+                if polled && !out.is_empty() && !tr.send(&out).await {
+                    break;
+                }
                 if hb_last.elapsed() >= hb_period {
                     let mut out = WireBuf::new();
                     if adapter.on_tick(&mut out) && !out.is_empty() && !tr.send(&out).await {
-                        return true;
+                        break;
                     }
                     hb_last = Instant::now();
                 }
-                if last_rx.elapsed() > hb_period * 2 {
-                    warn!("proto watchdog: no data, reconnect");
-                    return true;
-                }
             }
+            Either4::Fourth(_) => break,
         }
     }
+    let mut out = WireBuf::new();
+    adapter.on_disconnect(&mut out);
+    if !out.is_empty() {
+        let _ = tr.send(&out).await;
+    }
+    true
 }
 
-async fn run_tcp_session(stack: Stack<'static>, ep: ServerEndpoint) -> bool {
-    static RX: static_cell::StaticCell<[u8; TCP_RX_SIZE]> = static_cell::StaticCell::new();
-    static TX: static_cell::StaticCell<[u8; TCP_TX_SIZE]> = static_cell::StaticCell::new();
-    let rx = RX.init([0; TCP_RX_SIZE]);
-    let tx = TX.init([0; TCP_TX_SIZE]);
-
+async fn run_tcp_session(
+    stack: Stack<'static>,
+    ep: ServerEndpoint,
+    rx: &mut [u8],
+    tx: &mut [u8],
+) -> bool {
     let mut sock = TcpSocket::new(stack, rx, tx);
     sock.set_nagle_enabled(!config::network::TCP_NODELAY);
     sock.set_timeout(Some(Duration::from_secs(config::network::TCP_TIMEOUT_S)));
@@ -197,7 +240,10 @@ async fn run_tcp_session(stack: Stack<'static>, ep: ServerEndpoint) -> bool {
         ep.port,
     );
     if sock.connect(remote).await.is_err() {
-        warn!("tcp connect failed");
+        warn!(
+            "tcp connect failed {}.{}.{}.{}:{} (enable the WiThrottle server on the command station)",
+            ep.ip[0], ep.ip[1], ep.ip[2], ep.ip[3], ep.port
+        );
         return false;
     }
     info!(
@@ -212,19 +258,15 @@ async fn run_tcp_session(stack: Stack<'static>, ep: ServerEndpoint) -> bool {
     true
 }
 
-async fn run_udp_session(stack: Stack<'static>, ep: ServerEndpoint) -> bool {
-    static RX_META: static_cell::StaticCell<[PacketMetadata; 4]> = static_cell::StaticCell::new();
-    static TX_META: static_cell::StaticCell<[PacketMetadata; 4]> = static_cell::StaticCell::new();
-    static RX: static_cell::StaticCell<[u8; UDP_RX_SIZE]> = static_cell::StaticCell::new();
-    static TX: static_cell::StaticCell<[u8; UDP_TX_SIZE]> = static_cell::StaticCell::new();
-
-    let mut sock = UdpSocket::new(
-        stack,
-        RX_META.init([PacketMetadata::EMPTY; 4]),
-        RX.init([0; UDP_RX_SIZE]),
-        TX_META.init([PacketMetadata::EMPTY; 4]),
-        TX.init([0; UDP_TX_SIZE]),
-    );
+async fn run_udp_session(
+    stack: Stack<'static>,
+    ep: ServerEndpoint,
+    rx_meta: &mut [PacketMetadata],
+    rx: &mut [u8],
+    tx_meta: &mut [PacketMetadata],
+    tx: &mut [u8],
+) -> bool {
+    let mut sock = UdpSocket::new(stack, rx_meta, rx, tx_meta, tx);
     if sock.bind(0).is_err() {
         warn!("z21 udp bind failed");
         return false;
@@ -247,13 +289,36 @@ async fn run_udp_session(stack: Stack<'static>, ep: ServerEndpoint) -> bool {
 
 #[embassy_executor::task]
 pub async fn task(stack: Stack<'static>) {
+    // Taken once: reconnect must reuse these buffers (`StaticCell::init` panics on the 2nd call).
+    static TCP_RX: static_cell::ConstStaticCell<[u8; TCP_RX_SIZE]> =
+        static_cell::ConstStaticCell::new([0; TCP_RX_SIZE]);
+    static TCP_TX: static_cell::ConstStaticCell<[u8; TCP_TX_SIZE]> =
+        static_cell::ConstStaticCell::new([0; TCP_TX_SIZE]);
+    static UDP_RX_META: static_cell::ConstStaticCell<[PacketMetadata; 4]> =
+        static_cell::ConstStaticCell::new([PacketMetadata::EMPTY; 4]);
+    static UDP_TX_META: static_cell::ConstStaticCell<[PacketMetadata; 4]> =
+        static_cell::ConstStaticCell::new([PacketMetadata::EMPTY; 4]);
+    static UDP_RX: static_cell::ConstStaticCell<[u8; UDP_RX_SIZE]> =
+        static_cell::ConstStaticCell::new([0; UDP_RX_SIZE]);
+    static UDP_TX: static_cell::ConstStaticCell<[u8; UDP_TX_SIZE]> =
+        static_cell::ConstStaticCell::new([0; UDP_TX_SIZE]);
+    let tcp_rx = TCP_RX.take();
+    let tcp_tx = TCP_TX.take();
+    let udp_rx_meta = UDP_RX_META.take();
+    let udp_tx_meta = UDP_TX_META.take();
+    let udp_rx = UDP_RX.take();
+    let udp_tx = UDP_TX.take();
+
     let mut connect_fails: u32 = 0;
     loop {
         CONN.sender().send(ConnState::Connecting);
         let ep = wait_for_server().await;
-        let established = match ep.protocol {
-            Protocol::WiThrottle => run_tcp_session(stack, ep).await,
-            Protocol::Z21 => run_udp_session(stack, ep).await,
+        let ep = classify_endpoint(stack, ep, tcp_rx, tcp_tx).await;
+        let established = match ep.protocol.caps().transport {
+            WireTransport::Tcp => run_tcp_session(stack, ep, tcp_rx, tcp_tx).await,
+            WireTransport::Udp => {
+                run_udp_session(stack, ep, udp_rx_meta, udp_rx, udp_tx_meta, udp_tx).await
+            }
         };
         CONN.sender().send(ConnState::Disconnected);
         if established {

@@ -43,29 +43,6 @@ pub enum ServerEvent {
         address: i32,
         length: char,
     },
-    TurnoutEntriesCount(u16),
-    TurnoutEntry {
-        index: u16,
-        sys_name: ShortText,
-        user_name: ShortText,
-        state: i32,
-    },
-    RouteEntriesCount(u16),
-    RouteEntry {
-        index: u16,
-        sys_name: ShortText,
-        user_name: ShortText,
-        state: i32,
-    },
-
-    TurnoutAction {
-        sys_name: ShortText,
-        state: TurnoutState,
-    },
-    RouteAction {
-        sys_name: ShortText,
-        state: RouteState,
-    },
 
     AddressAdded {
         throttle: char,
@@ -82,6 +59,13 @@ pub enum ServerEvent {
         addr: LocoAddr,
         entry: LongText,
     },
+
+    /// BigFred sentinel roster entry requests a six-digit pairing code.
+    PairingRequired,
+    /// BigFred accepted the pairing sequence.
+    PairingSucceeded(ShortText),
+    /// Pairing timed out; UI should ask for a fresh code.
+    PairingFailed,
 
     Unknown(LongText),
 }

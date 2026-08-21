@@ -22,19 +22,28 @@ legend{padding:0 4px;color:#9cf;font-size:12px}
 <fieldset>
 <legend>BigFred</legend>
 <label>Login</label><input id="login" autocomplete="username">
-<label>PIN</label><input id="pin" type="password" autocomplete="current-password">
+<label>PIN</label><input id="pin" type="text" autocomplete="current-password">
+<label>Pairing code (6 digits)</label><input id="pairing_code" inputmode="numeric" maxlength="6" autocomplete="off">
 </fieldset>
 <fieldset>
 <legend>Wi‑Fi</legend>
 <label>SSID</label><input id="ssid" autocomplete="off">
-<label>Password</label><input id="wifi_pw" type="password" autocomplete="new-password">
+<label>Password</label><input id="wifi_pw" type="text" autocomplete="new-password">
 </fieldset>
 <fieldset>
 <legend>Roster</legend>
 <label>Mode</label>
-<select id="roster_mode"><option value="auto">auto</option><option value="static">static</option></select>
+<select id="roster_mode"><option value="auto">auto</option><option value="static">static</option><option value="address">address</option></select>
 <label>Entries (addr[,name] per line)</label>
 <textarea id="roster" placeholder="L1234,Pacific&#10;S99"></textarea>
+</fieldset>
+<fieldset>
+<legend>Firmware</legend>
+<label>App image (.app.bin, not merged flash dump)</label>
+<input id="fw" type="file" accept=".bin,.app.bin,application/octet-stream">
+<row>
+<button type="button" onclick="uploadFw()">Upload firmware</button>
+</row>
 </fieldset>
 <row>
 <button type="button" class="sec" onclick="load()">Load</button>
@@ -63,9 +72,10 @@ async function load(){
     if(!r.ok)throw new Error(r.status);
     const j=await r.json();
     $('login').value=(j.bigfred&&j.bigfred.login)||'';
-    $('pin').value='';
+    $('pin').value=(j.bigfred&&j.bigfred.pin)||'';
+    $('pairing_code').value=(j.bigfred&&j.bigfred.pairingCode)||'';
     $('ssid').value='';
-    $('wifi_pw').value='';
+    $('wifi_pw').value=(j.wifi&&j.wifi.password)||'';
     if(j.wifi&&j.wifi.networks&&j.wifi.networks[0])$('ssid').value=j.wifi.networks[0];
     $('roster_mode').value=(j.roster&&j.roster.mode)||'auto';
     $('roster').value=rosterText(j.roster&&j.roster.entries);
@@ -75,14 +85,14 @@ async function load(){
 async function save(){
   status('Saving…');
   const body={
-    bigfred:{login:$('login').value,pin:$('pin').value||undefined},
+    bigfred:{login:$('login').value,pin:$('pin').value||undefined,pairingCode:$('pairing_code').value||undefined},
     wifi:{ssid:$('ssid').value||undefined,password:$('wifi_pw').value||undefined},
     roster_mode:$('roster_mode').value,
     roster:parseRoster($('roster').value)
   };
   if(!body.wifi.ssid)delete body.wifi;
   else if(body.wifi.password===undefined)body.wifi.password='';
-  if(!body.bigfred.login&&!body.bigfred.pin)delete body.bigfred;
+  if(!body.bigfred.login&&!body.bigfred.pin&&!body.bigfred.pairingCode)delete body.bigfred;
   try{
     const r=await fetch('/api/v1/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(!r.ok)throw new Error(r.status);
@@ -96,6 +106,16 @@ async function exitMode(){
     if(!r.ok)throw new Error(r.status);
     status('Done — device rebooting',true);
   }catch(e){status('Exit failed: '+e,false)}
+}
+async function uploadFw(){
+  const f=$('fw').files[0];
+  if(!f){status('Choose a .app.bin file',false);return;}
+  status('Uploading firmware…');
+  try{
+    const r=await fetch('/api/v1/firmware',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:f});
+    if(!r.ok)throw new Error(await r.text()||r.status);
+    status('Firmware written — device rebooting',true);
+  }catch(e){status('Upload failed: '+e,false)}
 }
 load();
 </script>

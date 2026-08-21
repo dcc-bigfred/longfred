@@ -26,6 +26,8 @@ pub enum ButtonId {
     /// Keypad digit 0–9 (markwtech / heiko).
     KeypadDigit(u8),
     Menu,
+    /// Dedicated Back / Cancel (MarkWTech extra cluster).
+    Back,
     Hash,
     Star,
     Extra(u8),

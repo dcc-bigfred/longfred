@@ -27,6 +27,5 @@ pub const SPEED_STEP: u8 = 4;
 pub const SPEED_STEP_MULTIPLIER: u8 = 3;
 pub const SPEED_STEP_ADDITIONAL_MULTIPLIER: u8 = 2;
 
-pub const DROP_BEFORE_ACQUIRE: bool = false;
-pub const HEARTBEAT_ENABLED: bool = true;
+pub const DEAD_MAN_SWITCH_ENABLED: bool = true;
 pub const DEFAULT_HEARTBEAT_PERIOD_S: u32 = 10;

@@ -6,15 +6,22 @@ use embassy_net::{IpAddress, IpEndpoint, Stack};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use log::{info, warn};
 use longfred_proto::command::Protocol;
-use longfred_proto::mdns::{
-    MDNS_MULTICAST_V4, MDNS_PORT, WITHROTTLE_SERVICE, WitServer, Z21_SERVICE, build_ptr_query,
-    collect_servers,
+use longfred_proto::network::{
+    MDNS_MULTICAST_V4, MDNS_PORT, WitServer, build_ptr_query, collect_servers,
 };
 
 use crate::config::{network, sizes};
-use crate::net::{FOUND_SERVERS, MDNS_CTRL, NetStatus, SERVER, STATE, ServerEndpoint};
+use crate::net::{
+    FOUND_SERVERS, HTTP_OTA_ENABLE, MDNS_CTRL, NetStatus, SERVER, STATE, ServerEndpoint,
+    WIFI_HOSTNAME, probe,
+};
 
 const MAX_SERVERS: usize = sizes::MAX_FOUND_SERVERS;
+
+static PROBE_RX: static_cell::ConstStaticCell<[u8; 1024]> =
+    static_cell::ConstStaticCell::new([0; 1024]);
+static PROBE_TX: static_cell::ConstStaticCell<[u8; 512]> =
+    static_cell::ConstStaticCell::new([0; 512]);
 
 async fn query_service(
     sock: &mut UdpSocket<'_>,
@@ -84,12 +91,19 @@ pub async fn discover(stack: Stack<'static>) -> heapless::Vec<WitServer, MAX_SER
     query_service(
         &mut sock,
         dst,
-        WITHROTTLE_SERVICE,
+        Protocol::WiThrottle.caps().mdns_service,
         Protocol::WiThrottle,
         &mut found,
     )
     .await;
-    query_service(&mut sock, dst, Z21_SERVICE, Protocol::Z21, &mut found).await;
+    query_service(
+        &mut sock,
+        dst,
+        Protocol::Z21.caps().mdns_service,
+        Protocol::Z21,
+        &mut found,
+    )
+    .await;
 
     let _ = stack.leave_multicast_group(group);
     found
@@ -116,6 +130,8 @@ async fn wait_for_net_ready() {
 async fn run_discovery(
     stack: Stack<'static>,
     ssid: &'static str,
+    probe_rx: &mut [u8],
+    probe_tx: &mut [u8],
 ) -> heapless::Vec<WitServer, MAX_SERVERS> {
     let is_dccex = ssid.contains("DCCEX") || ssid.contains("DCC-EX");
     if is_dccex {
@@ -132,7 +148,8 @@ async fn run_discovery(
         return v;
     }
 
-    let servers = discover(stack).await;
+    let mut servers = discover(stack).await;
+    probe_wit_hosts(stack, &mut servers, probe_rx, probe_tx).await;
     for s in &servers {
         info!(
             "server: {} {:?}:{} {:?}",
@@ -143,6 +160,40 @@ async fn run_discovery(
         );
     }
     servers
+}
+
+async fn probe_wit_hosts(
+    stack: Stack<'static>,
+    servers: &mut heapless::Vec<WitServer, MAX_SERVERS>,
+    probe_rx: &mut [u8],
+    probe_tx: &mut [u8],
+) {
+    let mut probed: heapless::Vec<[u8; 4], MAX_SERVERS> = heapless::Vec::new();
+    let mut bigfred: heapless::Vec<[u8; 4], MAX_SERVERS> = heapless::Vec::new();
+    for s in servers.iter_mut() {
+        if s.protocol != Protocol::WiThrottle {
+            continue;
+        }
+        let Some(ip) = s.ipv4 else {
+            continue;
+        };
+        if bigfred.iter().any(|known| *known == ip) {
+            s.protocol = Protocol::BigFred;
+            continue;
+        }
+        if probed.iter().any(|known| *known == ip) {
+            continue;
+        }
+        let _ = probed.push(ip);
+        if probe::is_bigfred(stack, ip, probe_rx, probe_tx).await {
+            s.protocol = Protocol::BigFred;
+            let _ = bigfred.push(ip);
+            info!(
+                "mdns HTTP probe identified BigFred at {}.{}.{}.{}",
+                ip[0], ip[1], ip[2], ip[3]
+            );
+        }
+    }
 }
 
 fn maybe_auto_connect(servers: &heapless::Vec<WitServer, MAX_SERVERS>) {
@@ -168,16 +219,91 @@ fn maybe_auto_connect(servers: &heapless::Vec<WitServer, MAX_SERVERS>) {
 #[embassy_executor::task]
 pub async fn task(stack: Stack<'static>, ssid: &'static str) {
     wait_for_net_ready().await;
+    let probe_rx = PROBE_RX.take();
+    let probe_tx = PROBE_TX.take();
     let mdns_rx = MDNS_CTRL.receiver();
 
     loop {
-        let servers = run_discovery(stack, ssid).await;
+        if HTTP_OTA_ENABLE.try_get() == Some(true) {
+            Timer::after(Duration::from_millis(500)).await;
+            continue;
+        }
+        let servers = run_discovery(stack, ssid, probe_rx, probe_tx).await;
         maybe_auto_connect(&servers);
         FOUND_SERVERS.signal(servers);
 
         match select(mdns_rx.receive(), Timer::after(Duration::from_secs(3600))).await {
             Either::First(()) => {}
             Either::Second(_) => {}
+        }
+    }
+}
+
+/// Advertise `_longfred-ota._tcp.local` while STA HTTP OTA is enabled.
+#[embassy_executor::task]
+pub async fn ota_announce_task(stack: Stack<'static>) {
+    loop {
+        wait_ota_enabled().await;
+        let Some(ip) = crate::net::sta_ipv4() else {
+            Timer::after(Duration::from_millis(200)).await;
+            continue;
+        };
+        let hostname = WIFI_HOSTNAME
+            .try_get()
+            .filter(|h| !h.is_empty())
+            .unwrap_or_else(|| {
+                let mut s = heapless::String::new();
+                let _ = s.push_str("longfred");
+                s
+            });
+
+        let mut rx_meta = [PacketMetadata::EMPTY; 4];
+        let mut rx_buf = [0u8; 512];
+        let mut tx_meta = [PacketMetadata::EMPTY; 4];
+        let mut tx_buf = [0u8; 512];
+        let mut sock = UdpSocket::new(stack, &mut rx_meta, &mut rx_buf, &mut tx_meta, &mut tx_buf);
+        let group = IpAddress::v4(
+            MDNS_MULTICAST_V4[0],
+            MDNS_MULTICAST_V4[1],
+            MDNS_MULTICAST_V4[2],
+            MDNS_MULTICAST_V4[3],
+        );
+        let _ = stack.join_multicast_group(group);
+        if sock.bind(MDNS_PORT).is_err() {
+            warn!("ota-mdns: bind 5353 failed");
+            Timer::after(Duration::from_secs(1)).await;
+            continue;
+        }
+        let dst = IpEndpoint::new(group, MDNS_PORT);
+        info!("ota-mdns: announcing {} at {:?}:80", hostname.as_str(), ip);
+        while crate::net::http_ota_enabled() {
+            let mut pkt = [0u8; 512];
+            let n =
+                longfred_proto::network::build_ota_announce(hostname.as_str(), ip, 80, &mut pkt);
+            let _ = sock.send_to(&pkt[..n], dst).await;
+            Timer::after(Duration::from_secs(2)).await;
+        }
+        let _ = stack.leave_multicast_group(group);
+        info!("ota-mdns: stopped");
+    }
+}
+
+async fn wait_ota_enabled() {
+    if HTTP_OTA_ENABLE.try_get() == Some(true) {
+        return;
+    }
+    if let Some(mut rx) = HTTP_OTA_ENABLE.receiver() {
+        loop {
+            if rx.try_get() == Some(true) {
+                return;
+            }
+            rx.changed().await;
+        }
+    }
+    loop {
+        Timer::after(Duration::from_millis(200)).await;
+        if HTTP_OTA_ENABLE.try_get() == Some(true) {
+            return;
         }
     }
 }

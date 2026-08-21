@@ -2,7 +2,7 @@
 
 use longfred_proto::ServerEvent;
 use longfred_proto::model::{Direction, TrackPower};
-use longfred_proto::parser::parse;
+use longfred_proto::withrottle::parser::parse;
 
 fn collect(line: &str) -> Vec<ServerEvent> {
     let mut events = Vec::new();
@@ -46,6 +46,13 @@ fn speed() {
         ServerEvent::Speed {
             throttle: 'T',
             speed: 63
+        }
+    );
+    assert_eq!(
+        collect("MTAL341<;>V1")[0],
+        ServerEvent::Speed {
+            throttle: 'T',
+            speed: 0
         }
     );
 }
@@ -131,19 +138,11 @@ fn roster_list() {
 }
 
 #[test]
-fn turnout_list() {
-    let line = "PTL1]\\[IT1}|{Turnout 1}|{2";
-    let events = collect(line);
-    assert!(matches!(events[0], ServerEvent::TurnoutEntry { .. }));
-    assert_eq!(events[1], ServerEvent::TurnoutEntriesCount(1));
-}
-
-#[test]
-fn route_list() {
-    let line = "PRL1]\\[IO:001}|{Main Route}|{4";
-    let events = collect(line);
-    assert!(matches!(events[0], ServerEvent::RouteEntry { .. }));
-    assert_eq!(events[1], ServerEvent::RouteEntriesCount(1));
+fn turnout_and_route_frames_are_ignored() {
+    assert!(collect("PTL1]\\[IT1}|{Turnout 1}|{2").is_empty());
+    assert!(collect("PRL1]\\[IO:001}|{Main Route}|{4").is_empty());
+    assert!(collect("PTACIT12").is_empty());
+    assert!(collect("PRA2IO:001").is_empty());
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! MarkWTech / WiTcontroller-style ControlSurface.
 //!
-//! Hardware: 3×4 keypad matrix, KY-040 encoder, OLED 128×64 (SSD1309), no MCP expanders.
-//! Programming chord: Star (`*`, Menu) + Stop held for 8 s.
+//! Hardware: 3×4 keypad matrix, extra tact cluster, KY-040 encoder, OLED 128×64
+//! (SSD1309), no MCP expanders. Programming chord: Star (`*`) + Stop held for 8 s.
 
 use embassy_time::Instant;
 
@@ -10,7 +10,7 @@ use crate::board::chord::{ChordDetector, PROGRAMMING_CHORD_MS};
 use crate::board::descriptor::{LAYOUT_128X64, VariantDescriptor};
 use crate::board::raw::{AnalogId, ButtonId, RawEvent, SwitchId};
 use crate::config::board::Gpio;
-use crate::input::InputEvent;
+use crate::input::{InputEvent, NavDir};
 
 /// Keypad matrix row GPIOs (driven, active-low scan).
 pub const KEYPAD_ROW_PINS: [Gpio; 4] = [18, 19, 20, 21];
@@ -43,6 +43,22 @@ pub const KEYPAD_MAP: [[ButtonId; 3]; 4] = [
     ],
     [ButtonId::Star, ButtonId::KeypadDigit(0), ButtonId::Hash],
 ];
+
+/// Extra tact switches (active-low, internal pull-up): left, Stop, right, Back, Menu.
+///
+/// ESP32-C6-WROOM-1 does not expose GPIO 14, and GPIO 1 is the battery ADC, so the
+/// cluster uses 4/5 (strapping, harmless with default eFuses) and 12 (USB_D-).
+/// UART0 (16/17) stays free for the serial console.
+pub const EXTRA_BUTTON_PINS: [Gpio; 5] = [11, 12, 4, 5, 15];
+pub const EXTRA_BUTTON_MAP: [ButtonId; 5] = [
+    ButtonId::JoyLeft,
+    ButtonId::Stop,
+    ButtonId::JoyRight,
+    ButtonId::Back,
+    ButtonId::Menu,
+];
+/// Silkscreen names matching `docs/hardware/markwtech.md` (same order as [`EXTRA_BUTTON_PINS`]).
+pub const EXTRA_BUTTON_NAMES: [&str; 5] = ["Menu left", "Stop", "Menu right", "Back", "Menu"];
 
 pub const DESCRIPTOR: VariantDescriptor = VariantDescriptor {
     id: "markwtech",
@@ -91,6 +107,9 @@ impl MarkwtechSurface {
             ButtonId::KeypadDigit(d) if pressed && d <= 9 => {
                 out(InputEvent::Digit((b'0' + d) as char));
             }
+            ButtonId::JoyLeft if pressed => out(InputEvent::Nav(NavDir::Left)),
+            ButtonId::JoyRight if pressed => out(InputEvent::Nav(NavDir::Right)),
+            ButtonId::Back if pressed => out(InputEvent::Back),
             ButtonId::Extra(n) => {
                 if pressed {
                     out(InputEvent::FnPress(n));

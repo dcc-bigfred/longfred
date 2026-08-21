@@ -8,7 +8,15 @@ use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
 use crate::config::power;
 use crate::power::sleep::{SLEEP_CTRL, SleepReason};
 
-pub static BATTERY: Watch<CriticalSectionRawMutex, Option<u8>, 2> = Watch::new();
+/// Latest ADC sample published for the throttle icon and Diagnostics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BatterySample {
+    pub percent: u8,
+    pub millivolts: u16,
+    pub raw: u16,
+}
+
+pub static BATTERY: Watch<CriticalSectionRawMutex, Option<BatterySample>, 2> = Watch::new();
 
 fn volts_to_percent(volts: f32) -> u8 {
     if volts >= 4.2 {
@@ -47,7 +55,21 @@ pub async fn task(
             let raw = sum / count;
             let volts = raw as f32 * power::BATTERY_CONVERSION_FACTOR / 1000.0;
             let percent = volts_to_percent(volts);
-            tx.send(Some(percent));
+            // Full cell = 4.2 V. With the 1:2 divider that is 2.1 V at GPIO 1.
+            // Suggested factor makes `raw * factor / 1000 == 4.2` on a full cell.
+            if raw > 0 {
+                let suggested = 4200.0 / raw as f32;
+                let current = power::BATTERY_CONVERSION_FACTOR;
+                log::info!(
+                    "battery: raw={raw} volts={volts:.3} percent={percent} suggested_factor={suggested:.4} (current={current})"
+                );
+            }
+            let millivolts = (raw as f32 * power::BATTERY_CONVERSION_FACTOR) as u16;
+            tx.send(Some(BatterySample {
+                percent,
+                millivolts,
+                raw: raw as u16,
+            }));
             if power::USE_BATTERY_SLEEP_AT_PERCENT > 0
                 && percent < power::USE_BATTERY_SLEEP_AT_PERCENT
             {

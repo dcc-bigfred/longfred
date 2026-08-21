@@ -2,7 +2,6 @@
 
 pub mod board;
 pub mod buttons;
-pub mod keyboard;
 pub mod network;
 pub mod power;
 pub mod sizes;

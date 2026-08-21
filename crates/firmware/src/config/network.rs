@@ -2,28 +2,21 @@
 //! NOTE: this is a sample file with placeholders. Real SSID/passwords must NOT
 //! be committed to the repository (see TODO below).
 
-/// Predefined WiFi network with turnout/route prefixes for a given server.
-pub struct WifiNetwork {
-    pub ssid: &'static str,
-    pub password: &'static str,
-    pub turnout_prefix: &'static str,
-    pub route_prefix: &'static str,
-}
+pub use longfred_ui::CompiledNetwork as WifiNetwork;
 
 // TODO: replace with real data; eventually via file/override outside VCS.
-pub const NETWORKS: &[WifiNetwork] = &[WifiNetwork {
-    ssid: "Network1",
-    password: "password1",
-    turnout_prefix: "NT",
-    route_prefix: "IO:AUTO:",
-}];
+pub const NETWORKS: &[WifiNetwork] = &[];
 
 pub const USE_WIFI_COUNTRY_CODE: bool = false;
 pub const COUNTRY_CODE: &str = "01";
 
-pub const SSID_CONNECTION_TIMEOUT_MS: u64 = 10_000;
+pub const SSID_CONNECTION_TIMEOUT_MS: u64 = 5_000;
+pub const WIFI_FAIL_MSG_MS: u64 = 1_500;
+pub const SPLASH_MS: u64 = 2_000;
+pub const SERVER_CONNECTION_TIMEOUT_MS: u64 = 5_000;
+#[allow(dead_code)]
 pub const AUTO_CONNECT_TO_FIRST_DEFINED_SERVER: bool = false;
-pub const AUTO_CONNECT_TO_FIRST_WITHROTTLE_SERVER: bool = true;
+pub const AUTO_CONNECT_TO_FIRST_WITHROTTLE_SERVER: bool = false;
 pub const RESTORE_ACQUIRED_LOCOS: bool = true;
 
 // --- Command rate limiting / speed coalescing ---
@@ -37,7 +30,7 @@ pub const DOMAIN_TICK_MS: u64 = 50;
 // --- TCP (latency + dead-connection detection) ---
 pub const TCP_NODELAY: bool = true;
 pub const TCP_KEEPALIVE_S: u64 = 5;
-pub const TCP_TIMEOUT_S: u64 = 8;
+pub const TCP_TIMEOUT_S: u64 = 15;
 
 // --- WiThrottle reconnect backoff ---
 pub const RECONNECT_MIN_MS: u64 = 500;
@@ -66,3 +59,6 @@ pub const Z21_BROADCAST_FLAGS: u32 = 0x0000_0001;
 
 /// Default subnet prefix when auto-filling static IP fields.
 pub const DEFAULT_PREFIX_LEN: u8 = 24;
+
+/// Soft-AP provisioning page (matches AP IPv4 `192.168.0.1`).
+pub const PAIRING_HTTP_URL: &str = "http://192.168.0.1/";

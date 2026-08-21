@@ -2,25 +2,35 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
+use embassy_sync::watch::Watch;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use esp_bootloader_esp_idf::partitions::{
-    DataPartitionSubType, PartitionType, read_partition_table,
+    DataPartitionSubType, PARTITION_TABLE_MAX_LEN, PartitionType, read_partition_table,
 };
 use esp_hal::rng::Rng;
 use esp_storage::FlashStorage;
 use heapless::String;
 use log::{info, warn};
 use longfred_proto::persist::{
-    DeviceIdentity, Language, MAX_SAVED_LOCOS, MAX_WIFI_HOSTNAME_LEN, PersistRecord, SavedLoco,
-    StaticIpConfig, id_from_entropy, wifi_hostname_from_entropy,
+    DeviceIdentity, Language, MAX_SAVED_LOCOS, MAX_WIFI_HOSTNAME_LEN, PersistRecord, RosterMode,
+    SavedLoco, SavedServer, StaticIpConfig, id_from_entropy, wifi_hostname_from_entropy,
 };
 
-pub static PERSIST_LOADED: Signal<CriticalSectionRawMutex, PersistRecord> = Signal::new();
+/// Latest NVS snapshot. `Watch` (not `Signal`) so domain **and** HTTP provisioning
+/// can both see the same record; a `Signal` has a single waiter and the HTTP sync
+/// task was consuming the boot snapshot before the UI could apply it.
+pub static PERSIST_LOADED: Watch<CriticalSectionRawMutex, PersistRecord, 4> = Watch::new();
+
+fn publish_persist(rec: &PersistRecord) {
+    PERSIST_LOADED.sender().send(rec.clone());
+}
 
 /// Signalled after a storage write that requested acknowledgement
 /// ([`StorageCmd::SetProgrammingMode`], [`StorageCmd::ReplaceRecord`]).
-pub static STORAGE_ACK: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// `true` = flash persist succeeded.
+pub static STORAGE_ACK: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
 pub enum StorageCmd {
     SavePassword {
@@ -32,12 +42,18 @@ pub enum StorageCmd {
     SaveDevice(DeviceIdentity),
     RegenerateDeviceId,
     SaveLanguage(Language),
+    SaveRosterMode(RosterMode),
+    SavePairingCode(String<6>),
+    SaveServer(SavedServer),
     SetProgrammingMode(bool),
     ReplaceRecord(PersistRecord),
     Clear,
 }
 
 pub static STORAGE_CTRL: Channel<CriticalSectionRawMutex, StorageCmd, 4> = Channel::new();
+
+/// Flash mutex shared by NVS persistence and HTTP OTA.
+pub type SharedFlash = Mutex<CriticalSectionRawMutex, FlashStorage<'static>>;
 
 /// Boot-time NVS snapshot used to choose STA vs programming path.
 #[derive(Clone)]
@@ -49,48 +65,87 @@ pub struct BootState {
 }
 
 const SECTOR: usize = 4096;
-const PT_BUF_LEN: usize = 4096;
 
+/// `read_partition_table` rejects a buffer longer than [`PARTITION_TABLE_MAX_LEN`]
+/// (0xC00). A 4 KiB sector-sized buffer used to make every NVS load/store fail.
 fn load(flash: &mut FlashStorage<'_>) -> Option<PersistRecord> {
-    let mut pt_buf = [0u8; PT_BUF_LEN];
-    let pt = read_partition_table(flash, &mut pt_buf).ok()?;
-    let nvs = pt
-        .find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
-        .ok()??;
+    let mut pt_buf = [0u8; PARTITION_TABLE_MAX_LEN];
+    let pt = match read_partition_table(flash, &mut pt_buf) {
+        Ok(pt) => pt,
+        Err(e) => {
+            warn!("storage: partition table read failed: {e:?}");
+            return None;
+        }
+    };
+    let nvs = match pt.find_partition(PartitionType::Data(DataPartitionSubType::Nvs)) {
+        Ok(Some(nvs)) => nvs,
+        Ok(None) => {
+            warn!("storage: nvs partition not found");
+            return None;
+        }
+        Err(e) => {
+            warn!("storage: nvs lookup failed: {e:?}");
+            return None;
+        }
+    };
     let mut region = nvs.as_embedded_storage(flash);
     let mut sector = [0u8; SECTOR];
-    ReadNorFlash::read(&mut region, 0, &mut sector).ok()?;
+    if ReadNorFlash::read(&mut region, 0, &mut sector).is_err() {
+        warn!("storage: nvs sector read failed");
+        return None;
+    }
     PersistRecord::decode(&sector)
 }
 
-fn persist(flash: &mut FlashStorage<'_>, rec: &PersistRecord) {
-    let mut pt_buf = [0u8; PT_BUF_LEN];
-    let Ok(pt) = read_partition_table(flash, &mut pt_buf) else {
-        warn!("storage: partition table read failed");
-        return;
+fn persist(flash: &mut FlashStorage<'_>, rec: &PersistRecord) -> bool {
+    let mut pt_buf = [0u8; PARTITION_TABLE_MAX_LEN];
+    let pt = match read_partition_table(flash, &mut pt_buf) {
+        Ok(pt) => pt,
+        Err(e) => {
+            warn!("storage: partition table read failed: {e:?}");
+            return false;
+        }
     };
-    let Ok(Some(nvs)) = pt.find_partition(PartitionType::Data(DataPartitionSubType::Nvs)) else {
-        warn!("storage: nvs partition not found");
-        return;
+    let nvs = match pt.find_partition(PartitionType::Data(DataPartitionSubType::Nvs)) {
+        Ok(Some(nvs)) => nvs,
+        Ok(None) => {
+            warn!("storage: nvs partition not found");
+            return false;
+        }
+        Err(e) => {
+            warn!("storage: nvs lookup failed: {e:?}");
+            return false;
+        }
     };
     let mut region = nvs.as_embedded_storage(flash);
     let mut sector = [0xFFu8; SECTOR];
-    let Some(n) = rec.encode(&mut sector) else {
+    if rec.encode(&mut sector).is_none() {
         warn!("storage: encode failed");
-        return;
-    };
-    if region.erase(0, SECTOR as u32).is_err() {
-        warn!("storage: erase failed");
-        return;
+        return false;
     }
-    if region.write(0, &sector[..n]).is_err() {
-        warn!("storage: write failed");
+    // Trailing 0xFF is padding so the write length stays a multiple of the
+    // flash word (4 B). `encode` returns a variable size that is usually not.
+    if let Err(e) = region.erase(0, SECTOR as u32) {
+        warn!("storage: erase failed: {e:?}");
+        return false;
     }
+    if let Err(e) = NorFlash::write(&mut region, 0, &sector) {
+        warn!("storage: write failed: {e:?}");
+        return false;
+    }
+    true
+}
+
+async fn persist_shared(flash: &SharedFlash, rec: &PersistRecord) -> bool {
+    let mut g = flash.lock().await;
+    persist(&mut g, rec)
 }
 
 /// Synchronous NVS write (boot path before the storage task runs).
 pub fn write_record(flash: &mut FlashStorage<'_>, rec: &PersistRecord) {
-    persist(flash, rec);
+    if !persist(flash, rec) {
+        warn!("storage: write_record failed");
+    }
 }
 
 fn ensure_device_id(rec: &mut PersistRecord, entropy: u32) {
@@ -126,8 +181,8 @@ pub fn ensure_boot(flash: &mut FlashStorage<'_>, boot_entropy: u32) -> BootState
         ensure_device_id(&mut rec, boot_entropy);
         dirty = true;
     }
-    if dirty {
-        persist(flash, &rec);
+    if dirty && !persist(flash, &rec) {
+        warn!("storage: boot persist failed");
     }
     BootState {
         wifi_hostname: rec.wifi_hostname.clone(),
@@ -146,8 +201,11 @@ pub fn ensure_boot_hostname(
 }
 
 #[embassy_executor::task]
-pub async fn task(flash: &'static mut FlashStorage<'static>, boot_entropy: u32) {
-    let mut rec = load(flash).unwrap_or_default();
+pub async fn task(flash: &'static SharedFlash, boot_entropy: u32) {
+    let mut rec = {
+        let mut g = flash.lock().await;
+        load(&mut g).unwrap_or_default()
+    };
     let mut dirty = false;
     if rec.device.id == 0 {
         ensure_device_id(&mut rec, boot_entropy);
@@ -157,50 +215,66 @@ pub async fn task(flash: &'static mut FlashStorage<'static>, boot_entropy: u32) 
         ensure_wifi_hostname(&mut rec, boot_entropy);
         dirty = true;
     }
-    if dirty {
-        persist(flash, &rec);
+    if dirty && !persist_shared(flash, &rec).await {
+        warn!("storage: initial persist failed");
     }
     info!("wifi hostname: {}", rec.wifi_hostname.as_str());
-    PERSIST_LOADED.signal(rec.clone());
+    publish_persist(&rec);
 
     let rx = STORAGE_CTRL.receiver();
     loop {
         match rx.receive().await {
             StorageCmd::SavePassword { ssid, password } => {
                 rec.set_password(ssid.as_str(), password.as_str());
-                persist(flash, &rec);
-                PERSIST_LOADED.signal(rec.clone());
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
             }
             StorageCmd::SaveLocos(locos) => {
                 rec.locos = locos;
-                persist(flash, &rec);
-                PERSIST_LOADED.signal(rec.clone());
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
             }
             StorageCmd::SaveNetwork(cfg) => {
                 rec.network = Some(cfg);
-                persist(flash, &rec);
-                PERSIST_LOADED.signal(rec.clone());
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
             }
             StorageCmd::SaveDevice(device) => {
                 rec.device = device;
-                persist(flash, &rec);
-                PERSIST_LOADED.signal(rec.clone());
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
             }
             StorageCmd::RegenerateDeviceId => {
                 regenerate_device_id(&mut rec);
-                persist(flash, &rec);
-                PERSIST_LOADED.signal(rec.clone());
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
             }
             StorageCmd::SaveLanguage(lang) => {
                 rec.language = lang;
-                persist(flash, &rec);
-                PERSIST_LOADED.signal(rec.clone());
+                rec.language_chosen = true;
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
+            }
+            StorageCmd::SaveRosterMode(mode) => {
+                rec.roster_mode = mode;
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
+            }
+            StorageCmd::SavePairingCode(code) => {
+                rec.bigfred_pairing_code = code;
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
+            }
+            StorageCmd::SaveServer(server) => {
+                rec.last_server = Some(server);
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
             }
             StorageCmd::SetProgrammingMode(on) => {
                 rec.programming_mode = on;
-                persist(flash, &rec);
-                PERSIST_LOADED.signal(rec.clone());
-                STORAGE_ACK.signal(());
+                let ok = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
+                STORAGE_ACK.signal(ok);
             }
             StorageCmd::ReplaceRecord(new_rec) => {
                 rec = new_rec;
@@ -210,16 +284,16 @@ pub async fn task(flash: &'static mut FlashStorage<'static>, boot_entropy: u32) 
                 if rec.wifi_hostname.is_empty() {
                     ensure_wifi_hostname(&mut rec, boot_entropy);
                 }
-                persist(flash, &rec);
-                PERSIST_LOADED.signal(rec.clone());
-                STORAGE_ACK.signal(());
+                let ok = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
+                STORAGE_ACK.signal(ok);
             }
             StorageCmd::Clear => {
                 rec = PersistRecord::default();
                 ensure_device_id(&mut rec, boot_entropy);
                 ensure_wifi_hostname(&mut rec, boot_entropy);
-                persist(flash, &rec);
-                PERSIST_LOADED.signal(rec.clone());
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
             }
         }
     }
