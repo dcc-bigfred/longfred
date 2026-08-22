@@ -28,8 +28,13 @@ use crate::ui::UI_VIEW;
 use crate::ui::i18n;
 use crate::ui::view::{GridView, UiView};
 
-const AP_IP: Ipv4Address = Ipv4Address::new(192, 168, 0, 1);
-const AP_PREFIX: u8 = 24;
+const AP_IP: Ipv4Address = Ipv4Address::new(
+    config::network::AP_IP[0],
+    config::network::AP_IP[1],
+    config::network::AP_IP[2],
+    config::network::AP_IP[3],
+);
+const AP_PREFIX: u8 = config::network::AP_PREFIX;
 const SSID_PREFIX: &str = "longfred_prog_";
 
 static PROG_REC: StaticCell<Mutex<CriticalSectionRawMutex, PersistRecord>> = StaticCell::new();
@@ -295,10 +300,15 @@ async fn dhcp_task(stack: Stack<'static>) {
     use esp_hal_dhcp_server::structs::DhcpServerConfig;
     use esp_hal_dhcp_server::{Ipv4Addr, run_dhcp_server};
 
-    let ip = Ipv4Addr::new(192, 168, 0, 1);
+    let ip = Ipv4Addr::new(
+        config::network::AP_IP[0],
+        config::network::AP_IP[1],
+        config::network::AP_IP[2],
+        config::network::AP_IP[3],
+    );
     let gw = [ip];
     let dns = [ip];
-    let config = DhcpServerConfig {
+    let dhcp_config = DhcpServerConfig {
         ip,
         lease_time: Duration::from_secs(3600),
         gateways: &gw,
@@ -307,12 +317,32 @@ async fn dhcp_task(stack: Stack<'static>) {
         use_captive_portal: false,
     };
     let mut leaser = SimpleDhcpLeaser {
-        start: Ipv4Addr::new(192, 168, 0, 50),
-        end: Ipv4Addr::new(192, 168, 0, 200),
+        start: Ipv4Addr::new(
+            config::network::AP_DHCP_START[0],
+            config::network::AP_DHCP_START[1],
+            config::network::AP_DHCP_START[2],
+            config::network::AP_DHCP_START[3],
+        ),
+        end: Ipv4Addr::new(
+            config::network::AP_DHCP_END[0],
+            config::network::AP_DHCP_END[1],
+            config::network::AP_DHCP_END[2],
+            config::network::AP_DHCP_END[3],
+        ),
         leases: Default::default(),
     };
-    info!("programming: DHCP pool 192.168.0.50-200");
-    if let Err(e) = run_dhcp_server(stack, config, &mut leaser).await {
+    info!(
+        "programming: DHCP pool {}.{}.{}.{}-{}.{}.{}.{}",
+        config::network::AP_DHCP_START[0],
+        config::network::AP_DHCP_START[1],
+        config::network::AP_DHCP_START[2],
+        config::network::AP_DHCP_START[3],
+        config::network::AP_DHCP_END[0],
+        config::network::AP_DHCP_END[1],
+        config::network::AP_DHCP_END[2],
+        config::network::AP_DHCP_END[3],
+    );
+    if let Err(e) = run_dhcp_server(stack, dhcp_config, &mut leaser).await {
         warn!("programming: DHCP server failed: {:?}", e);
         loop {
             Timer::after(Duration::from_secs(60)).await;
