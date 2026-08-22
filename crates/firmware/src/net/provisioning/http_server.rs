@@ -90,10 +90,13 @@ async fn serve_loop(
             }
         }
 
-        if let Err(e) = handle_client(&mut sock, rec, flash, mode).await {
-            warn!("http: request error: {}", e);
+        match handle_client(&mut sock, rec, flash, mode).await {
+            Ok(()) => sock.close(),
+            Err(e) => {
+                warn!("http: request error: {}", e);
+                sock.abort();
+            }
         }
-        sock.abort();
         let _ = sock.flush().await;
     }
 }
