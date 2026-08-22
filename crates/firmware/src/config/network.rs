@@ -60,5 +60,12 @@ pub const Z21_BROADCAST_FLAGS: u32 = 0x0000_0001;
 /// Default subnet prefix when auto-filling static IP fields.
 pub const DEFAULT_PREFIX_LEN: u8 = 24;
 
-/// Soft-AP provisioning page (matches AP IPv4 `192.168.0.1`).
-pub const PAIRING_HTTP_URL: &str = "http://192.168.0.1/";
+/// Soft-AP IPv4 (ESP-IDF default subnet, same as WiFred).
+pub const AP_IP: [u8; 4] = [192, 168, 4, 1];
+/// Soft-AP prefix length.
+pub const AP_PREFIX: u8 = 24;
+/// Soft-AP DHCP pool (`.2` is reserved for wireless-programmer static address).
+pub const AP_DHCP_START: [u8; 4] = [192, 168, 4, 50];
+pub const AP_DHCP_END: [u8; 4] = [192, 168, 4, 200];
+/// Soft-AP provisioning page (matches [`AP_IP`]).
+pub const PAIRING_HTTP_URL: &str = "http://192.168.4.1/";
