@@ -1,6 +1,6 @@
 //! WiFi STA: connection task (scan/connect via WIFI_CTRL), stack runner, DHCP/status.
 
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_net::{ConfigV4, DhcpConfig, Ipv4Address, Ipv4Cidr, Runner, Stack, StaticConfigV4};
 use embassy_time::{Duration, Timer};
 use esp_radio::wifi::{
@@ -41,42 +41,47 @@ fn ap_to_ssid_info(ap: &AccessPointInfo) -> SsidInfo {
     }
 }
 
+async fn publish_scan(controller: &mut WifiController<'static>) {
+    info!("wifi scan requested");
+    let result = scan(controller).await;
+    let mut out: heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }> = heapless::Vec::new();
+    match result {
+        Ok(aps) => {
+            for ap in &aps {
+                let info = ap_to_ssid_info(ap);
+                info!(
+                    "wifi scan ssid='{}' bytes={} rssi={}",
+                    info.ssid.as_str(),
+                    info.ssid.len(),
+                    info.rssi
+                );
+                if info.ssid.is_empty() {
+                    continue;
+                }
+                if out.push(info).is_err() {
+                    break;
+                }
+            }
+        }
+        Err(e) => warn!("wifi scan error: {:?}", e),
+    }
+    WIFI_SCAN.signal(out);
+}
+
 /// Task maintaining STA connection: handles WIFI_CTRL (scan/connect).
 #[embassy_executor::task]
 pub async fn connection(mut controller: WifiController<'static>) {
     let ctrl_rx = WIFI_CTRL.receiver();
     let state_tx = STATE.sender();
+    let mut pending = None;
 
     loop {
-        let cmd = ctrl_rx.receive().await;
+        let cmd = match pending.take() {
+            Some(c) => c,
+            None => ctrl_rx.receive().await,
+        };
         match cmd {
-            WifiCmd::Scan => {
-                info!("wifi scan requested");
-                let result = scan(&mut controller).await;
-                let mut out: heapless::Vec<SsidInfo, { sizes::MAX_FOUND_SSIDS }> =
-                    heapless::Vec::new();
-                match result {
-                    Ok(aps) => {
-                        for ap in &aps {
-                            let info = ap_to_ssid_info(ap);
-                            info!(
-                                "wifi scan ssid='{}' bytes={} rssi={}",
-                                info.ssid.as_str(),
-                                info.ssid.len(),
-                                info.rssi
-                            );
-                            if info.ssid.is_empty() {
-                                continue;
-                            }
-                            if out.push(info).is_err() {
-                                break;
-                            }
-                        }
-                    }
-                    Err(e) => warn!("wifi scan error: {:?}", e),
-                }
-                WIFI_SCAN.signal(out);
-            }
+            WifiCmd::Scan => publish_scan(&mut controller).await,
             WifiCmd::Connect { ssid, password } => {
                 let cfg = WifiConfig::Station(
                     StationConfig::default()
@@ -109,19 +114,32 @@ pub async fn connection(mut controller: WifiController<'static>) {
                         state_tx.send(NetStatus::WifiConnected);
                         publish_wifi_link(&controller);
                         loop {
-                            match select(
+                            match select3(
                                 controller.wait_for_disconnect_async(),
                                 Timer::after(Duration::from_secs(1)),
+                                ctrl_rx.receive(),
                             )
                             .await
                             {
-                                Either::First(_) => break,
-                                Either::Second(_) => publish_wifi_link(&controller),
+                                Either3::First(_) => {
+                                    WIFI_LINK.sender().send(None);
+                                    warn!("wifi disconnected");
+                                    state_tx.send(NetStatus::Disconnected);
+                                    break;
+                                }
+                                Either3::Second(_) => publish_wifi_link(&controller),
+                                Either3::Third(WifiCmd::Scan) => {
+                                    publish_scan(&mut controller).await;
+                                }
+                                Either3::Third(next @ WifiCmd::Connect { .. }) => {
+                                    info!("wifi reconnect requested");
+                                    let _ = controller.disconnect_async().await;
+                                    WIFI_LINK.sender().send(None);
+                                    pending = Some(next);
+                                    break;
+                                }
                             }
                         }
-                        WIFI_LINK.sender().send(None);
-                        warn!("wifi disconnected");
-                        state_tx.send(NetStatus::Disconnected);
                     }
                     Either::First(Err(e)) => {
                         warn!("wifi connect error: {:?}", e);

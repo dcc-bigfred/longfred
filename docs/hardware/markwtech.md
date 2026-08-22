@@ -4,12 +4,20 @@
 
 ESP32-C6-DevKitC-1 with 3×4 keypad, extra buttons, KY-040 encoder, and 2.42" SSD1309 OLED — inspired by [WiTcontroller](https://github.com/flash62au/WiTcontroller) / [Thingiverse 7029069](https://www.thingiverse.com/thing:7029069), with ESP32-C6 instead of LOLIN32.
 
-| Item | Value |
-|------|-------|
-| Cargo feature | `variant-markwtech` |
-| Display | SSD1309/SSD1306 128×64 I2C |
-| Expanders | none |
-| Programming chord | **\* (Menu) + Stop** 8 s, or **Stop** during the 2 s boot splash |
+Two board revisions share the same control surface (`KEYPAD_MAP`, extra buttons, encoder). **GPIO numbers differ** and are **not wiring-compatible**.
+
+| Item | v1.0 DevKitC-1 | v1.1 TinyC6 |
+|------|----------------|-------------|
+| Cargo feature | `variant-markwtech` | `variant-markwtech-v1-1` |
+| `make` | `VARIANT=markwtech` | `VARIANT=markwtech-v1-1` |
+| Descriptor `id` | `markwtech` | `markwtech-v1.1` |
+| MCU board | [ESP32-C6-DevKitC-1](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c6/esp32-c6-devkitc-1/user_guide.html) | [Unexpected Maker TinyC6](https://unexpectedmaker.com/shop.html#!/TinyC6/p/602208790/category=0) ([Kamami](https://kamami.pl/esp32/1201003-tinyc6-esp32-c6-plytka-rozwojowa-z-modulem-esp32-c6-zlacze-ufl-5902186336612.html), [schematic](https://github.com/UnexpectedMaker/esp32c6)) |
+| Display | SSD1309/SSD1306 128×64 I2C | same |
+| Expanders | none | none |
+| Console | UART0 `/dev/ttyUSB0` | USB Serial/JTAG (`esp-println` `jtag-serial`) |
+| Programming chord | **\* (Menu) + Stop** 8 s, or **Stop** during the 2 s boot splash | same |
+
+The rest of this file describes **v1.0**. [v1.1 TinyC6](#revision-v11--tinyc6) is a separate pin map and power path.
 
 ## Controls
 
@@ -20,16 +28,19 @@ ESP32-C6-DevKitC-1 with 3×4 keypad, extra buttons, KY-040 encoder, and 2.42" SS
 - **Left / Right** page lists (and Diagnostics subpages). **Stop** on Diagnostics advances to the next subpage.
 - **Extras → Diagnostics**: battery, version, software, Wi‑Fi range, IP/MAC, ping to the command station.
 
-## Pin map
+## Pin map (v1.0 DevKitC-1)
 
-| Role | GPIOs |
-|------|-------|
-| Keypad rows | 18, 19, 20, 21 |
-| Keypad columns | 22, 23, 10 |
-| I2C OLED | SDA 6, SCL 7, address 0x3C |
-| Encoder | A 2, B 3, SW 0 |
-| Extra left / Stop / right / Back / Menu | 11, 12, 4, 5, 15 |
-| Battery ADC | 1 |
+Harness groups sit on adjacent header pins. **This mapping broke earlier v1.0 wiring** (C2 left GPIO 10; encoder left 2/3; Stop left USB_D−).
+
+| Role | GPIOs | Connector |
+|------|-------|-----------|
+| Keypad rows | 18, 19, 20, 21 | J3 |
+| Keypad columns | 22, 23, **15** | J3-4…J3-10 with the rows (7 neighbours) |
+| I2C OLED | SDA 6, SCL 7, address 0x3C | J1-5, J1-6 |
+| Encoder | A **4**, B **5**, SW 0 | J1-3, J1-4; SW on J1-7 |
+| Extra left / Stop / right | **10**, **2**, **11** | J1-10…J1-12 |
+| Extra Back / Menu | **13**, **12** | J3-13, J3-14 |
+| Battery ADC | 1 | J1-8 (external 47 kΩ/47 kΩ) |
 
 Keypad layout (`KEYPAD_MAP`):
 
@@ -45,11 +56,11 @@ Extra buttons: tact switch to **GND**, firmware pull-up, active-low.
 
 | # | Function | GPIO | Notes |
 |---|----------|------|-------|
-| 1 | Menu left | 11 | `Nav(Left)` — list page prev / cursor |
-| 2 | Stop | 12 | EStop on throttle; chord with `*` |
-| 3 | Menu right | 4 | `Nav(Right)` — list page next / cursor |
-| 4 | Back | 5 | Cancel / back |
-| 5 | Menu | 15 | Open menu / select-in-menu |
+| 1 | Menu left | 10 | `Nav(Left)` — list page prev / cursor |
+| 2 | Stop | 2 | EStop on throttle; chord with `*` |
+| 3 | Menu right | 11 | `Nav(Right)` — list page next / cursor |
+| 4 | Back | 13 | Cancel / back (`USB_D+`) |
+| 5 | Menu | 12 | Open menu / select-in-menu (`USB_D−`) |
 
 ```mermaid
 flowchart LR
@@ -60,7 +71,7 @@ flowchart LR
   ESP --- BAT[Battery divider]
 ```
 
-Constants: `board/variants/markwtech.rs` (`KEYPAD_MAP`, `EXTRA_BUTTON_MAP`).
+Constants: `board/variants/markwtech/` (`KEYPAD_MAP`, `EXTRA_BUTTON_MAP`; GPIO in `pins_v1_0.rs` / `pins_v1_1.rs`).
 
 ## Pin budget
 
@@ -76,26 +87,26 @@ The headers expose **23 GPIO** in total — J1 carries `4, 5, 6, 7, 0, 1, 8, 10,
 | Costs the UART console | 16, 17 | 2 |
 | Blocked | 8 (RGB LED), 9 (BOOT button) | 2 |
 
-MarkWTech needs **18** lines (keypad 7 + encoder 3 + I2C 2 + buttons 5 + battery ADC 1). Free plus strapping-safe gives only 17, so exactly one pin must come from the USB pair — Stop takes **GPIO 12**. That leaves **GPIO 13 spare at no extra cost**, because the native USB port is already forfeited by using its `D−` line.
+MarkWTech needs **18** lines (keypad 7 + encoder 3 + I2C 2 + buttons 5 + battery ADC 1). Free plus strapping-safe gives only 17, so Back and Menu take the USB pair (**GPIO 13 / 12**). Stop sits on GPIO 2 instead of sharing `USB_D−` alone. Native USB stays unavailable.
 
 ### Why the risky pins are safe
 
-- **GPIO 4 (MTMS) and GPIO 5 (MTDI)** — per datasheet Table 3-4 their strapping value only selects the sampling/driving clock edge of the **SDIO slave** interface, which this project never uses. Both float by default.
-- **GPIO 15** — per Table 3-7, with factory eFuses (`DIS_PAD_JTAG=0`, `DIS_USB_JTAG=0`, `JTAG_SEL_ENABLE=0`) the pin is explicitly listed as **Ignored**. The datasheet warning against leaving it high-impedance only applies once `EFUSE_JTAG_SEL_ENABLE` has been burned, which is a deliberate and irreversible act.
+- **GPIO 4 (MTMS) and GPIO 5 (MTDI)** — per datasheet Table 3-4 their strapping value only selects the sampling/driving clock edge of the **SDIO slave** interface, which this project never uses. Both float by default. They carry encoder A/B as inputs with pull-up.
+- **GPIO 15** — per Table 3-7, with factory eFuses (`DIS_PAD_JTAG=0`, `DIS_USB_JTAG=0`, `JTAG_SEL_ENABLE=0`) the pin is explicitly listed as **Ignored**. The datasheet warning against leaving it high-impedance only applies once `EFUSE_JTAG_SEL_ENABLE` has been burned, which is a deliberate and irreversible act. Keypad C2 uses it as an input.
 - Holding any of these buttons during reset therefore **cannot change the boot mode**. Boot mode is decided by GPIO 8/9 alone (Table 3-3).
-- **GPIO 12** works as a plain input because esp-hal calls `disable_usb_pads()` from `init_gpio()` before any input/output use, clearing `usb_pad_enable` and the D+/D− pull resistors (`esp-hal-1.1.1/src/gpio/mod.rs:1669-1709`).
+- **GPIO 12 / 13** work as plain inputs because esp-hal calls `disable_usb_pads()` from `init_gpio()` before any input/output use, clearing `usb_pad_enable` and the D+/D− pull resistors (`esp-hal-1.1.1/src/gpio/mod.rs:1669-1709`).
 
 ### Deep-sleep wake
 
-Only **GPIO 0–7** belong to the LP power domain (`LP_GPIO0..7`) and can wake the chip from deep sleep. The encoder `SW` on GPIO 0 is the wake source. Menu (15), Menu left (11) and Stop (12) **cannot** wake the throttle.
+Only **GPIO 0–7** belong to the LP power domain (`LP_GPIO0..7`) and can wake the chip from deep sleep. The encoder `SW` on GPIO 0 is the configured wake source. Stop is on GPIO 2 (also LP) but is not a wake pin. Menu (12), Menu left (10), Menu right (11) and Back (13) **cannot** wake the throttle.
 
 ### Unused / reserved GPIO
 
 | GPIO | Header | Why it is left alone |
 |------|--------|----------------------|
+| 3 | J1-13 | spare |
 | 8 | J1-9 | drives the on-board addressable RGB LED |
 | 9 | J3-11 | on-board BOOT button; boot-mode strapping pin |
-| 13 | J3-13 | `USB_D+` — spare, free to use if another input is ever needed |
 | 16 | J3-2 | `U0TXD` — serial console out |
 | 17 | J3-3 | `U0RXD` — serial console in |
 
@@ -121,13 +132,13 @@ Common 4-pin order on cheap modules: `GND` · `VCC` · `SCL` · `SDA` (verify yo
 
 | ESP GPIO | Firmware | KY-040 pin | Notes |
 |----------|----------|------------|-------|
-| **2** | `ENCODER_A` | **`DT`** (sometimes `B`, `DATA`) | channel A |
-| **3** | `ENCODER_B` | **`CLK`** (sometimes `A`) | channel B |
+| **4** | `ENCODER_A` | **`DT`** (sometimes `B`, `DATA`) | channel A |
+| **5** | `ENCODER_B` | **`CLK`** (sometimes `A`) | channel B |
 | **0** | `ENCODER_BUTTON` | **`SW`** / `KEY` | encoder push button |
 | **3V3** | — | **`+`** / `VCC` | |
 | **GND** | — | **`GND`** | |
 
-KY-040 boards often swap `CLK`/`DT` silkscreen labels — wire as above (`DT`→GPIO2, `CLK`→GPIO3). GPIO0 doubles as the deep-sleep wake pin, so the encoder button also wakes the throttle.
+KY-040 boards often swap `CLK`/`DT` silkscreen labels — wire as above (`DT`→GPIO4, `CLK`→GPIO5). GPIO0 doubles as the deep-sleep wake pin, so the encoder button also wakes the throttle.
 
 ### 3×4 membrane keypad (7 pins)
 
@@ -141,7 +152,7 @@ Rows are **outputs** (scanner drives one low at a time). Columns are **inputs** 
 | **21** | `KEYPAD_ROW_PINS[3]` | **R3** (row 4) | keys `*` `0` `#` |
 | **22** | `KEYPAD_COL_PINS[0]` | **C0** (col 1) | keys `1` `4` `7` `*` |
 | **23** | `KEYPAD_COL_PINS[1]` | **C1** (col 2) | keys `2` `5` `8` `0` |
-| **10** | `KEYPAD_COL_PINS[2]` | **C2** (col 3) | keys `3` `6` `9` `#` |
+| **15** | `KEYPAD_COL_PINS[2]` | **C2** (col 3) | keys `3` `6` `9` `#` |
 
 **Keypad pin order is not standardized.** Identify each row/column with a multimeter (a pressed key shorts its row to its column). If digits come out scrambled, swap wires on the connector — do not change firmware GPIO numbers.
 
@@ -151,11 +162,11 @@ Each switch: one leg → **GPIO**, other leg → **GND**. Firmware enables the i
 
 | ESP GPIO | Header | Label | UI function | Suggested silkscreen |
 |----------|--------|-------|-------------|----------------------|
-| **11** | J1-11 | Menu left | list page prev / cursor left | `LEFT` |
-| **12** | J3-14 | **Stop** | EStop on throttle; `*`+Stop chord (8 s) | `STOP` / `E-STOP` |
-| **4** | J1-3 | Menu right | list page next / cursor right | `RIGHT` |
-| **5** | J1-4 | Back | cancel / back | `BACK` / `ESC` |
-| **15** | J3-4 | Menu | open menu / select in menu | `MENU` / `OK` |
+| **10** | J1-10 | Menu left | list page prev / cursor left | `LEFT` |
+| **2** | J1-12 | **Stop** | EStop on throttle; `*`+Stop chord (8 s) | `STOP` / `E-STOP` |
+| **11** | J1-11 | Menu right | list page next / cursor right | `RIGHT` |
+| **13** | J3-13 | Back | cancel / back | `BACK` / `ESC` |
+| **12** | J3-14 | Menu | open menu / select in menu | `MENU` / `OK` |
 
 ```text
 GPIOx ────[ tact switch ]──── GND
@@ -209,9 +220,9 @@ If the cell has a third **NTC** lead, leave it unconnected — TP4056 modules ig
 
 #### Calibration
 
-`BATTERY_CONVERSION_FACTOR` in [`config/power.rs`](../../crates/firmware/src/config/power.rs) is inherited from the original project, where it was tuned against the classic ESP32 ADC. Charge the cell fully and read the UART log line `battery: raw=… suggested_factor=…`. Copy `suggested_factor` into the constant. Expect roughly `2600` raw and a factor near `1.6`.
+`BATTERY_CONVERSION_FACTOR` in [`board/pins.rs`](../../crates/firmware/src/board/pins.rs) (re-exported from [`config/power.rs`](../../crates/firmware/src/config/power.rs)) starts at **1.7** for the 47 kΩ/47 kΩ divider. Charge the cell fully and read the UART log line `battery: raw=… suggested_factor=…`. Copy `suggested_factor` into the v1.0 pin map. Expect roughly `2600` raw and a factor near `1.6`.
 
-With a working cell the firmware also auto-sleeps: deep sleep below **5 %** charge, and after **4 minutes** of inactivity with no WiThrottle server.
+With a working cell the firmware also auto-sleeps: deep sleep below **5 %** charge, and after **5 minutes** of no input when no locomotive is moving (speed 0). Before deep sleep the throttle sends EStop. A **30 second** input idle blanks the OLED (`DisplayOff`); any key or encoder detent wakes the panel without performing the action, except Stop/EStop which still emergency-stops. Deep-sleep wake remains the encoder `SW` on GPIO 0.
 
 Leaving GPIO 1 unconnected is harmless — the reading is then meaningless noise and the battery icon can be hidden from the menu.
 
@@ -258,8 +269,8 @@ Header numbering follows the [ESP32-C6-DevKitC-1 user guide](https://docs.espres
 |---|------|-----|---------|
 | 20 | KY-040 `+` | DevKit `3V3` (J1-1) | power |
 | 21 | KY-040 `GND` | common ground | power return |
-| 22 | KY-040 `DT` | DevKit `2` (J1-12) | encoder channel A |
-| 23 | KY-040 `CLK` | DevKit `3` (J1-13) | encoder channel B |
+| 22 | KY-040 `DT` | DevKit `4` (J1-3) | encoder channel A |
+| 23 | KY-040 `CLK` | DevKit `5` (J1-4) | encoder channel B |
 | 24 | KY-040 `SW` | DevKit `0` (J1-7) | push button + deep-sleep wake |
 
 ### D. 3×4 keypad (7 wires)
@@ -272,21 +283,21 @@ Header numbering follows the [ESP32-C6-DevKitC-1 user guide](https://docs.espres
 | 28 | Keypad `R3` | DevKit `21` (J3-7) | matrix row (output) |
 | 29 | Keypad `C0` | DevKit `22` (J3-6) | matrix column (input) |
 | 30 | Keypad `C1` | DevKit `23` (J3-5) | matrix column (input) |
-| 31 | Keypad `C2` | DevKit `10` (J1-10) | matrix column (input) |
+| 31 | Keypad `C2` | DevKit `15` (J3-4) | matrix column (input) |
 
 ### E. Five buttons (10 wires)
 
 | # | From | To | Purpose |
 |---|------|-----|---------|
-| 32 | Button "Menu left" — leg 1 | DevKit `11` (J1-11) | input |
+| 32 | Button "Menu left" — leg 1 | DevKit `10` (J1-10) | input |
 | 33 | Button "Menu left" — leg 2 | common ground | pressed = LOW |
-| 34 | Button "Stop" — leg 1 | DevKit `12` (J3-14) | input |
+| 34 | Button "Stop" — leg 1 | DevKit `2` (J1-12) | input |
 | 35 | Button "Stop" — leg 2 | common ground | pressed = LOW |
-| 36 | Button "Menu right" — leg 1 | DevKit `4` (J1-3) | input |
+| 36 | Button "Menu right" — leg 1 | DevKit `11` (J1-11) | input |
 | 37 | Button "Menu right" — leg 2 | common ground | pressed = LOW |
-| 38 | Button "Back" — leg 1 | DevKit `5` (J1-4) | input |
+| 38 | Button "Back" — leg 1 | DevKit `13` (J3-13) | input |
 | 39 | Button "Back" — leg 2 | common ground | pressed = LOW |
-| 40 | Button "Menu" — leg 1 | DevKit `15` (J3-4) | input |
+| 40 | Button "Menu" — leg 1 | DevKit `12` (J3-14) | input |
 | 41 | Button "Menu" — leg 2 | common ground | pressed = LOW |
 
 ## Assembly, step by step
@@ -390,8 +401,8 @@ Five wires. *(wires 20–24)*
 |---|---|
 | `+` | `3V3` on the board (J1-1) |
 | `GND` | ground |
-| `DT` | pin `2` (J1-12) |
-| `CLK` | pin `3` (J1-13) |
+| `DT` | pin `4` (J1-3) |
+| `CLK` | pin `5` (J1-4) |
 | `SW` | pin `0` (J1-7) |
 
 **Note:** KY-040 manufacturers routinely swap the `CLK` and `DT` labels. Wire it as in the table, and if the knob turns out to work backwards after power-up, swap those two wires. Nothing gets damaged by this.
@@ -419,7 +430,7 @@ Then wire it according to the table. *(wires 25–31)*
 | `R3` | pin `21` (J3-7) | `*` `0` `#` |
 | `C0` | pin `22` (J3-6) | `1` `4` `7` `*` |
 | `C1` | pin `23` (J3-5) | `2` `5` `8` `0` |
-| `C2` | pin `10` (J1-10) | `3` `6` `9` `#` |
+| `C2` | pin `15` (J3-4) | `3` `6` `9` `#` |
 
 **If the digits come out wrong after power-up, move the wires — do not change the firmware.** The pin numbers are baked into the code, and changing them makes the documentation disagree with reality.
 
@@ -431,24 +442,24 @@ Each button has **two legs** and is wired identically: **one leg to its assigned
 
 | Button | Board pin | Header |
 |---|---|---|
-| Menu left | `11` | J1-11 |
-| **Stop** | `12` | J3-14 |
-| Menu right | `4` | J1-3 |
-| Back | `5` | J1-4 |
-| Menu | `15` | J3-4 |
+| Menu left | `10` | J1-10 |
+| **Stop** | `2` | J1-12 |
+| Menu right | `11` | J1-11 |
+| Back | `13` | J3-13 |
+| Menu | `12` | J3-14 |
 
 **How to pick the right legs:** 12 mm buttons usually have exactly two terminals, in which case there is nothing to choose. If yours has more, set the multimeter to continuity and find the pair that **beeps only while the button is pressed** and stays silent at rest.
 
 **Why one leg goes to ground:** the board enables an internal pull-up resistor that holds the pin high while nothing is happening. Pressing the button connects the pin to ground and pulls it low, and that transition is what the firmware reads as a press. No external resistors are needed.
 
-**Why these particular pins:** all of them were checked against their special functions. Pins 4, 5 and 15 are so-called strapping pins, but with factory chip settings their state at start-up affects nothing that matters here — you can hold these buttons while powering up and the board will boot normally. Pin 12 is a native USB line, so that port will not work; the firmware is flashed through the second USB port, which is entirely sufficient.
+**Why these particular pins:** all of them were checked against their special functions. Pins 4 and 5 (encoder) and 15 (keypad C2) are so-called strapping pins, but with factory chip settings their state at start-up affects nothing that matters here. Pins 12 and 13 are native USB lines (Menu / Back), so that port will not work; the firmware is flashed through the second USB port, which is entirely sufficient. Stop is on GPIO 2.
 
 ### Step 9 — first power-up and battery calibration
 
 1. **Set the rocker to OFF.** This matters: never power the board from the battery and USB at the same time.
 2. Connect the computer to the **USB-to-UART** port on the board (the one wired to the bridge chip, not the native one) and flash the firmware.
 3. Disconnect USB, set the rocker to ON, and check that the display lights up, the keypad responds and the knob changes values.
-4. **Battery calibration:** charge the cell fully through the USB-C port on the charger module (the LED on it will change colour). From the UART log, copy `suggested_factor` out of the line `battery: raw=… suggested_factor=…` into `BATTERY_CONVERSION_FACTOR` in [`config/power.rs`](../../crates/firmware/src/config/power.rs). Expect a reading around 2600 and a factor close to 1.6.
+4. **Battery calibration:** charge the cell fully through the USB-C port on the charger module (the LED on it will change colour). From the UART log, copy `suggested_factor` out of the line `battery: raw=… suggested_factor=…` into `BATTERY_CONVERSION_FACTOR` in [`pins_v1_0.rs`](../../crates/firmware/src/board/variants/markwtech/pins_v1_0.rs). Expect a reading around 2600 and a factor close to 1.6.
 5. Flash the firmware again (rocker off once more) and check that a full cell reads 100 %.
 
 ### Safety warnings
@@ -502,101 +513,97 @@ After splash (and a one-time language picker, stored in NVS, later **Extras → 
 
 Soft-AP gets DHCP; firmware OTA from the pairing page or Extras → Firmware update on layout Wi‑Fi. See [provisioning.md](../provisioning.md).
 
-## TODO — Pin reorganisation for modular harnesses
+## Harness grouping (v1.0)
 
-> **Not implemented yet.** The sections above describe the **current** firmware pinout. This section is a saved plan for a future hardware/firmware pass — to group signals into short Dupont/JST harnesses and cut cable clutter.
-
-### Goal
-
-Group connections by physical location on the controller:
-
-| Harness group | Components |
-|---------------|------------|
-| Keypad | 3×4 matrix (7 wires) |
-| Left / Stop / Right | three tact switches |
-| Display | OLED I2C |
-| Back / Menu | two tact switches |
-| Speed control | KY-040 encoder |
-
-The DevKit headers have gaps (GPIO 8 = RGB LED, GPIO 9 = BOOT, GPIO 1 = battery ADC, GPIO 16/17 = UART). Not every group can share one connector without moving the encoder.
-
-### Today vs target
-
-| Group | GPIO today | On headers today |
-|-------|------------|------------------|
-| Keypad | 18–23 + **10** | six in a row on J3, seventh on the **other** side |
-| OLED | 6, 7 | together (J1-5, J1-6) |
-| Encoder | 2, 3, 0 | A/B together (J1-12, J1-13), SW separate (J1-7) |
-| Left / Stop / Right / Back / Menu | 11, 12, 4, 5, 15 | spread across both headers |
-
-The only seven-GPIO block on the board is **J3-4 … J3-10**: `15, 23, 22, 21, 20, 19, 18`. The keypad should use that block entirely — move **C2 from GPIO 10 to GPIO 15**.
-
-`3V3` is on J1-1, ground at the ends of both headers. **Do not put OLED/encoder power on the same connector as SDA/SCL** without tapping `RST` or `5V`. Use separate 2-pin `3V3` + `G` feeds for power.
-
-### Proposed layout (all groups on connectors)
+GPIO groups match adjacent goldpins so each harness is a short Dupont/JST run.
 
 ```text
 J3 (TX/RX)                         J1 (3V3/RST/5V)
  1  G                              1  3V3     ── OLED + encoder power (2-pin with G)
  2  TX  (console — leave)          2  RST     (do not use)
  3  RX  (console — leave)          3  GPIO4   ┐ encoder DT
- 4  GPIO15 ┐                       4  GPIO5   ┘ encoder CLK     BLS-03
+ 4  GPIO15 ┐                       4  GPIO5   ┘ encoder CLK
  5  GPIO23 │                       5  GPIO6   ┐ OLED SDA
- 6  GPIO22 │ keypad                6  GPIO7   ┘ OLED SCL        BLS-02
- 7  GPIO21 │ BLS-07                7  GPIO0     encoder SW      BLS-01 (wake from sleep)
+ 6  GPIO22 │ keypad                6  GPIO7   ┘ OLED SCL
+ 7  GPIO21 │                       7  GPIO0     encoder SW (wake from sleep)
  8  GPIO20 │                       8  GPIO1     battery ADC
  9  GPIO19 │                       9  GPIO8     RGB LED — leave
 10  GPIO18 ┘                      10  GPIO10  ┐
-11  GPIO9   BOOT — leave           11  GPIO11  │ left, right, stop   BLS-03
+11  GPIO9   BOOT — leave           11  GPIO11  │ left, right, stop
 12  G                             12  GPIO2   ┘
 13  GPIO13 ┐ back, menu            13  GPIO3     spare
-14  GPIO12 ┘ BLS-02               14  5V
+14  GPIO12 ┘                      14  5V
 15  G                             15  G
 ```
 
 | Connector | Header pins (order on strip) | GPIO |
 |-----------|------------------------------|------|
-| Keypad BLS-07 | J3-4 … J3-10 | 15, 23, 22, 21, 20, 19, 18 |
-| Encoder A/B BLS-03 | J1-3, J1-4 | 4, 5 (+ SW separately on 0) |
-| OLED BLS-02 | J1-5, J1-6 | 6, 7 |
-| Left / right / stop BLS-03 | J1-10 … J1-12 | 10, 11, **2** |
-| Back / Menu BLS-02 | J3-13, J3-14 | 13, 12 |
+| Keypad | J3-4 … J3-10 | 15, 23, 22, 21, 20, 19, 18 (C2, C1, C0, R3…R0) |
+| Encoder A/B | J1-3, J1-4 | 4, 5 (+ SW separately on 0) |
+| OLED | J1-5, J1-6 | 6, 7 |
+| Left / right / stop | J1-10 … J1-12 | 10, 11, 2 |
+| Back / Menu | J3-13, J3-14 | 13, 12 |
 
-### Proposed function → GPIO map
+`3V3` is on J1-1, ground at the ends of both headers. Use separate 2-pin `3V3` + `G` feeds for OLED/encoder power.
 
-| Function | GPIO | Was |
-|----------|------|-----|
-| Keypad R0–R3, C0, C1 | 18, 19, 20, 21, 22, 23 | unchanged |
-| Keypad C2 | **15** | 10 |
-| Encoder DT / CLK | **4, 5** | 2, 3 |
-| Encoder SW | **0** | unchanged (deep-sleep wake) |
-| OLED SDA / SCL | **6, 7** | unchanged |
-| Menu left / right / Stop | **10, 11, 2** | 11, 4, 12 |
-| Back / Menu | **13, 12** | 5, 15 |
+GPIO **3** remains spare. Encoder A/B cannot share one connector with SW: GPIO 1 (ADC) and GPIO 8 (LED) sit between them.
 
-Stop moves off `USB_D−` to GPIO 2. Back/Menu use 12/13, so **native USB stays unavailable anyway**, but Stop is no longer alone on D− and the two buttons share one connector.
+## Revision v1.1 — TinyC6
 
-Encoder SW must stay on GPIO 0–7 (deep-sleep wake domain). Keeping it on 0 does not affect `sleep::task`. A/B cannot share one connector with SW: GPIO 1 (ADC) and GPIO 8 (LED) sit between them — hence BLS-03 on 4+5 and a separate 1-pin lead for SW.
+Same surface as v1.0 (`KEYPAD_MAP`, extra-button order, encoder, OLED). Different GPIOs: `make build VARIANT=markwtech-v1-1` (`variant-markwtech-v1-1`, descriptor id `markwtech-v1.1`). Firmware artifact: `longfred-markwtech-v1-1-esp32c6.elf`.
 
-GPIO **3** remains spare.
+Board: [TinyC6](https://unexpectedmaker.com/shop.html#!/TinyC6/p/602208790/category=0) ([Kamami](https://kamami.pl/esp32/1201003-tinyc6-esp32-c6-plytka-rozwojowa-z-modulem-esp32-c6-zlacze-ufl-5902186336612.html)). Schematic: [UnexpectedMaker/esp32c6](https://github.com/UnexpectedMaker/esp32c6).
 
-### What cannot be done
+### Headers (from USB)
 
-Left + right + stop as **three adjacent pins** with the encoder still on GPIO 2 and 3 — there is no third free pin next to them. Encoder A/B must move (as in the proposed layout above).
+**J3** (11 pins): `VBAT, GND, 5V, 3V3, IO3, IO2, IO1, IO0, IO11, IO8, IO9`
 
-I2C and encoder pins live in global [`config/board.rs`](../../crates/firmware/src/config/board.rs) (shared across variants). Moving DT/CLK to 4 and 5 needs **markwtech-only constants**; otherwise LongFred/Heiko break. Keypad and the five extra buttons are already in [`markwtech.rs`](../../crates/firmware/src/board/variants/markwtech.rs), so C2→15 and the new button map are local changes.
+**J4** (12 pins): `IO21, IO20, IO19, IO18, IO7, IO6, IO5, IO15, RST, GND, TX(IO16), RX(IO17)`
 
-### When implementing
+**17 header GPIOs:** 0, 1, 2, 3, 5, 6, 7, 8, 9, 11, 15, 16, 17, 18, 19, 20, 21.
 
-- [ ] Update `KEYPAD_COL_PINS`, `EXTRA_BUTTON_PINS` / `EXTRA_BUTTON_MAP` in `markwtech.rs`
-- [ ] Add markwtech-only encoder pin constants (or override in variant init)
-- [ ] Refresh pin tables and assembly steps in this file and `markwtech_pl.md`
-- [ ] Re-test keypad mapping, all five buttons, encoder, OLED, battery ADC, `* + Stop` chord, deep-sleep wake on encoder press
-- [ ] Optional bench test before soldering: move keypad to J3-4…10 and verify digits (connector order: 15=C2, then 23, 22, 21, 20, 19, 18)
+### Do not use as ordinary I/O
+
+| GPIO | Why |
+|------|-----|
+| 4 | Onboard **VBAT** divider — ADC only (`VBAT_SENSE`). Not a goldpin. |
+| 10 | Onboard **VBUS** divider, **not on the header**. Do not attach a button (pin is pulled down on battery). |
+| 12 / 13 | Native USB D−/D+, not broken out |
+| 22 / 23 | `NEOPIXEL_POWER` / `NEOPIXEL`, not on the header |
+| 9 as a **keypad row** (output) | Onboard BOOT to GND — driving HIGH would short into the button |
+| 8 **and** 9 held at reset | Strapping `0/0` is **invalid** ([boot mode C6](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c6/schematic-checklist.html)) |
+
+GPIO 15 is JTAG_SEL, **Ignored** with factory eFuses (same as DevKit). It is **not** flash CS.
+
+GPIO 8 is ignored when GPIO 9 = 1 (normal SPI boot). Holding Menu alone at reset is fine. Holding Back (GPIO 9) at reset enters download. Holding **Menu and Back together at reset** is the invalid strap — do not do that.
+
+### Pin map
+
+Uses all 17 header GPIOs. Battery is internal GPIO 4. Encoder SW stays GPIO 0 so `sleep.rs` is unchanged.
+
+| Group | GPIO | Physical |
+|-------|------|----------|
+| Keypad rows | **21, 20, 19, 18** | J4 from USB |
+| Keypad columns | **7, 6, 5** | continue the J4 run (7 neighbours: IO21…IO5) |
+| OLED I2C | SDA **3**, SCL **2** | J3 next to `3V3`/`GND` |
+| Encoder | A **1**, SW **0**, B **11** | J3 three neighbours; SW = LP wake |
+| Left / Stop / Right | **15, 16, 17** | IO15, then RST+GND, then TX/RX. Stop is **not** on GPIO 9 |
+| Menu / Back | Menu **8**, Back **9** | J3 end; both **inputs** with pull-up |
+| Battery ADC | **4** (onboard) | no external divider, no GPIO 1 |
+
+I2C leaves 6/7 so the keypad can occupy the only 7-pin run on J4. Power the OLED from J3 `3V3`/`GND`.
+
+**UART0 (16/17) are buttons.** TinyC6 is programmed over native USB (USB-Serial-JTAG). This variant enables `esp-println` `jtag-serial` so TX does not fight a button to GND. v1.0 DevKit stays on UART (`/dev/ttyUSB0`).
+
+### Power
+
+TinyC6 has TP4065 + 3.3 V LDO + JST. **Do not** duplicate the v1.0 external TP4056 / Pololu. Feed OLED and encoder from board `3V3`.
+
+Starting `BATTERY_CONVERSION_FACTOR` is **3.76** (UM divider 442 kΩ / 160 kΩ). Calibrate from `suggested_factor` on a full cell, same as v1.0.
 
 ## TODO — Modular connectors (goldpin + JST / Dupont)
 
-> **Not implemented yet.** Saved plan for cleaner wiring and easier case disassembly. Works together with the [pin reorganisation](#todo--pin-reorganisation-for-modular-harnesses) above — grouped GPIO first, then one connector per harness.
+> **Not implemented yet.** Saved plan for cleaner wiring and easier case disassembly. Works together with the [harness grouping](#harness-grouping-v10) above — grouped GPIO first, then one connector per harness.
 
 ### Problem
 
@@ -700,4 +707,4 @@ Keep **power on a separate connector** from signals. Wrong polarity on a swapped
 - [ ] Mount JST/XH sockets in case with epoxy or 3D-printed clip (hot glue may fail on smooth PETG).
 - [ ] Tape or zip-tie each adapter lead at the case wall before gluing sockets.
 - [ ] Use consistent wire colours (e.g. black = GND everywhere).
-- [ ] After [pin reorganisation](#todo--pin-reorganisation-for-modular-harnesses), rebuild harness pin order to match new GPIO groups.
+- [ ] Rebuild harness pin order to match the [grouped GPIO](#harness-grouping-v10).

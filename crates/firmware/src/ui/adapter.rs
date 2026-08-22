@@ -298,6 +298,7 @@ pub fn begin_wifi_setup(
 ) -> heapless::Vec<longfred_ui::Intent, 4> {
     cx.session.splash_done = true;
     cx.session.boot_language = false;
+    cx.session.wifi_from_settings = false;
     if let Some(ssid) = last_ssid {
         cx.session.selected_ssid.clear();
         let _ = cx.session.selected_ssid.push_str(ssid);

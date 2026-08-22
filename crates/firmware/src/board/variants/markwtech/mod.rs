@@ -2,6 +2,19 @@
 //!
 //! Hardware: 3×4 keypad matrix, extra tact cluster, KY-040 encoder, OLED 128×64
 //! (SSD1309), no MCP expanders. Programming chord: Star (`*`) + Stop held for 8 s.
+//!
+//! GPIO numbers live in [`pins`] (`pins_v1_0` DevKitC-1 or `pins_v1_1` TinyC6).
+
+pub mod pins;
+#[cfg(not(feature = "variant-markwtech-v1-1"))]
+mod pins_v1_0;
+#[cfg(feature = "variant-markwtech-v1-1")]
+mod pins_v1_1;
+
+pub use pins::{
+    BATTERY_ADC, BATTERY_CONVERSION_FACTOR, ENCODER_A, ENCODER_B, ENCODER_BUTTON,
+    EXTRA_BUTTON_PINS, I2C_SCL, I2C_SDA, KEYPAD_COL_PINS, KEYPAD_ROW_PINS, WAKE_PIN,
+};
 
 use embassy_time::Instant;
 
@@ -9,13 +22,7 @@ use crate::board::ControlSurface;
 use crate::board::chord::{ChordDetector, PROGRAMMING_CHORD_MS};
 use crate::board::descriptor::{LAYOUT_128X64, VariantDescriptor};
 use crate::board::raw::{AnalogId, ButtonId, RawEvent, SwitchId};
-use crate::config::board::Gpio;
 use crate::input::{InputEvent, NavDir};
-
-/// Keypad matrix row GPIOs (driven, active-low scan).
-pub const KEYPAD_ROW_PINS: [Gpio; 4] = [18, 19, 20, 21];
-/// Keypad matrix column GPIOs (inputs with pull-up).
-pub const KEYPAD_COL_PINS: [Gpio; 3] = [22, 23, 10];
 
 /// Layout (row, col) → digit / star / hash:
 /// ```text
@@ -44,12 +51,6 @@ pub const KEYPAD_MAP: [[ButtonId; 3]; 4] = [
     [ButtonId::Star, ButtonId::KeypadDigit(0), ButtonId::Hash],
 ];
 
-/// Extra tact switches (active-low, internal pull-up): left, Stop, right, Back, Menu.
-///
-/// ESP32-C6-WROOM-1 does not expose GPIO 14, and GPIO 1 is the battery ADC, so the
-/// cluster uses 4/5 (strapping, harmless with default eFuses) and 12 (USB_D-).
-/// UART0 (16/17) stays free for the serial console.
-pub const EXTRA_BUTTON_PINS: [Gpio; 5] = [11, 12, 4, 5, 15];
 pub const EXTRA_BUTTON_MAP: [ButtonId; 5] = [
     ButtonId::JoyLeft,
     ButtonId::Stop,
@@ -60,9 +61,19 @@ pub const EXTRA_BUTTON_MAP: [ButtonId; 5] = [
 /// Silkscreen names matching `docs/hardware/markwtech.md` (same order as [`EXTRA_BUTTON_PINS`]).
 pub const EXTRA_BUTTON_NAMES: [&str; 5] = ["Menu left", "Stop", "Menu right", "Back", "Menu"];
 
+#[cfg(not(feature = "variant-markwtech-v1-1"))]
+const VARIANT_ID: &str = "markwtech";
+#[cfg(feature = "variant-markwtech-v1-1")]
+const VARIANT_ID: &str = "markwtech-v1.1";
+
+#[cfg(not(feature = "variant-markwtech-v1-1"))]
+const VARIANT_NAME: &str = "MarkWTech";
+#[cfg(feature = "variant-markwtech-v1-1")]
+const VARIANT_NAME: &str = "MarkWTech v1.1 (TinyC6)";
+
 pub const DESCRIPTOR: VariantDescriptor = VariantDescriptor {
-    id: "markwtech",
-    name: "MarkWTech",
+    id: VARIANT_ID,
+    name: VARIANT_NAME,
     mcu: "esp32c6",
     display: Some(LAYOUT_128X64),
     has_expanders: false,

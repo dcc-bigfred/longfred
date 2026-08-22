@@ -14,7 +14,6 @@ use crate::widgets::PagedList;
 
 #[derive(Clone, Copy)]
 enum ExtrasItem {
-    NetConfig,
     Device,
     HashFunctions,
     DeadManSwitch,
@@ -27,8 +26,7 @@ enum ExtrasItem {
 }
 
 impl ExtrasItem {
-    const ALL: [Self; 10] = [
-        Self::NetConfig,
+    const ALL: [Self; 9] = [
         Self::Device,
         Self::HashFunctions,
         Self::DeadManSwitch,
@@ -42,7 +40,6 @@ impl ExtrasItem {
 
     fn label(self, s: &Strings, roster_mode: RosterMode) -> &'static str {
         match self {
-            Self::NetConfig => s.extras_net_config,
             Self::Device => s.extras_device,
             Self::HashFunctions => s.extras_fnc_key_tgl,
             Self::DeadManSwitch => s.extras_dead_man_tgl,
@@ -61,7 +58,6 @@ impl ExtrasItem {
 
     fn activate(self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match self {
-            Self::NetConfig => nav.go(ScreenId::IpConfig),
             Self::Device => nav.go(ScreenId::Device),
             Self::HashFunctions => {
                 nav.emit(Intent::HashFunctionsToggle);
@@ -107,7 +103,7 @@ impl ExtrasScreen {
         }
     }
 
-    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 10] {
+    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 9] {
         ExtrasItem::ALL.map(|item| item.label(cx.s, cx.drive.persist.roster_mode))
     }
 

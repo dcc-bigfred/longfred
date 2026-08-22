@@ -16,7 +16,7 @@ use crate::config::board;
 use crate::config::network::PAIRING_HTTP_URL;
 use crate::input::i2c_bus::SharedI2cDevice;
 use crate::ui::view::{GridView, LINE_LEN, ThrottleView, UiView};
-use crate::ui::{UI_VIEW, fonts, splash};
+use crate::ui::{DISPLAY_ON, UI_VIEW, fonts, splash};
 
 const BLINK_PERIOD_MS: u64 = 200;
 const GRID_LEFT_X: i32 = 0;
@@ -536,7 +536,6 @@ pub async fn task(i2c: SharedI2cDevice) {
     let mut display: Display = Ssd1306::new(interface, PanelSize {}, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
 
-    // Blocking I2C: async esp-hal master hard-resets in Wokwi on first xfer.
     if display.init().is_err() {
         log::error!("oled: init failed");
         return;
@@ -562,8 +561,20 @@ pub async fn task(i2c: SharedI2cDevice) {
 
     let mut blink = false;
     let mut ui_rx = UI_VIEW.receiver();
+    let mut power_rx = DISPLAY_ON.receiver();
+    let mut panel_on = true;
 
     loop {
+        let want_on = power_rx.as_mut().and_then(|r| r.try_get()).unwrap_or(true);
+        if want_on != panel_on {
+            display.set_display_on(want_on).ok();
+            panel_on = want_on;
+        }
+        if !panel_on {
+            Timer::after(Duration::from_millis(BLINK_PERIOD_MS)).await;
+            continue;
+        }
+
         display.clear_buffer();
 
         let view = ui_rx.as_mut().and_then(|r| r.try_get()).unwrap_or_default();

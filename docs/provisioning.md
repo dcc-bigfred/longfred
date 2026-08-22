@@ -10,6 +10,7 @@ On OLED variants, **Stop during the 2 s boot splash** also enters programming mo
 |---------|------------------|------------------|------------------------|
 | longfred-standard / mini | Shift1 + Stop | yes | no |
 | markwtech | `*` + Stop | yes | no |
+| markwtech-v1.1 | `*` + Stop | yes | no |
 | heiko-wifred | Shift + Stop | no (no OLED) | **yes** |
 
 Firmware sets `programming_mode` in NVS and soft-resets (except auto-pair at boot, which skips STA bring-up).

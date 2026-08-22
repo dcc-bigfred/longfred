@@ -4,12 +4,20 @@
 
 ESP32-C6-DevKitC-1 z klawiaturą 3×4, dodatkowymi przyciskami, enkoderem KY-040 i wyświetlaczem OLED 2,42" SSD1309 — inspirowany projektem [WiTcontroller](https://github.com/flash62au/WiTcontroller) / [Thingiverse 7029069](https://www.thingiverse.com/thing:7029069), z układem ESP32-C6 zamiast LOLIN32.
 
-| Pozycja | Wartość |
-|---------|---------|
-| Feature Cargo | `variant-markwtech` |
-| Wyświetlacz | SSD1309/SSD1306 128×64 I2C |
-| Ekspandery | brak |
-| Skrót do trybu programowania | **\* (Menu) + Stop** przez 8 s, albo **Stop** podczas 2 s splashu |
+Dwie rewizje płytki dzielą tę samą powierzchnię sterowania (`KEYPAD_MAP`, przyciski, enkoder). **Numery GPIO są inne** i **nie są kompatybilne okablowaniem**.
+
+| Pozycja | v1.0 DevKitC-1 | v1.1 TinyC6 |
+|---------|----------------|-------------|
+| Feature Cargo | `variant-markwtech` | `variant-markwtech-v1-1` |
+| `make` | `VARIANT=markwtech` | `VARIANT=markwtech-v1-1` |
+| `id` deskryptora | `markwtech` | `markwtech-v1.1` |
+| Płytka | [ESP32-C6-DevKitC-1](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c6/esp32-c6-devkitc-1/user_guide.html) | [Unexpected Maker TinyC6](https://unexpectedmaker.com/shop.html#!/TinyC6/p/602208790/category=0) ([Kamami](https://kamami.pl/esp32/1201003-tinyc6-esp32-c6-plytka-rozwojowa-z-modulem-esp32-c6-zlacze-ufl-5902186336612.html), [schemat](https://github.com/UnexpectedMaker/esp32c6)) |
+| Wyświetlacz | SSD1309/SSD1306 128×64 I2C | ten sam |
+| Ekspandery | brak | brak |
+| Konsola | UART0 `/dev/ttyUSB0` | USB Serial/JTAG (`esp-println` `jtag-serial`) |
+| Skrót do trybu programowania | **\* (Menu) + Stop** przez 8 s, albo **Stop** podczas 2 s splashu | ten sam |
+
+Reszta tego pliku opisuje **v1.0**. [v1.1 TinyC6](#rewizja-v11--tinyc6) ma osobną mapę pinów i zasilanie.
 
 ## Sterowanie
 
@@ -20,16 +28,19 @@ ESP32-C6-DevKitC-1 z klawiaturą 3×4, dodatkowymi przyciskami, enkoderem KY-040
 - **W lewo / w prawo** przewija strony list (i podstrony Diagnostyki). **Stop** w Diagnostyce przechodzi do następnej podstrony.
 - **Extras → Diagnostyka**: bateria, wersja, oprogramowanie, zasięg Wi‑Fi, IP/MAC, ping do stacji.
 
-## Mapa pinów
+## Mapa pinów (v1.0 DevKitC-1)
 
-| Rola | GPIO |
-|------|------|
-| Wiersze klawiatury | 18, 19, 20, 21 |
-| Kolumny klawiatury | 22, 23, 10 |
-| OLED po I2C | SDA 6, SCL 7, adres 0x3C |
-| Enkoder | A 2, B 3, SW 0 |
-| Przyciski: w lewo / Stop / w prawo / Cofnij / Menu | 11, 12, 4, 5, 15 |
-| ADC baterii | 1 |
+Grupy wiązek siedzą na sąsiednich goldpinach. **Ta mapa zrywa wcześniejsze okablowanie v1.0** (C2 schodzi z GPIO 10; enkoder z 2/3; Stop z USB_D−).
+
+| Rola | GPIO | Złącze |
+|------|------|--------|
+| Wiersze klawiatury | 18, 19, 20, 21 | J3 |
+| Kolumny klawiatury | 22, 23, **15** | J3-4…J3-10 razem z wierszami (7 sąsiadów) |
+| OLED po I2C | SDA 6, SCL 7, adres 0x3C | J1-5, J1-6 |
+| Enkoder | A **4**, B **5**, SW 0 | J1-3, J1-4; SW na J1-7 |
+| Przyciski: w lewo / Stop / w prawo | **10**, **2**, **11** | J1-10…J1-12 |
+| Cofnij / Menu | **13**, **12** | J3-13, J3-14 |
+| ADC baterii | 1 | J1-8 (zewnętrzny 47 kΩ/47 kΩ) |
 
 Układ klawiatury (`KEYPAD_MAP`):
 
@@ -45,11 +56,11 @@ Dodatkowe przyciski: styk do **GND**, podciąganie włączone w firmware, stan a
 
 | # | Funkcja | GPIO | Uwagi |
 |---|---------|------|-------|
-| 1 | Menu w lewo | 11 | `Nav(Left)` — poprzednia strona listy / kursor |
-| 2 | Stop | 12 | Zatrzymanie awaryjne; skrót z `*` |
-| 3 | Menu w prawo | 4 | `Nav(Right)` — następna strona listy / kursor |
-| 4 | Cofnij | 5 | Anuluj / wstecz |
-| 5 | Menu | 15 | Otwórz menu / wybierz w menu |
+| 1 | Menu w lewo | 10 | `Nav(Left)` — poprzednia strona listy / kursor |
+| 2 | Stop | 2 | Zatrzymanie awaryjne; skrót z `*` |
+| 3 | Menu w prawo | 11 | `Nav(Right)` — następna strona listy / kursor |
+| 4 | Cofnij | 13 | Anuluj / wstecz (`USB_D+`) |
+| 5 | Menu | 12 | Otwórz menu / wybierz w menu (`USB_D−`) |
 
 ```mermaid
 flowchart LR
@@ -60,7 +71,7 @@ flowchart LR
   ESP --- BAT[Dzielnik baterii]
 ```
 
-Stałe: `board/variants/markwtech.rs` (`KEYPAD_MAP`, `EXTRA_BUTTON_MAP`).
+Stałe: `board/variants/markwtech/` (`KEYPAD_MAP`, `EXTRA_BUTTON_MAP`; GPIO w `pins_v1_0.rs` / `pins_v1_1.rs`).
 
 ## Budżet pinów
 
@@ -76,26 +87,26 @@ Listwy wyprowadzają łącznie **23 GPIO** — na J1 znajdują się `4, 5, 6, 7,
 | Kosztują konsolę UART | 16, 17 | 2 |
 | Zablokowane | 8 (dioda RGB), 9 (przycisk BOOT) | 2 |
 
-MarkWTech potrzebuje **18** linii (klawiatura 7 + enkoder 3 + I2C 2 + przyciski 5 + ADC baterii 1). Piny wolne wraz z bezpiecznymi strappingowymi dają tylko 17, więc dokładnie jeden musi pochodzić z pary USB — Stop zajmuje **GPIO 12**. Dzięki temu **GPIO 13 zostaje wolny bez żadnego dodatkowego kosztu**, bo natywny port USB jest już poświęcony przez wykorzystanie jego linii `D−`.
+MarkWTech potrzebuje **18** linii (klawiatura 7 + enkoder 3 + I2C 2 + przyciski 5 + ADC baterii 1). Piny wolne wraz z bezpiecznymi strappingowymi dają tylko 17, więc Cofnij i Menu biorą parę USB (**GPIO 13 / 12**). Stop siedzi na GPIO 2, a nie samotnie na `USB_D−`. Natywny USB i tak odpada.
 
 ### Dlaczego ryzykowne piny są bezpieczne
 
-- **GPIO 4 (MTMS) i GPIO 5 (MTDI)** — według tabeli 3-4 z datasheetu ich stan strappingowy wybiera wyłącznie zbocze próbkowania i wystawiania danych interfejsu **SDIO slave**, którego ten projekt w ogóle nie używa. Oba są domyślnie w stanie nieustalonym.
-- **GPIO 15** — według tabeli 3-7, przy fabrycznych bezpiecznikach eFuse (`DIS_PAD_JTAG=0`, `DIS_USB_JTAG=0`, `JTAG_SEL_ENABLE=0`) pin jest wprost oznaczony jako **ignorowany**. Ostrzeżenie z datasheetu przed pozostawieniem go w stanie wysokiej impedancji dotyczy dopiero sytuacji po wypaleniu `EFUSE_JTAG_SEL_ENABLE`, co jest czynnością świadomą i nieodwracalną.
+- **GPIO 4 (MTMS) i GPIO 5 (MTDI)** — według tabeli 3-4 z datasheetu ich stan strappingowy wybiera wyłącznie zbocze próbkowania i wystawiania danych interfejsu **SDIO slave**, którego ten projekt w ogóle nie używa. Oba są domyślnie w stanie nieustalonym. Niosą kanały A/B enkodera (wejścia z podciąganiem).
+- **GPIO 15** — według tabeli 3-7, przy fabrycznych bezpiecznikach eFuse (`DIS_PAD_JTAG=0`, `DIS_USB_JTAG=0`, `JTAG_SEL_ENABLE=0`) pin jest wprost oznaczony jako **ignorowany**. Ostrzeżenie z datasheetu przed pozostawieniem go w stanie wysokiej impedancji dotyczy dopiero sytuacji po wypaleniu `EFUSE_JTAG_SEL_ENABLE`, co jest czynnością świadomą i nieodwracalną. Kolumna C2 klawiatury używa go jako wejścia.
 - Trzymanie któregokolwiek z tych przycisków podczas resetu **nie może więc zmienić trybu bootowania**. O trybie decydują wyłącznie GPIO 8 i 9 (tabela 3-3).
-- **GPIO 12** działa jako zwykłe wejście, ponieważ esp-hal wywołuje `disable_usb_pads()` z funkcji `init_gpio()` przed każdym użyciem pinu, czyszcząc `usb_pad_enable` oraz rezystory podciągające linii D+/D− (`esp-hal-1.1.1/src/gpio/mod.rs:1669-1709`).
+- **GPIO 12 / 13** działają jako zwykłe wejścia, ponieważ esp-hal wywołuje `disable_usb_pads()` z funkcji `init_gpio()` przed każdym użyciem pinu, czyszcząc `usb_pad_enable` oraz rezystory podciągające linii D+/D− (`esp-hal-1.1.1/src/gpio/mod.rs:1669-1709`).
 
 ### Wybudzanie z głębokiego uśpienia
 
-Tylko **GPIO 0–7** należą do domeny niskiego poboru (`LP_GPIO0..7`) i mogą wybudzić układ z głębokiego uśpienia. Źródłem wybudzenia jest `SW` enkodera na GPIO 0. Przyciski Menu (15), Menu w lewo (11) i Stop (12) **nie wybudzą** manipulatora.
+Tylko **GPIO 0–7** należą do domeny niskiego poboru (`LP_GPIO0..7`) i mogą wybudzić układ z głębokiego uśpienia. Skonfigurowanym źródłem wybudzenia jest `SW` enkodera na GPIO 0. Stop jest na GPIO 2 (też LP), ale nie jest pinem wake. Menu (12), Menu w lewo (10), Menu w prawo (11) i Cofnij (13) **nie wybudzą** manipulatora.
 
 ### Piny nieużywane i zarezerwowane
 
 | GPIO | Listwa | Dlaczego zostaje wolny |
 |------|--------|------------------------|
+| 3 | J1-13 | zapas |
 | 8 | J1-9 | steruje wbudowaną adresowalną diodą RGB |
 | 9 | J3-11 | wbudowany przycisk BOOT; pin strappingowy trybu startu |
-| 13 | J3-13 | `USB_D+` — zapas, do wykorzystania jeśli kiedyś zabraknie wejścia |
 | 16 | J3-2 | `U0TXD` — wyjście konsoli szeregowej |
 | 17 | J3-3 | `U0RXD` — wejście konsoli szeregowej |
 
@@ -121,13 +132,13 @@ Typowa kolejność czterech pinów na tanich modułach: `GND` · `VCC` · `SCL` 
 
 | GPIO | Firmware | Pin KY-040 | Uwagi |
 |------|----------|------------|-------|
-| **2** | `ENCODER_A` | **`DT`** (czasem `B`, `DATA`) | kanał A |
-| **3** | `ENCODER_B` | **`CLK`** (czasem `A`) | kanał B |
+| **4** | `ENCODER_A` | **`DT`** (czasem `B`, `DATA`) | kanał A |
+| **5** | `ENCODER_B` | **`CLK`** (czasem `A`) | kanał B |
 | **0** | `ENCODER_BUTTON` | **`SW`** / `KEY` | przycisk enkodera |
 | **3V3** | — | **`+`** / `VCC` | |
 | **GND** | — | **`GND`** | |
 
-Moduły KY-040 często mają zamienione opisy `CLK` i `DT` — podłącz jak w tabeli (`DT`→GPIO 2, `CLK`→GPIO 3). GPIO 0 pełni jednocześnie rolę pinu wybudzania, więc przycisk enkodera budzi manipulator.
+Moduły KY-040 często mają zamienione opisy `CLK` i `DT` — podłącz jak w tabeli (`DT`→GPIO 4, `CLK`→GPIO 5). GPIO 0 pełni jednocześnie rolę pinu wybudzania, więc przycisk enkodera budzi manipulator.
 
 ### Klawiatura membranowa 3×4 (7 pinów)
 
@@ -141,7 +152,7 @@ Wiersze są **wyjściami** (skaner ściąga po kolei jeden do stanu niskiego). K
 | **21** | `KEYPAD_ROW_PINS[3]` | **R3** (wiersz 4) | klawisze `*` `0` `#` |
 | **22** | `KEYPAD_COL_PINS[0]` | **C0** (kolumna 1) | klawisze `1` `4` `7` `*` |
 | **23** | `KEYPAD_COL_PINS[1]` | **C1** (kolumna 2) | klawisze `2` `5` `8` `0` |
-| **10** | `KEYPAD_COL_PINS[2]` | **C2** (kolumna 3) | klawisze `3` `6` `9` `#` |
+| **15** | `KEYPAD_COL_PINS[2]` | **C2** (kolumna 3) | klawisze `3` `6` `9` `#` |
 
 **Kolejność wyprowadzeń klawiatury nie jest ustandaryzowana.** Wyznacz każdy wiersz i kolumnę multimetrem (wciśnięty klawisz zwiera swój wiersz z kolumną). Jeśli cyfry się mylą, przełóż przewody na złączu — nie zmieniaj numerów GPIO w firmware.
 
@@ -151,11 +162,11 @@ Każdy przycisk: jedna nóżka → **GPIO**, druga → **GND**. Firmware włącz
 
 | GPIO | Listwa | Etykieta | Funkcja w interfejsie | Sugerowany opis |
 |------|--------|----------|-----------------------|-----------------|
-| **11** | J1-11 | Menu w lewo | poprzednia strona listy / kursor w lewo | `LEFT` |
-| **12** | J3-14 | **Stop** | zatrzymanie awaryjne; skrót `*`+Stop (8 s) | `STOP` / `E-STOP` |
-| **4** | J1-3 | Menu w prawo | następna strona listy / kursor w prawo | `RIGHT` |
-| **5** | J1-4 | Cofnij | anuluj / wstecz | `BACK` / `ESC` |
-| **15** | J3-4 | Menu | otwórz menu / wybierz w menu | `MENU` / `OK` |
+| **10** | J1-10 | Menu w lewo | poprzednia strona listy / kursor w lewo | `LEFT` |
+| **2** | J1-12 | **Stop** | zatrzymanie awaryjne; skrót `*`+Stop (8 s) | `STOP` / `E-STOP` |
+| **11** | J1-11 | Menu w prawo | następna strona listy / kursor w prawo | `RIGHT` |
+| **13** | J3-13 | Cofnij | anuluj / wstecz | `BACK` / `ESC` |
+| **12** | J3-14 | Menu | otwórz menu / wybierz w menu | `MENU` / `OK` |
 
 ```text
 GPIOx ────[ przycisk ]──── GND
@@ -209,9 +220,9 @@ Jeśli ogniwo ma trzeci przewód **NTC**, zostaw go niepodłączony — moduły 
 
 #### Kalibracja
 
-Stała `BATTERY_CONVERSION_FACTOR` w [`config/power.rs`](../../crates/firmware/src/config/power.rs) pochodzi z oryginalnego projektu, gdzie dobrano ją pod klasyczne ESP32. Naładuj ogniwo do pełna i odczytaj z logu UART linię `battery: raw=… suggested_factor=…`. Wartość `suggested_factor` wpisz do stałej. Spodziewaj się odczytu około `2600` i współczynnika bliskiego `1,6`.
+Stała `BATTERY_CONVERSION_FACTOR` w [`board/pins.rs`](../../crates/firmware/src/board/pins.rs) (re-eksport z [`config/power.rs`](../../crates/firmware/src/config/power.rs)) startuje od **1,7** dla dzielnika 47 kΩ/47 kΩ. Naładuj ogniwo do pełna i odczytaj z logu UART linię `battery: raw=… suggested_factor=…`. Wartość `suggested_factor` wpisz do mapy pinów v1.0. Spodziewaj się odczytu około `2600` i współczynnika bliskiego `1,6`.
 
-Przy działającym ogniwie firmware sam usypia manipulator: głębokie uśpienie poniżej **5 %** naładowania oraz po **4 minutach** bezczynności bez serwera WiThrottle.
+Przy działającym ogniwie firmware sam usypia manipulator: głębokie uśpienie poniżej **5 %** naładowania oraz po **5 minutach** bez inputu, gdy żadna lokomotywa nie jedzie (speed 0). Przed snem idzie EStop. Po **30 s** bezczynności gaśnie OLED (`DisplayOff`); dowolny klawisz lub detent enkodera budzi panel bez wykonania akcji, wyjątek to Stop/EStop (hamulec awaryjny). Z głębokiego snu budzi nadal `SW` enkodera na GPIO 0.
 
 Pozostawienie GPIO 1 niepodłączonego jest nieszkodliwe — odczyt jest wtedy bezsensownym szumem, a ikonę baterii można ukryć w menu.
 
@@ -258,8 +269,8 @@ Numeracja listew według [user guide ESP32-C6-DevKitC-1](https://docs.espressif.
 |---|------|-------|-------|
 | 20 | KY-040 `+` | płytka, pin `3V3` (J1-1) | zasilanie |
 | 21 | KY-040 `GND` | masa wspólna | powrót zasilania |
-| 22 | KY-040 `DT` | płytka, pin `2` (J1-12) | kanał A enkodera |
-| 23 | KY-040 `CLK` | płytka, pin `3` (J1-13) | kanał B enkodera |
+| 22 | KY-040 `DT` | płytka, pin `4` (J1-3) | kanał A enkodera |
+| 23 | KY-040 `CLK` | płytka, pin `5` (J1-4) | kanał B enkodera |
 | 24 | KY-040 `SW` | płytka, pin `0` (J1-7) | przycisk + wybudzanie |
 
 ### D. Klawiatura 3×4 (7 przewodów)
@@ -272,21 +283,21 @@ Numeracja listew według [user guide ESP32-C6-DevKitC-1](https://docs.espressif.
 | 28 | Klawiatura `R3` | płytka, pin `21` (J3-7) | wiersz matrycy (wyjście) |
 | 29 | Klawiatura `C0` | płytka, pin `22` (J3-6) | kolumna matrycy (wejście) |
 | 30 | Klawiatura `C1` | płytka, pin `23` (J3-5) | kolumna matrycy (wejście) |
-| 31 | Klawiatura `C2` | płytka, pin `10` (J1-10) | kolumna matrycy (wejście) |
+| 31 | Klawiatura `C2` | płytka, pin `15` (J3-4) | kolumna matrycy (wejście) |
 
 ### E. Pięć przycisków (10 przewodów)
 
 | # | Skąd | Dokąd | Po co |
 |---|------|-------|-------|
-| 32 | Przycisk „Menu w lewo" — nóżka 1 | płytka, pin `11` (J1-11) | wejście |
+| 32 | Przycisk „Menu w lewo" — nóżka 1 | płytka, pin `10` (J1-10) | wejście |
 | 33 | Przycisk „Menu w lewo" — nóżka 2 | masa wspólna | wciśnięty = stan niski |
-| 34 | Przycisk „Stop" — nóżka 1 | płytka, pin `12` (J3-14) | wejście |
+| 34 | Przycisk „Stop" — nóżka 1 | płytka, pin `2` (J1-12) | wejście |
 | 35 | Przycisk „Stop" — nóżka 2 | masa wspólna | wciśnięty = stan niski |
-| 36 | Przycisk „Menu w prawo" — nóżka 1 | płytka, pin `4` (J1-3) | wejście |
+| 36 | Przycisk „Menu w prawo" — nóżka 1 | płytka, pin `11` (J1-11) | wejście |
 | 37 | Przycisk „Menu w prawo" — nóżka 2 | masa wspólna | wciśnięty = stan niski |
-| 38 | Przycisk „Cofnij" — nóżka 1 | płytka, pin `5` (J1-4) | wejście |
+| 38 | Przycisk „Cofnij" — nóżka 1 | płytka, pin `13` (J3-13) | wejście |
 | 39 | Przycisk „Cofnij" — nóżka 2 | masa wspólna | wciśnięty = stan niski |
-| 40 | Przycisk „Menu" — nóżka 1 | płytka, pin `15` (J3-4) | wejście |
+| 40 | Przycisk „Menu" — nóżka 1 | płytka, pin `12` (J3-14) | wejście |
 | 41 | Przycisk „Menu" — nóżka 2 | masa wspólna | wciśnięty = stan niski |
 
 ## Montaż krok po kroku
@@ -390,8 +401,8 @@ Pięć przewodów. *(przewody 20–24)*
 |---|---|
 | `+` | `3V3` płytki (J1-1) |
 | `GND` | masa |
-| `DT` | pin `2` (J1-12) |
-| `CLK` | pin `3` (J1-13) |
+| `DT` | pin `4` (J1-3) |
+| `CLK` | pin `5` (J1-4) |
 | `SW` | pin `0` (J1-7) |
 
 **Uwaga:** producenci modułów KY-040 notorycznie zamieniają opisy `CLK` i `DT` miejscami. Podłącz zgodnie z tabelą, a jeśli po uruchomieniu okaże się, że pokrętło działa w odwrotną stronę — zamień te dwa przewody miejscami. Nic się przez to nie zepsuje.
@@ -420,7 +431,7 @@ Następnie podłącz według tabeli. *(przewody 25–31)*
 | `R3` | pin `21` (J3-7) | `*` `0` `#` |
 | `C0` | pin `22` (J3-6) | `1` `4` `7` `*` |
 | `C1` | pin `23` (J3-5) | `2` `5` `8` `0` |
-| `C2` | pin `10` (J1-10) | `3` `6` `9` `#` |
+| `C2` | pin `15` (J3-4) | `3` `6` `9` `#` |
 
 **Jeśli po uruchomieniu cyfry się mylą — przełóż przewody, nie zmieniaj firmware.** Numery pinów są zaszyte w kodzie i zmienianie ich rozjeżdża dokumentację z rzeczywistością.
 
@@ -432,24 +443,24 @@ Każdy przycisk ma **dwie nóżki** i podłącza się identycznie: **jedna nóż
 
 | Przycisk | Pin płytki | Listwa |
 |---|---|---|
-| Menu w lewo | `11` | J1-11 |
-| **Stop** | `12` | J3-14 |
-| Menu w prawo | `4` | J1-3 |
-| Cofnij | `5` | J1-4 |
-| Menu | `15` | J3-4 |
+| Menu w lewo | `10` | J1-10 |
+| **Stop** | `2` | J1-12 |
+| Menu w prawo | `11` | J1-11 |
+| Cofnij | `13` | J3-13 |
+| Menu | `12` | J3-14 |
 
 **Jak wybrać właściwe nóżki:** przyciski 12 mm mają zwykle dokładnie dwa wyprowadzenia i wtedy nie ma czego wybierać. Jeśli twój egzemplarz ma ich więcej, ustaw multimetr na brzęczyk i znajdź parę, która **piszczy dopiero po wciśnięciu** przycisku, a w spoczynku milczy.
 
 **Dlaczego jedna nóżka idzie do masy:** płytka włącza wewnętrzny rezystor podciągający, który utrzymuje pin w stanie wysokim, dopóki nic się nie dzieje. Wciśnięcie przycisku zwiera pin do masy i ściąga go w stan niski — i to właśnie firmware rozpoznaje jako naciśnięcie. Dzięki temu nie potrzebujesz żadnych zewnętrznych rezystorów.
 
-**Dlaczego akurat te piny:** wszystkie zostały sprawdzone pod kątem funkcji specjalnych. Piny 4, 5 i 15 są tak zwanymi pinami strappingowymi, ale przy fabrycznych ustawieniach układu ich stan przy starcie nie wpływa na nic istotnego — możesz trzymać te przyciski podczas włączania i płytka wystartuje normalnie. Pin 12 to linia natywnego portu USB, dlatego ten port nie będzie działał; firmware wgrywa się drugim portem USB i to w zupełności wystarcza.
+**Dlaczego akurat te piny:** wszystkie zostały sprawdzone pod kątem funkcji specjalnych. Piny 4 i 5 (enkoder) oraz 15 (kolumna C2) są tak zwanymi pinami strappingowymi, ale przy fabrycznych ustawieniach układu ich stan przy starcie nie wpływa na nic istotnego. Piny 12 i 13 to linie natywnego portu USB (Menu / Cofnij), dlatego ten port nie będzie działał; firmware wgrywa się drugim portem USB i to w zupełności wystarcza. Stop jest na GPIO 2.
 
 ### Krok 9 — pierwsze uruchomienie i kalibracja baterii
 
 1. **Ustaw kołyskowy na OFF.** To ważne: nigdy nie zasilaj płytki jednocześnie z baterii i z USB.
 2. Podłącz komputer kablem USB do portu **USB-to-UART** płytki (tego wpiętego w mostek, nie natywnego) i wgraj firmware.
 3. Odłącz USB, ustaw kołyskowy na ON i sprawdź, czy wyświetlacz się zapala, klawiatura reaguje, a pokrętło zmienia wartości.
-4. **Kalibracja baterii:** naładuj ogniwo do pełna przez port USB-C ładowarki (dioda na module zmieni kolor). Z logu UART skopiuj `suggested_factor` z linii `battery: raw=… suggested_factor=…` do `BATTERY_CONVERSION_FACTOR` w [`config/power.rs`](../../crates/firmware/src/config/power.rs). Spodziewaj się odczytu w okolicach 2600 i współczynnika bliskiego 1,6.
+4. **Kalibracja baterii:** naładuj ogniwo do pełna przez port USB-C ładowarki (dioda na module zmieni kolor). Z logu UART skopiuj `suggested_factor` z linii `battery: raw=… suggested_factor=…` do `BATTERY_CONVERSION_FACTOR` w [`pins_v1_0.rs`](../../crates/firmware/src/board/variants/markwtech/pins_v1_0.rs). Spodziewaj się odczytu w okolicach 2600 i współczynnika bliskiego 1,6.
 5. Wgraj firmware ponownie (znów przy kołyskowym na OFF) i sprawdź, czy pełne ogniwo pokazuje 100 %.
 
 ### Ostrzeżenia
@@ -503,101 +514,97 @@ Po splashu (i jednorazowym wyborze języka, zapisanym w NVS; później **Extras 
 
 Soft-AP ma DHCP; aktualizacja firmware ze strony parowania albo Extras → Aktualizacja FW w sieci layoutu. Zobacz [provisioning.md](../provisioning.md).
 
-## TODO — Reorganizacja pinów pod modułowe wiązki
+## Grupowanie wiązek (v1.0)
 
-> **Jeszcze nie wdrożone.** Sekcje powyżej opisują **obecny** pinout w firmware. Poniżej zapisany plan na później — pogrupowanie sygnałów w krótkie wiązki Dupont/JST i ograniczenie plątaniny kabli.
-
-### Cel
-
-Pogrupować połączenia według fizycznego miejsca na obudowie:
-
-| Grupa wiązki | Elementy |
-|--------------|----------|
-| Klawiatura | matryca 3×4 (7 przewodów) |
-| Lewo / Stop / Prawo | trzy przyciski monostabilne |
-| Wyświetlacz | OLED I2C |
-| Cofnij / Menu | dwa przyciski monostabilne |
-| Regulator prędkości | enkoder KY-040 |
-
-Listwy DevKita mają „dziury” (GPIO 8 = LED RGB, GPIO 9 = BOOT, GPIO 1 = ADC baterii, GPIO 16/17 = UART). Nie każda grupa zmieści się w jednej wtyczce bez przesunięcia enkodera.
-
-### Stan obecny vs docelowy
-
-| Grupa | GPIO dziś | Na listwie dziś |
-|-------|-----------|-----------------|
-| Klawiatura | 18–23 + **10** | sześć w rzędzie na J3, siódmy na **drugiej** stronie |
-| OLED | 6, 7 | razem (J1-5, J1-6) |
-| Enkoder | 2, 3, 0 | A/B razem (J1-12, J1-13), SW osobno (J1-7) |
-| Lewo / Stop / Prawo / Cofnij / Menu | 11, 12, 4, 5, 15 | rozsypane na obu listwach |
-
-Jedyny siedmiopinowy blok GPIO na płytce to **J3-4 … J3-10**: `15, 23, 22, 21, 20, 19, 18`. Klawiatura powinna tam wejść w całości — przenieść **C2 z GPIO 10 na GPIO 15**.
-
-`3V3` jest na J1-1, masa na końcach listew. **Nie wpinaj zasilania OLED i enkodera w tę samą wtyczkę co SDA/SCL** bez użycia `RST` albo `5V`. Zasilanie osobno: dwupin `3V3` + `G`.
-
-### Proponowany układ (wszystkie grupy na wtyczkach)
+Grupy GPIO odpowiadają sąsiednim goldpinom, żeby każda wiązka była krótkim Dupontem/JST.
 
 ```text
 J3 (TX/RX)                         J1 (3V3/RST/5V)
  1  G                              1  3V3     ── zasilanie OLED+enkoder (2-pin z G)
  2  TX  (konsola — zostaw)         2  RST     (nie ruszać)
  3  RX  (konsola — zostaw)         3  GPIO4   ┐ enkoder DT
- 4  GPIO15 ┐                       4  GPIO5   ┘ enkoder CLK     BLS-03
+ 4  GPIO15 ┐                       4  GPIO5   ┘ enkoder CLK
  5  GPIO23 │                       5  GPIO6   ┐ OLED SDA
- 6  GPIO22 │ klawiatura            6  GPIO7   ┘ OLED SCL        BLS-02
- 7  GPIO21 │ BLS-07                7  GPIO0     enkoder SW      BLS-01 (wybudzanie)
+ 6  GPIO22 │ klawiatura            6  GPIO7   ┘ OLED SCL
+ 7  GPIO21 │                       7  GPIO0     enkoder SW (wybudzanie)
  8  GPIO20 │                       8  GPIO1     ADC baterii
  9  GPIO19 │                       9  GPIO8     LED — zostaw
 10  GPIO18 ┘                      10  GPIO10  ┐
-11  GPIO9   BOOT — zostaw         11  GPIO11  │ lewo, prawo, stop   BLS-03
+11  GPIO9   BOOT — zostaw         11  GPIO11  │ lewo, prawo, stop
 12  G                             12  GPIO2   ┘
 13  GPIO13 ┐ cofnij, menu         13  GPIO3     zapas
-14  GPIO12 ┘ BLS-02               14  5V
+14  GPIO12 ┘                      14  5V
 15  G                             15  G
 ```
 
 | Wtyczka | Piny listwy (kolejność na goldpinie) | GPIO |
 |---------|--------------------------------------|------|
-| Klawiatura BLS-07 | J3-4 … J3-10 | 15, 23, 22, 21, 20, 19, 18 |
-| Enkoder A/B BLS-03 | J1-3, J1-4 | 4, 5 (+ SW osobno na 0) |
-| OLED BLS-02 | J1-5, J1-6 | 6, 7 |
-| Lewo / prawo / stop BLS-03 | J1-10 … J1-12 | 10, 11, **2** |
-| Cofnij / Menu BLS-02 | J3-13, J3-14 | 13, 12 |
+| Klawiatura | J3-4 … J3-10 | 15, 23, 22, 21, 20, 19, 18 (C2, C1, C0, R3…R0) |
+| Enkoder A/B | J1-3, J1-4 | 4, 5 (+ SW osobno na 0) |
+| OLED | J1-5, J1-6 | 6, 7 |
+| Lewo / prawo / stop | J1-10 … J1-12 | 10, 11, 2 |
+| Cofnij / Menu | J3-13, J3-14 | 13, 12 |
 
-### Proponowane mapowanie funkcji → GPIO
+`3V3` jest na J1-1, masa na końcach listew. Zasilanie OLED/enkodera osobno: dwupin `3V3` + `G`.
 
-| Funkcja | GPIO | Było |
-|---------|------|------|
-| Klawiatura R0–R3, C0, C1 | 18, 19, 20, 21, 22, 23 | bez zmian |
-| Klawiatura C2 | **15** | 10 |
-| Enkoder DT / CLK | **4, 5** | 2, 3 |
-| Enkoder SW | **0** | bez zmian (wybudzanie z deep sleep) |
-| OLED SDA / SCL | **6, 7** | bez zmian |
-| Menu w lewo / w prawo / Stop | **10, 11, 2** | 11, 4, 12 |
-| Cofnij / Menu | **13, 12** | 5, 15 |
+GPIO **3** zostaje zapasem. A/B enkodera nie da się spiąć z SW jedną wtyczką: między nimi jest ADC (1) i LED (8).
 
-Stop schodzi z `USB_D−` na GPIO 2. Cofnij/Menu zajmują 12/13, więc **natywny USB i tak zostaje martwy**, ale Stop nie siedzi już sam na D−, a dwa przyciski mają jedną wtyczkę.
+## Rewizja v1.1 — TinyC6
 
-SW enkodera musi zostać na GPIO 0–7 (domena wybudzania). Pozostawienie go na 0 nie rusza `sleep::task`. A/B nie da się spiąć z SW jedną wtyczką: między nimi jest ADC (1) i LED (8) — stąd BLS-03 na 4+5 i osobny 1-pin na SW.
+Ta sama powierzchnia co v1.0 (`KEYPAD_MAP`, kolejność przycisków, enkoder, OLED). Inne GPIO: `make build VARIANT=markwtech-v1-1` (`variant-markwtech-v1-1`, `id` deskryptora `markwtech-v1.1`). Artefakt: `longfred-markwtech-v1-1-esp32c6.elf`.
 
-GPIO **3** zostaje zapasem.
+Płytka: [TinyC6](https://unexpectedmaker.com/shop.html#!/TinyC6/p/602208790/category=0) ([Kamami](https://kamami.pl/esp32/1201003-tinyc6-esp32-c6-plytka-rozwojowa-z-modulem-esp32-c6-zlacze-ufl-5902186336612.html)). Schemat: [UnexpectedMaker/esp32c6](https://github.com/UnexpectedMaker/esp32c6).
 
-### Czego się nie da
+### Listwy (od USB)
 
-Lewo + prawo + stop jako **trzy sąsiednie piny** przy enkoderze nadal na GPIO 2 i 3 — nie ma trzeciego wolnego bolca obok. Trzeba przesunąć A/B enkodera (jak w proponowanym układzie powyżej).
+**J3** (11 pinów): `VBAT, GND, 5V, 3V3, IO3, IO2, IO1, IO0, IO11, IO8, IO9`
 
-I2C i enkoder są w globalnym [`config/board.rs`](../../crates/firmware/src/config/board.rs) (wspólne dla wariantów). Przesunięcie DT/CLK na 4 i 5 wymaga stałych **tylko dla `variant-markwtech`**, inaczej rozjedziesz LongFred/Heiko. Klawiatura i pięć przycisków są już w [`markwtech.rs`](../../crates/firmware/src/board/variants/markwtech.rs), więc C2→15 i nowa mapa przycisków to lokalna zmiana.
+**J4** (12 pinów): `IO21, IO20, IO19, IO18, IO7, IO6, IO5, IO15, RST, GND, TX(IO16), RX(IO17)`
 
-### Przy wdrożeniu
+**17 GPIO na headerze:** 0, 1, 2, 3, 5, 6, 7, 8, 9, 11, 15, 16, 17, 18, 19, 20, 21.
 
-- [ ] Zaktualizować `KEYPAD_COL_PINS`, `EXTRA_BUTTON_PINS` / `EXTRA_BUTTON_MAP` w `markwtech.rs`
-- [ ] Dodać stałe pinów enkodera tylko dla markwtech (albo nadpisać przy inicjalizacji wariantu)
-- [ ] Odświeżyć tabele pinów i kroki montażu w tym pliku i `markwtech.md`
-- [ ] Przetestować klawiaturę, wszystkie 5 przycisków, enkoder, OLED, ADC baterii, chord `* + Stop`, wybudzanie po naciśnięciu enkodera
-- [ ] Opcjonalnie przed lutowaniem: przełóż klawiaturę na J3-4…10 i sprawdź cyfry (kolejność na wtyczce: 15=C2, potem 23, 22, 21, 20, 19, 18)
+### Czego nie używać jako zwykłego I/O
+
+| GPIO | Powód |
+|------|-------|
+| 4 | Wewnętrzny dzielnik **VBAT** — tylko ADC (`VBAT_SENSE`). Brak na goldpinie. |
+| 10 | Dzielnik **VBUS**, **brak na headerze**. Nie podłączaj przycisku (przy zasilaniu z baterii pin jest ściągany w dół). |
+| 12 / 13 | Native USB D−/D+, nie wyprowadzone |
+| 22 / 23 | `NEOPIXEL_POWER` / `NEOPIXEL`, nie na headerze |
+| 9 jako **wiersz klawiatury** (wyjście) | Onboard BOOT do GND — sterowanie HIGH zwiera wyjście z masą |
+| 8 **i** 9 trzymane przy resecie | Strapping `0/0` jest **invalid** ([boot mode C6](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c6/schematic-checklist.html)) |
+
+GPIO 15 to JTAG_SEL, przy fabrycznych eFuse **Ignored** (jak na DevKit). To **nie** jest CS flasha.
+
+GPIO 8 jest ignorowany, gdy GPIO 9 = 1 (normalny SPI boot). Samo Menu przy resecie jest OK. Cofnij (GPIO 9) przy resecie = download. **Menu i Cofnij naraz przy resecie** to invalid strap — nie rób tego.
+
+### Mapa pinów
+
+Wszystkie 17 GPIO z headera. Bateria na wewnętrznym GPIO 4. SW enkodera zostaje na GPIO 0, więc `sleep.rs` bez zmian.
+
+| Grupa | GPIO | Fizycznie |
+|-------|------|----------|
+| Wiersze klawiatury | **21, 20, 19, 18** | J4 od USB |
+| Kolumny klawiatury | **7, 6, 5** | dalszy ciąg J4 (7 sąsiadów: IO21…IO5) |
+| OLED I2C | SDA **3**, SCL **2** | J3 przy `3V3`/`GND` |
+| Enkoder | A **1**, SW **0**, B **11** | J3 trzy sąsiednie; SW = LP wake |
+| Lewo / Stop / Prawo | **15, 16, 17** | IO15, potem RST+GND, potem TX/RX. Stop **nie** na GPIO 9 |
+| Menu / Cofnij | Menu **8**, Cofnij **9** | koniec J3; oba **wejścia** z podciąganiem |
+| ADC baterii | **4** (onboard) | bez zewnętrznego dzielnika i bez GPIO 1 |
+
+I2C schodzi z 6/7, bo blok 7 pinów na J4 jest jedynym miejscem na całą klawiaturę w jednym rzędzie. OLED zasilany z J3 `3V3`/`GND`.
+
+**UART0 (16/17) idzie na przyciski.** TinyC6 programuje się native USB (USB-Serial-JTAG). Ten wariant włącza `esp-println` `jtag-serial`, żeby TX nie walczył z przyciskiem do GND. v1.0 DevKit zostaje na UART (`/dev/ttyUSB0`).
+
+### Zasilanie
+
+TinyC6 ma TP4065 + LDO 3,3 V + JST. **Nie** dubluj zewnętrznego TP4056 / Pololu z v1.0. OLED i enkoder z `3V3` płytki.
+
+Startowy `BATTERY_CONVERSION_FACTOR` to **3,76** (dzielnik UM 442 kΩ / 160 kΩ). Kalibracja z `suggested_factor` na pełnym ogniwie, tak jak w v1.0.
 
 ## TODO — Modułowe złącza (goldpin + JST / Dupont)
 
-> **Jeszcze nie wdrożone.** Zapisany plan na uporządkowanie okablowania i łatwe zdejmowanie obudowy do debugowania. Łączy się z [reorganizacją pinów](#todo--reorganizacja-pinów-pod-modułowe-wiązki) powyżej — najpierw grupy GPIO, potem jedna wtyczka na wiązkę.
+> **Jeszcze nie wdrożone.** Zapisany plan na uporządkowanie okablowania i łatwe zdejmowanie obudowy do debugowania. Łączy się z [grupowaniem wiązek](#grupowanie-wiązek-v10) powyżej — najpierw grupy GPIO, potem jedna wtyczka na wiązkę.
 
 ### Problem
 
@@ -701,4 +708,4 @@ Jedna IWS-2820M wystarcza na Dupont przy ESP i XH w obudowie.
 - [ ] Zamontować gniazda JST/XH w obudowie epoksydem albo klipsem z nadruku 3D (klej na gładkim PETG czasem puszcza).
 - [ ] Odciążyć każdy przewód adapterowy taśmą/opaską przy ściance przed klejeniem gniazd.
 - [ ] Trzymać spójne kolory przewodów (np. czarny = masa wszędzie).
-- [ ] Po [reorganizacji pinów](#todo--reorganizacja-pinów-pod-modułowe-wiązki) przebudować kolejność pinów w wiązkach pod nowe grupy GPIO.
+- [ ] Po [grupowaniu GPIO](#grupowanie-wiązek-v10) przebudować kolejność pinów w wiązkach.

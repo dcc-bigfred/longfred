@@ -76,6 +76,8 @@ pub enum ChoiceKind {
     RosterSource,
     /// How to pick a command station: mDNS / manual IP.
     ServerConnect,
+    /// Client IPv4 mode: DHCP / static.
+    IpMode,
 }
 
 /// Drafts and flags shared across screens (Wi-Fi wizard, device, net config).
@@ -124,6 +126,8 @@ pub struct UiSession {
     pub boot_language: bool,
     /// Kind for [`crate::nav::ScreenId::Choice`] (screen is rebuilt on navigate).
     pub choice: ChoiceKind,
+    /// Scan opened from Server → Wi-Fi settings (Back returns there).
+    pub wifi_from_settings: bool,
 }
 
 impl UiSession {
@@ -144,6 +148,7 @@ impl UiSession {
             splash_done: false,
             boot_language: false,
             choice: ChoiceKind::DeadMan,
+            wifi_from_settings: false,
             server_entry_from_list: false,
             pending_server_idx: None,
             ip_field: NetField::Dhcp,

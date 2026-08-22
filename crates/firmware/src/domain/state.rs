@@ -82,6 +82,14 @@ impl DomainState {
         self.current_slot().has_loco()
     }
 
+    /// True when any acquired slot is commanding speed greater than stop.
+    pub fn any_loco_moving(&self) -> bool {
+        self.throttles
+            .iter()
+            .take(self.max_throttles)
+            .any(|slot| slot.has_loco() && slot.speed > 0)
+    }
+
     pub fn current_forward(&self) -> bool {
         self.current_slot().direction == Direction::Forward
     }

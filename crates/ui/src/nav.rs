@@ -33,8 +33,10 @@ pub enum ScreenId {
     Menu,
     /// Settings / extras.
     Extras,
-    /// Server reconnect / pair / change / disconnect.
+    /// Server reconnect / pair / change / disconnect / Wi-Fi.
     ServerMenu,
+    /// Scan networks / DHCP vs static.
+    WifiSettings,
     /// Generic numbered option list ([`crate::session::ChoiceKind`]).
     Choice,
     /// Roster / loco picker.
@@ -49,8 +51,6 @@ pub enum ScreenId {
     FunctionList,
     /// Direct command list (`MarkWTech` extra keys).
     DirectCommands,
-    /// DHCP vs static summary.
-    IpConfig,
     /// Field-by-field IPv4 editor.
     IpEdit,
     /// Device name / id summary.

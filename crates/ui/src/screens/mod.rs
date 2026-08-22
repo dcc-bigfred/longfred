@@ -11,7 +11,6 @@ mod extras;
 mod firmware;
 mod functions;
 pub(crate) mod helpers;
-mod ip_config;
 mod ip_edit;
 mod language;
 mod menu;
@@ -32,6 +31,7 @@ mod wifi_list;
 mod wifi_password;
 mod wifi_scan;
 mod wifi_scanning;
+mod wifi_settings;
 
 use crate::context::ScreenCtx;
 use crate::intent::AppEvent;
@@ -49,7 +49,6 @@ pub use direct::DirectCommandsScreen;
 pub use extras::ExtrasScreen;
 pub use firmware::FirmwareUpdateScreen;
 pub use functions::FunctionListScreen;
-pub use ip_config::IpConfigScreen;
 pub use ip_edit::IpEditScreen;
 pub use language::LanguageScreen;
 pub use menu::MenuScreen;
@@ -70,6 +69,7 @@ pub use wifi_list::SsidListScreen;
 pub use wifi_password::PasswordScreen;
 pub use wifi_scan::SsidScanScreen;
 pub use wifi_scanning::SsidScanningScreen;
+pub use wifi_settings::WifiSettingsScreen;
 
 /// Active screen object (size = max variant, not the sum of all screens).
 #[expect(missing_docs, reason = "variants match ScreenId one-to-one")]
@@ -88,6 +88,7 @@ pub enum ScreenState {
     Menu(MenuScreen),
     Extras(ExtrasScreen),
     ServerMenu(ServerMenuScreen),
+    WifiSettings(WifiSettingsScreen),
     Choice(ChoiceScreen),
     RosterList(RosterListScreen),
     AddrEdit(AddrEditScreen),
@@ -95,7 +96,6 @@ pub enum ScreenState {
     PairingWait(PairingWaitScreen),
     FunctionList(FunctionListScreen),
     DirectCommands(DirectCommandsScreen),
-    IpConfig(IpConfigScreen),
     IpEdit(IpEditScreen),
     Device(DeviceScreen),
     DeviceNameEdit(DeviceNameEditScreen),
@@ -125,6 +125,7 @@ pub fn new_screen(id: ScreenId) -> ScreenState {
         ScreenId::Menu => ScreenState::Menu(MenuScreen::new()),
         ScreenId::Extras => ScreenState::Extras(ExtrasScreen::new()),
         ScreenId::ServerMenu => ScreenState::ServerMenu(ServerMenuScreen::new()),
+        ScreenId::WifiSettings => ScreenState::WifiSettings(WifiSettingsScreen::new()),
         ScreenId::Choice => ScreenState::Choice(ChoiceScreen::new()),
         ScreenId::RosterList => ScreenState::RosterList(RosterListScreen::new()),
         ScreenId::AddrEdit => ScreenState::AddrEdit(AddrEditScreen::new()),
@@ -132,7 +133,6 @@ pub fn new_screen(id: ScreenId) -> ScreenState {
         ScreenId::PairingWait => ScreenState::PairingWait(PairingWaitScreen),
         ScreenId::FunctionList => ScreenState::FunctionList(FunctionListScreen::new()),
         ScreenId::DirectCommands => ScreenState::DirectCommands(DirectCommandsScreen::new()),
-        ScreenId::IpConfig => ScreenState::IpConfig(IpConfigScreen),
         ScreenId::IpEdit => ScreenState::IpEdit(IpEditScreen::new()),
         ScreenId::Device => ScreenState::Device(DeviceScreen::new()),
         ScreenId::DeviceNameEdit => ScreenState::DeviceNameEdit(DeviceNameEditScreen::new()),
@@ -163,6 +163,7 @@ macro_rules! dispatch_screen {
             ScreenState::Menu(s) => s.$method($($arg),*),
             ScreenState::Extras(s) => s.$method($($arg),*),
             ScreenState::ServerMenu(s) => s.$method($($arg),*),
+            ScreenState::WifiSettings(s) => s.$method($($arg),*),
             ScreenState::Choice(s) => s.$method($($arg),*),
             ScreenState::RosterList(s) => s.$method($($arg),*),
             ScreenState::AddrEdit(s) => s.$method($($arg),*),
@@ -170,7 +171,6 @@ macro_rules! dispatch_screen {
             ScreenState::PairingWait(s) => s.$method($($arg),*),
             ScreenState::FunctionList(s) => s.$method($($arg),*),
             ScreenState::DirectCommands(s) => s.$method($($arg),*),
-            ScreenState::IpConfig(s) => s.$method($($arg),*),
             ScreenState::IpEdit(s) => s.$method($($arg),*),
             ScreenState::Device(s) => s.$method($($arg),*),
             ScreenState::DeviceNameEdit(s) => s.$method($($arg),*),

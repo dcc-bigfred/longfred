@@ -22,7 +22,7 @@ DIST_DIR="${DIST_DIR:-dist}"
 RAM_LIMIT_BYTES="${RAM_LIMIT_BYTES:-$((0x6E610))}"
 OTA_SLOT_BYTES="${OTA_SLOT_BYTES:-$((0x3C0000))}"
 PARTITION_TABLE="${PARTITION_TABLE:-$ROOT/partitions.csv}"
-VARIANTS=(${VARIANTS:-longfred-standard longfred-mini markwtech heiko-wifred})
+VARIANTS=(${VARIANTS:-longfred-standard longfred-mini markwtech markwtech-v1-1 heiko-wifred})
 
 CHECK_ONLY=0
 for arg in "$@"; do
@@ -114,9 +114,13 @@ for variant in "${VARIANTS[@]}"; do
     built_elf="${target_dir}/${TARGET}/release/${BIN}"
 
     echo "==> release build variant-${variant}" >&2
+    features="variant-${variant}"
+    if [[ "$variant" == "markwtech" ]]; then
+      features="variant-markwtech,print-auto"
+    fi
     if ! cargo build -p longfred-firmware --release --bin "$BIN" \
         --target-dir "$target_dir" \
-        --no-default-features --features "variant-${variant}" \
+        --no-default-features --features "$features" \
         >"${tmpdir}/${variant}.cargo.log" 2>&1; then
       echo "error: cargo build failed for variant-${variant}" >&2
       tail -n 40 "${tmpdir}/${variant}.cargo.log" >&2

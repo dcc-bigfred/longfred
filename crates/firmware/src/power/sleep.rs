@@ -21,6 +21,17 @@ pub enum SleepReason {
 
 pub static SLEEP_CTRL: Signal<CriticalSectionRawMutex, SleepReason> = Signal::new();
 
+/// Turn the OLED panel back on (no-op for subscribers if already on).
+pub fn unblank_display() {
+    crate::ui::DISPLAY_ON.sender().send(true);
+}
+
+/// Show the sleep screen and enter deep sleep after the reason-specific delay.
+pub fn begin_sleep(reason: SleepReason) {
+    unblank_display();
+    SLEEP_CTRL.signal(reason);
+}
+
 fn sleep_view(reason: SleepReason) -> UiView {
     let mut g = GridView::new();
     g.set(0, i18n::APP_NAME, false);
@@ -40,6 +51,7 @@ pub async fn task(
 ) {
     loop {
         let reason = SLEEP_CTRL.wait().await;
+        unblank_display();
         UI_VIEW.sender().send(sleep_view(reason));
         let delay = match reason {
             SleepReason::Inactivity | SleepReason::Battery => Duration::from_millis(10_000),

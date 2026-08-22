@@ -150,7 +150,7 @@ impl Screen for IpEditScreen {
         }
     }
 
-    /// Discard remaining fields (draft is not saved) and pop to Extras.
+    /// Discard remaining fields (draft is not saved) and pop.
     fn on_cancel(&mut self, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         nav.back();
     }

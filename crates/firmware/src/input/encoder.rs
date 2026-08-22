@@ -4,8 +4,8 @@
 use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{AnyPin, Input, InputConfig, Pull};
 
+use crate::board::pins as board;
 use crate::board::raw::{ButtonId, RawEvent, RawSender};
-use crate::config::board;
 use crate::input::quadrature::QuadratureDecoder;
 
 const BTN_DEBOUNCE_MS: u64 = 50;

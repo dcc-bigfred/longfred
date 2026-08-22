@@ -58,7 +58,9 @@ jobs:
           - variant: longfred-mini
             features: variant-longfred-mini
           - variant: markwtech
-            features: variant-markwtech
+            features: variant-markwtech,print-auto
+          - variant: markwtech-v1-1
+            features: variant-markwtech-v1-1
           - variant: heiko-wifred
             features: variant-heiko-wifred
     steps:
@@ -100,7 +102,9 @@ jobs:
           - variant: longfred-mini
             features: variant-longfred-mini
           - variant: markwtech
-            features: variant-markwtech
+            features: variant-markwtech,print-auto
+          - variant: markwtech-v1-1
+            features: variant-markwtech-v1-1
           - variant: heiko-wifred
             features: variant-heiko-wifred
     steps:
@@ -178,7 +182,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          for variant in longfred-standard longfred-mini markwtech heiko-wifred; do
+          for variant in longfred-standard longfred-mini markwtech markwtech-v1-1 heiko-wifred; do
             src="artifact-download/firmware-${variant}/longfred-${variant}-esp32c6.elf"
             dst="dist/longfred-${variant}-esp32c6.elf"
             if [[ ! -f "$src" ]]; then

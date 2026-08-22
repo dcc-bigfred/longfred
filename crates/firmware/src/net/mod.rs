@@ -2,10 +2,8 @@
 
 pub mod mdns;
 pub mod pairing_http;
-#[cfg(not(feature = "sim"))]
 pub mod ping;
 pub mod probe;
-#[cfg(not(feature = "sim"))]
 pub mod provisioning;
 pub mod session;
 pub mod wifi;

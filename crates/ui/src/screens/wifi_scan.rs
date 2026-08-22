@@ -137,12 +137,14 @@ impl Screen for SsidScanScreen {
         Self::pick_at(cx, nav, idx);
     }
 
-    /// Back to compiled SSIDs when they exist; otherwise stay (scan is the root list).
+    /// Settings scan pops; boot with compiled SSIDs goes to that list; else stay.
     fn on_cancel(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if self.list.clear_index() {
             return;
         }
-        if !cx.env.compiled_networks.is_empty() {
+        if cx.session.wifi_from_settings {
+            nav.back();
+        } else if !cx.env.compiled_networks.is_empty() {
             nav.replace(ScreenId::SsidList);
         }
     }

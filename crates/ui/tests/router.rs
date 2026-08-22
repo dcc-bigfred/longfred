@@ -225,21 +225,21 @@ fn throttle_estop_passthrough() {
 }
 
 #[test]
-fn extras_ok_opens_ip_config() {
+fn extras_ok_opens_device() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Ok, &mut cx);
     }
-    assert_eq!(router.screen_id(), ScreenId::IpConfig);
+    assert_eq!(router.screen_id(), ScreenId::Device);
 }
 
 #[test]
 fn extras_last_row_opens_diagnostics() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
-    for _ in 0..9 {
+    for _ in 0..8 {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
     }
@@ -247,14 +247,14 @@ fn extras_last_row_opens_diagnostics() {
         let cx = fx.ctx();
         let view = router.view(&cx);
         assert!(
-            grid_line(&view, 4).starts_with("10:"),
-            "diagnostics row should be numbered 10, got {}",
-            grid_line(&view, 4)
+            grid_line(&view, 3).starts_with("9:"),
+            "diagnostics row should be numbered 9, got {}",
+            grid_line(&view, 3)
         );
         assert!(
-            grid_line(&view, 4).contains("Diagnostics"),
+            grid_line(&view, 3).contains("Diagnostics"),
             "got {}",
-            grid_line(&view, 4)
+            grid_line(&view, 3)
         );
     }
     {
@@ -265,14 +265,14 @@ fn extras_last_row_opens_diagnostics() {
 }
 
 #[test]
-fn extras_digit_one_opens_ip_config() {
+fn extras_digit_one_opens_device() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Digit('1'), &mut cx);
     }
-    assert_eq!(router.screen_id(), ScreenId::IpConfig);
+    assert_eq!(router.screen_id(), ScreenId::Device);
 }
 
 #[test]
@@ -281,7 +281,7 @@ fn extras_slot_count_saves_and_overlays() {
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('4'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::SlotCountEdit);
     let intents = {
@@ -304,7 +304,7 @@ fn extras_slot_count_rejects_zero() {
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('4'), &mut cx);
     }
     let intents = {
         let mut cx = fx.ctx();
@@ -316,14 +316,13 @@ fn extras_slot_count_rejects_zero() {
 }
 
 #[test]
-fn extras_star_ten_opens_diagnostics() {
+fn extras_star_nine_opens_diagnostics() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&MARKWTECH, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Digit('*'), &mut cx);
-        let _ = router.handle(InputEvent::Digit('1'), &mut cx);
-        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('9'), &mut cx);
         let view = router.view(&cx);
         assert!(
             grid_line(&view, 0).contains('*'),
@@ -336,12 +335,12 @@ fn extras_star_ten_opens_diagnostics() {
 }
 
 #[test]
-fn extras_fn_ten_opens_diagnostics() {
+fn extras_fn_nine_opens_diagnostics() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::FnPress(10), &mut cx);
+        let _ = router.handle(InputEvent::FnPress(9), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Diagnostics);
 }
@@ -363,7 +362,7 @@ fn extras_roster_opens_choice_static() {
     use longfred_proto::persist::RosterMode;
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
-    for _ in 0..7 {
+    for _ in 0..6 {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Nav(NavDir::Down), &mut cx);
     }
@@ -1046,7 +1045,7 @@ fn stack_overflow_drops_oldest() {
         ScreenId::Language,
         ScreenId::Diagnostics,
         ScreenId::FirmwareUpdate,
-        ScreenId::IpConfig,
+        ScreenId::WifiSettings,
         ScreenId::FunctionList,
         ScreenId::RosterList,
         ScreenId::DirectCommands,
@@ -1072,10 +1071,10 @@ fn handle(router: &mut Router, fx: &mut Fixture, ev: InputEvent) -> heapless::Ve
 #[test]
 fn ip_wizard_dhcp_saves_and_returns_to_throttle() {
     let mut fx = Fixture::new();
-    let mut router = Router::new(&LONGFRED, ScreenId::IpConfig);
-    let _ = handle(&mut router, &mut fx, InputEvent::Ok);
-    assert_eq!(router.screen_id(), ScreenId::IpEdit);
-    let intents = handle(&mut router, &mut fx, InputEvent::Ok);
+    let mut router = Router::new(&LONGFRED, ScreenId::WifiSettings);
+    let _ = handle(&mut router, &mut fx, InputEvent::Digit('2'));
+    assert_eq!(router.screen_id(), ScreenId::Choice);
+    let intents = handle(&mut router, &mut fx, InputEvent::Digit('1'));
     assert!(
         intents
             .iter()
@@ -1087,11 +1086,9 @@ fn ip_wizard_dhcp_saves_and_returns_to_throttle() {
 #[test]
 fn ip_wizard_static_walks_all_fields() {
     let mut fx = Fixture::new();
-    let mut router = Router::new(&LONGFRED, ScreenId::IpConfig);
-    let _ = handle(&mut router, &mut fx, InputEvent::Ok);
-    let _ = handle(&mut router, &mut fx, InputEvent::Nav(NavDir::Left));
-    let _ = handle(&mut router, &mut fx, InputEvent::Digit('1'));
-    let _ = handle(&mut router, &mut fx, InputEvent::Ok);
+    let mut router = Router::new(&LONGFRED, ScreenId::WifiSettings);
+    let _ = handle(&mut router, &mut fx, InputEvent::Digit('2'));
+    let _ = handle(&mut router, &mut fx, InputEvent::Digit('2'));
     assert_eq!(fx.session.ip_field, NetField::Ip);
     assert_eq!(router.screen_id(), ScreenId::IpEdit);
 
@@ -1194,7 +1191,7 @@ fn extras_dead_man_opens_choice_and_off_toggles() {
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('4'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Choice);
     {
@@ -1219,21 +1216,21 @@ fn extras_digit_shortcuts_match_label_numbers() {
     let mut router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('4'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Choice);
     fx = Fixture::new();
     router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('4'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::SlotCountEdit);
     fx = Fixture::new();
     router = Router::new(&LONGFRED, ScreenId::Extras);
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('7'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('6'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Language);
 }
@@ -1297,7 +1294,7 @@ fn extras_no_footer_three_rows_on_32_and_digit_zero_opens_language() {
     assert!(grid_line(&view, 4).is_empty());
     {
         let mut cx = fx.ctx();
-        let _ = router.handle(InputEvent::Digit('7'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('6'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Language);
 }
@@ -1373,4 +1370,75 @@ fn server_menu_pair_and_disconnect() {
     };
     assert!(intents.contains(&Intent::ServerDisconnect));
     assert_eq!(router.screen_id(), ScreenId::ServerMenu);
+}
+
+#[test]
+fn server_menu_wifi_settings_opens_submenu() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::ServerMenu);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::WifiSettings);
+    let cx = fx.ctx();
+    let view = router.view(&cx);
+    assert!(grid_line(&view, 0).contains("WiFi"));
+    assert!(grid_line(&view, 1).contains("Search"));
+    assert!(grid_line(&view, 2).contains("Address"));
+}
+
+#[test]
+fn wifi_settings_search_starts_scan() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::WifiSettings);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Digit('1'), &mut cx)
+    };
+    assert_eq!(router.screen_id(), ScreenId::SsidScanning);
+    assert!(intents.contains(&Intent::WifiScan));
+    assert!(fx.session.wifi_from_settings);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.on_app_event(longfred_ui::AppEvent::ScanDone, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::SsidScan);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Back, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::WifiSettings);
+}
+
+#[test]
+fn wifi_scan_back_stays_on_boot_without_compiled_ssids() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::SsidScanning);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.on_app_event(longfred_ui::AppEvent::ScanDone, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::SsidScan);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Back, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::SsidScan);
+}
+
+#[test]
+fn wifi_settings_address_opens_dhcp_static() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::WifiSettings);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('2'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Choice);
+    let cx = fx.ctx();
+    let view = router.view(&cx);
+    assert!(grid_line(&view, 0).contains("Address"));
+    assert!(grid_line(&view, 1).contains("DHCP"));
+    assert!(grid_line(&view, 2).contains("Static"));
 }
