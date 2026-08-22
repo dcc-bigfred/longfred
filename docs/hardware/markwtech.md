@@ -493,7 +493,7 @@ Use the **USB Type-C to UART** port (the one wired to the on-board bridge) — n
 
 - **Boot splash (2 s):** press **Stop** to enter Soft-AP. Hint `[STOP - Programming mode]` is in the bottom-right corner.
 - **Anytime after boot:** hold **\* + Stop** for 8 seconds.
-- In Soft-AP the OLED asks whether you joined the AP (**left** = cancel / reboot, **right** = next), then shows a QR code for `http://192.168.0.1/`.
+- In Soft-AP the OLED asks whether you joined the AP (**left** = cancel / reboot, **right** = next), then shows a QR code for `http://192.168.4.1/`.
 
 After splash (and a one-time language picker, stored in NVS, later **Extras → Language**):
 

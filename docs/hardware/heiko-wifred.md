@@ -54,5 +54,5 @@ flowchart LR
 
 - Auto: first boot with empty Wi‑Fi NVS
 - Manual: Shift + Stop 8 s
-- Soft-AP `longfred_prog_XXXXXX` — DHCP, then `http://192.168.0.1/` (see [provisioning.md](../provisioning.md))
+- Soft-AP `longfred_prog_XXXXXX` — DHCP, then `http://192.168.4.1/` (see [provisioning.md](../provisioning.md))
 - Firmware OTA: Soft-AP only (no on-device menu)

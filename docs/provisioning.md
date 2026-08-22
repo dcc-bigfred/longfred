@@ -17,7 +17,7 @@ Firmware sets `programming_mode` in NVS and soft-resets (except auto-pair at boo
 On OLED variants the Soft-AP UI is two steps:
 
 1. SSID (`longfred_prog_XXXXXX`) and “connected?” — **left** cancels (clears the flag and reboots to normal boot), **right** continues.
-2. `http://192.168.0.1/` — 128×64 shows a QR code with the URL under it; 128×32 shows the URL only. **Left** returns to step 1. **Stop** / **E-Stop** exits from either step.
+2. `http://192.168.4.1/` — 128×64 shows a QR code with the URL under it; 128×32 shows the URL only. **Left** returns to step 1. **Stop** / **E-Stop** exits from either step.
 
 heiko-wifred has no OLED (LED pairing pattern); **Stop** still exits.
 
@@ -27,20 +27,20 @@ heiko-wifred has no OLED (LED pairing pattern); **Stop** still exits.
 |---------|-------|
 | SSID | `longfred_prog_XXXXXX` (6-char MAC suffix) |
 | Security | open |
-| AP IP | `192.168.0.1/24` |
-| DHCP | pool `192.168.0.50`–`192.168.0.200`, lease ~1 h, gateway/DNS `192.168.0.1` |
+| AP IP | `192.168.4.1/24` (ESP-IDF Soft-AP default, same as WiFred) |
+| DHCP | pool `192.168.4.50`–`192.168.4.200`, lease ~1 h, gateway/DNS `192.168.4.1` |
 
-`192.168.0.2` is **outside** the DHCP pool so `wireless-programmer` can keep using that static address.
+`192.168.4.2` is **outside** the DHCP pool so `wireless-programmer` can keep using that static address.
 
 ### Phone / laptop
 
 1. Join `longfred_prog_XXXXXX`
-2. Wait for DHCP (or set a static IPv4 in `192.168.0.0/24`, not `.1` / `.2`)
-3. Open `http://192.168.0.1/`
+2. Wait for DHCP (or set a static IPv4 in `192.168.4.0/24`, not `.1` / `.2`)
+3. Open `http://192.168.4.1/`
 
 ### wireless-programmer
 
-Associates open, assigns `192.168.0.2/24`, talks HTTP to `192.168.0.1:80` (driver id `longfred`).
+Associates open, assigns `192.168.4.2/24`, talks HTTP to `192.168.4.1:80` (driver id `longfred`).
 
 ## Firmware update over HTTP
 
@@ -56,7 +56,7 @@ wireless-programmer update-firmware --mode usb --port /dev/ttyUSB0 \
 
 ```bash
 curl -T dist/longfred-markwtech-esp32c6.app.bin \
-  http://192.168.0.1/api/v1/firmware
+  http://192.168.4.1/api/v1/firmware
 ```
 
 ### Soft-AP path

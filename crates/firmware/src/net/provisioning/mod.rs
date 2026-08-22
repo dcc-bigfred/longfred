@@ -331,17 +331,7 @@ async fn dhcp_task(stack: Stack<'static>) {
         ),
         leases: Default::default(),
     };
-    info!(
-        "programming: DHCP pool {}.{}.{}.{}-{}.{}.{}.{}",
-        config::network::AP_DHCP_START[0],
-        config::network::AP_DHCP_START[1],
-        config::network::AP_DHCP_START[2],
-        config::network::AP_DHCP_START[3],
-        config::network::AP_DHCP_END[0],
-        config::network::AP_DHCP_END[1],
-        config::network::AP_DHCP_END[2],
-        config::network::AP_DHCP_END[3],
-    );
+    info!("programming: DHCP pool 192.168.4.50-200");
     if let Err(e) = run_dhcp_server(stack, dhcp_config, &mut leaser).await {
         warn!("programming: DHCP server failed: {:?}", e);
         loop {

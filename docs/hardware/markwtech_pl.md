@@ -494,7 +494,7 @@ Użyj portu **USB Type-C to UART** (tego wpiętego we wbudowany mostek) — nie 
 
 - **Splash przy starcie (2 s):** **Stop** wchodzi w Soft-AP. W prawym dolnym rogu jest `[STOP - Programming mode]`.
 - **W dowolnym momencie po starcie:** przytrzymaj **\* + Stop** przez 8 sekund.
-- W Soft-AP OLED pyta, czy połączyłeś się z AP (**lewe menu** = anuluj / restart, **prawe menu** = dalej), potem pokazuje kod QR na `http://192.168.0.1/`.
+- W Soft-AP OLED pyta, czy połączyłeś się z AP (**lewe menu** = anuluj / restart, **prawe menu** = dalej), potem pokazuje kod QR na `http://192.168.4.1/`.
 
 Po splashu (i jednorazowym wyborze języka, zapisanym w NVS; później **Extras → Language**):
 
