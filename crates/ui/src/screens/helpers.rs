@@ -4,7 +4,7 @@ use core::fmt::Write as _;
 
 use longfred_proto::persist::StaticIpConfig;
 
-use crate::context::{ScreenCtx, MAX_COMPILED_NETWORKS};
+use crate::context::{MAX_COMPILED_NETWORKS, ScreenCtx};
 use crate::nav::{PageDir, Step};
 use crate::session::NetField;
 use crate::view::{GridView, Line};
