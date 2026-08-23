@@ -1,6 +1,6 @@
 //! MarkWTech v1.0 pin map: ESP32-C6-DevKitC-1, grouped by harness.
 //!
-//! Physical connector layout (see `docs/hardware/markwtech.md`):
+//! Physical connector layout (see `docs/hardware/markwtech/1.0.md`):
 //! keypad on J3-4…J3-10, OLED on J1-5/6, encoder DT/CLK on J1-3/4, SW on J1-7,
 //! left/right/stop on J1-10…12, back/menu on J3-13/14.
 

@@ -58,7 +58,7 @@ pub const EXTRA_BUTTON_MAP: [ButtonId; 5] = [
     ButtonId::Back,
     ButtonId::Menu,
 ];
-/// Silkscreen names matching `docs/hardware/markwtech.md` (same order as [`EXTRA_BUTTON_PINS`]).
+/// Silkscreen names matching `docs/hardware/markwtech/` (same order as [`EXTRA_BUTTON_PINS`]).
 pub const EXTRA_BUTTON_NAMES: [&str; 5] = ["Menu left", "Stop", "Menu right", "Back", "Menu"];
 
 #[cfg(not(feature = "variant-markwtech-v1-1"))]

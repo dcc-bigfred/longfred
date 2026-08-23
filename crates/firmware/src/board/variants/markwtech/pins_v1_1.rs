@@ -5,6 +5,8 @@
 //!
 //! GPIO 9 is an input-only extra button (onboard BOOT in parallel). Do not
 //! drive it as a keypad row.
+//!
+//! Wiring tables: `docs/hardware/markwtech/v1.1.md`.
 
 use crate::config::board::Gpio;
 

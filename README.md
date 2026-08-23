@@ -14,7 +14,8 @@ Build-time Cargo features (mutually exclusive):
 | `variant-markwtech-v1-1` | Same as markwtech; Unexpected Maker TinyC6 pin map |
 | `variant-heiko-wifred` | Headless wiFred-style (LEDs + pot), Wi‑Fi config only |
 
-Docs: [ARCHITECTURE.md](ARCHITECTURE.md), [docs/hardware/](docs/hardware/),
+Docs: [ARCHITECTURE.md](ARCHITECTURE.md), [docs/hardware/](docs/hardware/)
+([MarkWTech v1.0](docs/hardware/markwtech/1.0.md) / [v1.1 TinyC6](docs/hardware/markwtech/v1.1.md)),
 provisioning: [docs/provisioning.md](docs/provisioning.md).
 
 ```bash
