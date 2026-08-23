@@ -16,6 +16,7 @@ cd "$ROOT"
 
 TARGET="${TARGET:-riscv32imac-unknown-none-elf}"
 CHIP="${CHIP:-esp32c6}"
+FLASH_SIZE="${FLASH_SIZE:-8mb}"
 BIN="${BIN:-longfred}"
 DIST_DIR="${DIST_DIR:-dist}"
 # From esp-hal ld/esp32c6/memory.x: RAM LENGTH = 0x6E610
@@ -141,7 +142,7 @@ for variant in "${VARIANTS[@]}"; do
   img="${tmpdir}/${variant}.bin"
   log="${tmpdir}/${variant}.espflash.log"
   if ! ESPFLASH_SKIP_UPDATE_CHECK=true espflash save-image \
-      --chip "$CHIP" --partition-table "$PARTITION_TABLE" --merge "$elf" "$img" >"$log" 2>&1; then
+      --chip "$CHIP" --flash-size "$FLASH_SIZE" --partition-table "$PARTITION_TABLE" --merge "$elf" "$img" >"$log" 2>&1; then
     printf "%-18s %12s %12s %8s  %12s %12s %12s %8s  %s\n" \
       "$variant" "-" "-" "-" "-" "-" "-" "-" "FAIL (espflash)"
     sed -n '1,20p' "$log" >&2

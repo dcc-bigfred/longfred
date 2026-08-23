@@ -139,9 +139,9 @@ jobs:
 
           ELF="target/riscv32imac-unknown-none-elf/release/longfred"
           cp "$ELF" "dist/longfred-${VARIANT}-esp32c6.elf"
-          espflash save-image --chip esp32c6 --partition-table partitions.csv --merge "$ELF" \
+          espflash save-image --chip esp32c6 --flash-size 8mb --partition-table partitions.csv --merge "$ELF" \
             "dist/longfred-${VARIANT}-esp32c6.bin"
-          espflash save-image --chip esp32c6 --partition-table partitions.csv "$ELF" \
+          espflash save-image --chip esp32c6 --flash-size 8mb --partition-table partitions.csv "$ELF" \
             "dist/longfred-${VARIANT}-esp32c6.app.bin"
 
           (
