@@ -29,9 +29,17 @@ endif
 # Isolate Cargo artifacts per variant so feature switches cannot reuse a stale ELF.
 TARGET_DIR := target/$(VARIANT)
 
+# TinyC6 native USB Serial/JTAG is usually ttyACM*; DevKitC-1 UART bridge is ttyUSB*.
+ifeq ($(VARIANT),markwtech-v1-1)
+ESPFLASH_PORT ?= /dev/ttyACM0
+else
+ESPFLASH_PORT ?= /dev/ttyUSB0
+endif
+
 .PHONY: all build build-release build-all build-all-release \
 	build-longfred-standard build-longfred-mini build-markwtech \
 	build-markwtech-v1-1 build-heiko-wifred \
+	flash flash-markwtech flash-markwtech-v1-1 \
 	size check-size check-size-only test lint help
 
 all: build test
@@ -48,9 +56,13 @@ help:
 	@echo "  check-size-only         - check existing dist/*.elf (no cargo; used by CI)"
 	@echo "  test                    - cargo test -p longfred-proto and longfred-ui (host)"
 	@echo "  lint                    - rustfmt --check on the workspace"
+	@echo "  flash [VARIANT=...]     - cargo run (build + espflash) for VARIANT"
+	@echo "  flash-markwtech         - flash v1.0 (DevKitC-1, /dev/ttyUSB0)"
+	@echo "  flash-markwtech-v1-1    - flash v1.1 (TinyC6 USB Serial/JTAG, /dev/ttyACM0)"
 	@echo "  all                     - build + test (default)"
 	@echo ""
 	@echo "VARIANT (default: $(VARIANT)): $(VARIANTS)"
+	@echo "ESPFLASH_PORT             - override serial device (defaults: ttyUSB0, TinyC6 ttyACM0)"
 
 build:
 	$(CARGO) build -p $(PACKAGE) --target-dir $(TARGET_DIR) $(FEATURES)
@@ -102,7 +114,12 @@ lint:
 	$(CARGO) fmt --all -- --check
 	$(CARGO) clippy -p longfred-ui --all-targets --target x86_64-unknown-linux-gnu -- --no-deps -D warnings
 
+flash:
+	ESPFLASH_PORT=$(ESPFLASH_PORT) $(CARGO) run -p $(PACKAGE) \
+	  --target-dir $(TARGET_DIR) $(FEATURES)
+
 flash-markwtech:
-	ESPFLASH_PORT=/dev/ttyUSB0 cargo run -p longfred-firmware \
-	  --no-default-features --features variant-markwtech,print-auto \
-	  --target-dir target/markwtech
+	@$(MAKE) --no-print-directory flash VARIANT=markwtech
+
+flash-markwtech-v1-1:
+	@$(MAKE) --no-print-directory flash VARIANT=markwtech-v1-1
