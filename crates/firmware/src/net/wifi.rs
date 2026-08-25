@@ -1,5 +1,7 @@
 //! WiFi STA: connection task (scan/connect via WIFI_CTRL), stack runner, DHCP/status.
 
+use core::pin::pin;
+
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_net::{ConfigV4, DhcpConfig, Ipv4Address, Ipv4Cidr, Runner, Stack, StaticConfigV4};
 use embassy_time::{Duration, Timer};
@@ -68,6 +70,32 @@ async fn publish_scan(controller: &mut WifiController<'static>) {
     WIFI_SCAN.signal(out);
 }
 
+/// Wait for `connect_async` to finish so a later scan cannot hit IDF
+/// `ESP_ERR_WIFI_STATE` (12294). `esp-radio` panics on that unmapped code.
+///
+/// Do not drop this future: `disconnect_async` is a no-op while
+/// `is_connected()` is false, so a cancelled connect leaves STA connecting.
+async fn connect_sta(controller: &mut WifiController<'static>, timeout: Duration) -> bool {
+    let mut connect = pin!(controller.connect_async());
+    match select(&mut connect, Timer::after(timeout)).await {
+        Either::First(Ok(_)) => true,
+        Either::First(Err(e)) => {
+            warn!("wifi connect error: {:?}", e);
+            false
+        }
+        Either::Second(()) => {
+            warn!("wifi connect timeout; waiting for radio to settle");
+            match connect.await {
+                Ok(_) => true,
+                Err(e) => {
+                    warn!("wifi connect error after timeout: {:?}", e);
+                    false
+                }
+            }
+        }
+    }
+}
+
 async fn backoff_or_cmd(
     ctrl_rx: &embassy_sync::channel::Receiver<
         'static,
@@ -105,7 +133,10 @@ pub async fn connection(mut controller: WifiController<'static>) {
         };
         match cmd {
             WifiCmd::Scan => publish_scan(&mut controller).await,
-            WifiCmd::Connect { ssid, password } => loop {
+            WifiCmd::Connect {
+                mut ssid,
+                mut password,
+            } => loop {
                 let cfg = WifiConfig::Station(
                     StationConfig::default()
                         .with_ssid(ssid.as_str())
@@ -140,31 +171,27 @@ pub async fn connection(mut controller: WifiController<'static>) {
                 }
                 info!("wifi connecting to SSID={}", ssid.as_str());
                 let timeout = Duration::from_millis(config::network::SSID_CONNECTION_TIMEOUT_MS);
-                let associated = match select3(
-                    controller.connect_async(),
-                    Timer::after(timeout),
-                    ctrl_rx.receive(),
-                )
-                .await
-                {
-                    Either3::First(Ok(_)) => true,
-                    Either3::First(Err(e)) => {
-                        warn!("wifi connect error: {:?}", e);
-                        state_tx.send(NetStatus::Disconnected);
-                        false
+                let associated = connect_sta(&mut controller, timeout).await;
+                if !associated {
+                    state_tx.send(NetStatus::Disconnected);
+                }
+                if let Ok(next) = ctrl_rx.try_receive() {
+                    match next {
+                        WifiCmd::Scan => {
+                            pending = Some(WifiCmd::Scan);
+                            break;
+                        }
+                        WifiCmd::Connect {
+                            ssid: next_ssid,
+                            password: next_password,
+                        } => {
+                            ssid = next_ssid;
+                            password = next_password;
+                            rejoin_fails = 0;
+                            continue;
+                        }
                     }
-                    Either3::Second(_) => {
-                        warn!("wifi connect timeout");
-                        let _ = controller.disconnect_async().await;
-                        state_tx.send(NetStatus::Disconnected);
-                        false
-                    }
-                    Either3::Third(next) => {
-                        let _ = controller.disconnect_async().await;
-                        pending = Some(next);
-                        break;
-                    }
-                };
+                }
                 if !associated {
                     match backoff_or_cmd(&ctrl_rx, rejoin_fails).await {
                         Some(next) => {
