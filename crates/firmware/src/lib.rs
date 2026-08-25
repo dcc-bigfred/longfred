@@ -14,3 +14,19 @@ pub mod net;
 pub mod power;
 pub mod storage;
 pub mod ui;
+
+/// Spawn an embassy task or software-reset. Silent spawn skips brick the handset.
+#[macro_export]
+macro_rules! spawn_or_reset {
+    ($spawner:expr, $expr:expr, $name:expr) => {{
+        match $expr {
+            Ok(token) => {
+                $spawner.spawn(token);
+            }
+            Err(_) => {
+                ::log::error!("boot: {} task pool exhausted — reset", $name);
+                ::esp_hal::system::software_reset();
+            }
+        }
+    }};
+}

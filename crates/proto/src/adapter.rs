@@ -22,11 +22,20 @@ impl Adapter {
         }
     }
 
-    /// Bytes sent when leaving a live session cleanly.
+    /// Bytes sent when leaving a live session without unpairing (reconnect / drop).
     pub fn on_disconnect(&mut self, out: &mut WireBuf) {
         match self {
             Adapter::Wt(a) => a.on_disconnect(out),
             Adapter::BigFred(a) => a.on_disconnect(out),
+            Adapter::Z21(_) => {}
+        }
+    }
+
+    /// Bytes sent when the operator explicitly disconnects (`Q` on WiThrottle).
+    pub fn on_unpair(&mut self, out: &mut WireBuf) {
+        match self {
+            Adapter::Wt(a) => a.on_unpair(out),
+            Adapter::BigFred(a) => a.on_unpair(out),
             Adapter::Z21(_) => {}
         }
     }

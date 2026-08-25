@@ -2,9 +2,10 @@
 
 use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
-use log::{info, warn};
+use log::{error, info, warn};
 use longfred_proto::command::ClientCommand;
 use longfred_proto::menu::parse_ip_endpoint;
 use longfred_proto::model::Direction;
@@ -30,6 +31,17 @@ use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, StorageCmd};
 use crate::ui::adapter;
 use crate::ui::{UI_VIEW, i18n};
 
+fn drop_stale_speed(out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
+    let Some(i) = out
+        .iter()
+        .rposition(|c| matches!(c, ClientCommand::SetSpeed { .. }))
+    else {
+        return false;
+    };
+    let _ = out.remove(i);
+    true
+}
+
 async fn flush_cmds(
     cmd_tx: &embassy_sync::channel::Sender<
         'static,
@@ -42,13 +54,27 @@ async fn flush_cmds(
 ) {
     let min_delay = Duration::from_millis(config::network::OUTBOUND_COMMANDS_MIN_DELAY_MS);
     while let Some(cmd) = out.first().cloned() {
-        let elapsed = last_cmd.elapsed();
-        if elapsed < min_delay {
-            Timer::after(min_delay - elapsed).await;
+        let estop = matches!(cmd, ClientCommand::EStop { .. });
+        if !estop {
+            let elapsed = last_cmd.elapsed();
+            if elapsed < min_delay {
+                Timer::after(min_delay - elapsed).await;
+            }
         }
+        if cmd_tx.try_send(cmd.clone()).is_ok() {
+            let _ = out.remove(0);
+            *last_cmd = Instant::now();
+            continue;
+        }
+        if drop_stale_speed(out) {
+            continue;
+        }
+        if estop {
+            warn!("domain: estop queued, command channel full");
+            break;
+        }
+        warn!("domain: dropping outbound command (channel full)");
         let _ = out.remove(0);
-        cmd_tx.send(cmd).await;
-        *last_cmd = Instant::now();
     }
 }
 
@@ -59,6 +85,7 @@ fn apply_persist(state: &mut DomainState, rec: PersistRecord) {
     let hostname = rec.wifi_hostname.clone();
     let language = rec.language;
     state.load_persist(rec);
+    crate::net::DEAD_MAN.sender().send(state.dead_man_switch_on);
     i18n::set_language(language);
     DEVICE.sender().send(device);
     if !hostname.is_empty() {
@@ -415,6 +442,29 @@ fn has_oled() -> bool {
     crate::board::active().display.is_some()
 }
 
+/// Last domain-loop pulse; [`watchdog_task`] resets the MCU if this stalls.
+pub static DOMAIN_PULSE: Watch<CriticalSectionRawMutex, Option<Instant>, 1> = Watch::new_with(None);
+
+fn pulse_domain() {
+    DOMAIN_PULSE.sender().send(Some(Instant::now()));
+}
+
+/// Software watchdog for the domain loop (frozen UI / blocked command path).
+#[embassy_executor::task]
+pub async fn watchdog_task() {
+    Timer::after(Duration::from_secs(15)).await;
+    loop {
+        Timer::after(Duration::from_secs(2)).await;
+        match DOMAIN_PULSE.sender().try_get().flatten() {
+            Some(t) if t.elapsed() < Duration::from_secs(5) => {}
+            _ => {
+                error!("domain watchdog: stall — reset");
+                esp_hal::system::software_reset();
+            }
+        }
+    }
+}
+
 #[embassy_executor::task]
 pub async fn task() {
     let mut ui = adapter::UiWorld::new();
@@ -498,8 +548,10 @@ pub async fn task() {
     }
 
     ui.publish_view(Instant::now().as_millis(), &ui_tx);
+    pulse_domain();
 
     loop {
+        pulse_domain();
         match select3(
             input_rx.receive(),
             events_rx.receive(),
@@ -784,22 +836,8 @@ pub async fn task() {
                         );
                     }
                     BootWait::ServerConnect if timed_out => {
-                        info!("domain: server connect timed out");
-                        srv_tx.send(None);
-                        let follow = ui.with_ctx(now.as_millis(), |router, cx| {
-                            router.replace_screen(ScreenId::ServerList, cx)
-                        });
-                        boot_wait = BootWait::Done;
+                        info!("domain: server connect still pending");
                         phase_until = None;
-                        run_intents(
-                            &mut ui,
-                            follow,
-                            spdt_direction,
-                            &mut out,
-                            &wifi_tx,
-                            &srv_tx,
-                            &storage_tx,
-                        );
                     }
                     _ => {}
                 }
@@ -901,6 +939,7 @@ pub async fn task() {
 
         if let Some(w) = conn_rx.as_mut().and_then(|r| r.try_get()) {
             if w != ui.conn {
+                let prev = ui.conn;
                 ui.conn = w;
                 if w == ConnState::Connected {
                     last_activity = Instant::now();
@@ -932,7 +971,9 @@ pub async fn task() {
                         ui.state.reacquire_session_locos(&mut out);
                         restored_this_session = true;
                     }
-                } else if w == ConnState::Disconnected {
+                } else if w == ConnState::Disconnected
+                    || (w == ConnState::Connecting && prev == ConnState::Connected)
+                {
                     ui.state.end_session();
                     pairing_active = false;
                     pairing_http_tried = false;
@@ -978,6 +1019,15 @@ pub async fn task() {
 
         if let Some(b) = battery_rx.as_mut().and_then(|r| r.try_get()) {
             ui.battery = b;
+            if let Some(sample) = b
+                && power::USE_BATTERY_SLEEP_AT_PERCENT > 0
+                && sample.percent < power::USE_BATTERY_SLEEP_AT_PERCENT
+                && !sample.charging
+                && !sleep_requested
+            {
+                sleep_requested = true;
+                request_device_sleep(&mut ui.state, &mut out, SleepReason::Battery);
+            }
         }
 
         if let Ok(result) = pairing_http_rx.try_receive() {

@@ -16,7 +16,7 @@ use esp_radio::wifi::{
     Config as WifiConfig, ControllerConfig, Interface, WifiController, ap::AccessPointConfig,
 };
 use heapless::String;
-use log::{info, warn};
+use log::{error, info, warn};
 use longfred_proto::persist::PersistRecord;
 use static_cell::StaticCell;
 
@@ -211,11 +211,8 @@ pub fn spawn_programming_net(
     i18n::set_language(initial.language);
 
     let Some((controller, iface)) = start_ap(wifi) else {
-        warn!("programming: no Soft-AP interface; HTTP not started");
-        if let Ok(token) = pairing_ui_task(ssid) {
-            spawner.spawn(token);
-        }
-        return false;
+        error!("programming: no Soft-AP interface — reset");
+        software_reset();
     };
 
     static RESOURCES: StaticCell<StackResources<{ sizes::PROG_NET_SOCKETS }>> = StaticCell::new();
@@ -224,26 +221,16 @@ pub fn spawn_programming_net(
 
     let rec = PROG_REC.init(Mutex::new(initial));
 
-    if let Ok(token) = ap_hold_task(controller) {
-        spawner.spawn(token);
-    }
-    if let Ok(token) = crate::net::wifi::net_task(runner) {
-        spawner.spawn(token);
-    }
-    if let Ok(token) = http_server::task_ap(stack, rec, flash) {
-        spawner.spawn(token);
-    }
-    if let Ok(token) = dhcp_task(stack) {
-        spawner.spawn(token);
-    }
-    if let Ok(token) = pairing_ui_task(ssid) {
-        spawner.spawn(token);
-    }
-
-    // Refresh local record if storage republishes.
-    if let Ok(token) = sync_persist_task(rec) {
-        spawner.spawn(token);
-    }
+    crate::spawn_or_reset!(spawner, ap_hold_task(controller), "ap-hold");
+    crate::spawn_or_reset!(spawner, crate::net::wifi::net_task(runner), "prog-net");
+    crate::spawn_or_reset!(
+        spawner,
+        http_server::task_ap(stack, rec, flash),
+        "prog-http"
+    );
+    crate::spawn_or_reset!(spawner, dhcp_task(stack), "prog-dhcp");
+    crate::spawn_or_reset!(spawner, pairing_ui_task(ssid), "prog-ui");
+    crate::spawn_or_reset!(spawner, sync_persist_task(rec), "prog-persist");
 
     true
 }
@@ -283,15 +270,17 @@ pub fn spawn_sta_http(
     flash: &'static SharedFlash,
 ) {
     let rec = STA_REC.init(Mutex::new(initial));
-    if let Ok(token) = http_server::task_sta(stack, rec, flash) {
-        spawner.spawn(token);
-    }
-    if let Ok(token) = sync_persist_task(rec) {
-        spawner.spawn(token);
-    }
-    if let Ok(token) = crate::net::mdns::ota_announce_task(stack) {
-        spawner.spawn(token);
-    }
+    crate::spawn_or_reset!(
+        spawner,
+        http_server::task_sta(stack, rec, flash),
+        "sta-http"
+    );
+    crate::spawn_or_reset!(spawner, sync_persist_task(rec), "sta-persist");
+    crate::spawn_or_reset!(
+        spawner,
+        crate::net::mdns::ota_announce_task(stack),
+        "ota-mdns"
+    );
 }
 
 #[embassy_executor::task]

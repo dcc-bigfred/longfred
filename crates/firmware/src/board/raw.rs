@@ -6,6 +6,8 @@ use embassy_sync::channel::{Channel, Receiver, Sender};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ButtonId {
     Stop,
+    /// Dedicated emergency-stop control (must not share [`Self::Stop`] / Back).
+    EStop,
     Shift1,
     Shift2,
     JoyUp,

@@ -15,6 +15,7 @@ impl ProtocolSpec for BigFred {
     const INFO: ProtocolInfo = ProtocolInfo {
         caps: ProtocolCaps {
             pairing: true,
+            steal: false,
             ..<WiThrottle as ProtocolSpec>::INFO.caps
         },
         probe: Probe::HttpGet {
@@ -55,6 +56,8 @@ mod tests {
         assert_eq!(w.transport, b.transport);
         assert_eq!(w.mdns_service, b.mdns_service);
         assert!(b.pairing && !w.pairing);
+        assert!(!b.supports_steal());
+        assert!(w.supports_steal());
         assert!(b.supports_source(LocoSource::ServerRoster));
     }
 }

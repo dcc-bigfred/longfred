@@ -524,7 +524,15 @@ fn throttle_server_connected_follows_conn_state() {
         let UiView::Throttle(view) = view else {
             return;
         };
-        assert!(!view.server_connected);
+        assert_eq!(view.conn, ConnState::Disconnected);
+    }
+    fx.conn = ConnState::Connecting;
+    {
+        let cx = fx.ctx();
+        let UiView::Throttle(view) = router.view(&cx) else {
+            return;
+        };
+        assert_eq!(view.conn, ConnState::Connecting);
     }
     fx.conn = ConnState::Connected;
     {
@@ -534,7 +542,7 @@ fn throttle_server_connected_follows_conn_state() {
         let UiView::Throttle(view) = view else {
             return;
         };
-        assert!(view.server_connected);
+        assert_eq!(view.conn, ConnState::Connected);
     }
 }
 
@@ -1129,6 +1137,26 @@ fn overlay_estop_dismisses_without_estop_intent() {
         router.handle(InputEvent::EStop, &mut cx)
     };
     assert!(intents.contains(&Intent::Action(Action::EStop)));
+}
+
+#[test]
+fn overlay_estop_with_loco_emits_estop_and_dismisses() {
+    let mut fx = Fixture::new();
+    let mut addr = heapless::String::new();
+    let _ = addr.push('3');
+    let _ = fx.slots[0].consist.push(addr);
+    let mut router = Router::new(&LONGFRED, ScreenId::Throttle);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.show_overlay("Net saved", cx.now_ms, 5_000);
+        assert!(matches!(router.view(&cx), UiView::Overlay(_)));
+        router.handle(InputEvent::EStop, &mut cx)
+    };
+    assert!(intents.contains(&Intent::Action(Action::EStop)));
+    {
+        let cx = fx.ctx();
+        assert!(matches!(router.view(&cx), UiView::Throttle(_)));
+    }
 }
 
 #[test]

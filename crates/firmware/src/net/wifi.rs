@@ -12,8 +12,8 @@ use log::{info, warn};
 use crate::config;
 use crate::config::sizes;
 use crate::net::{
-    NET_CONFIG_CTRL, NetStatus, STA_NET, STATE, SsidInfo, StaNet, WIFI_CTRL, WIFI_HOSTNAME,
-    WIFI_LINK, WIFI_SCAN, WifiCmd, WifiLink,
+    NET_CONFIG_CTRL, NetStatus, STA_NET, STATE, SsidInfo, StaNet, WIFI_CTRL, WIFI_CTRL_DEPTH,
+    WIFI_HOSTNAME, WIFI_LINK, WIFI_SCAN, WifiCmd, WifiLink,
 };
 
 /// embassy-net driver type provided by esp-radio (STA).
@@ -68,12 +68,35 @@ async fn publish_scan(controller: &mut WifiController<'static>) {
     WIFI_SCAN.signal(out);
 }
 
-/// Task maintaining STA connection: handles WIFI_CTRL (scan/connect).
+async fn backoff_or_cmd(
+    ctrl_rx: &embassy_sync::channel::Receiver<
+        'static,
+        embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+        WifiCmd,
+        WIFI_CTRL_DEPTH,
+    >,
+    fails: u32,
+) -> Option<WifiCmd> {
+    let backoff =
+        (config::network::RECONNECT_MIN_MS << fails.min(4)).min(config::network::RECONNECT_MAX_MS);
+    match select(
+        Timer::after(Duration::from_millis(backoff)),
+        ctrl_rx.receive(),
+    )
+    .await
+    {
+        Either::First(()) => None,
+        Either::Second(cmd) => Some(cmd),
+    }
+}
+
+/// Task maintaining STA connection: handles WIFI_CTRL (scan/connect) and auto-rejoin.
 #[embassy_executor::task]
 pub async fn connection(mut controller: WifiController<'static>) {
     let ctrl_rx = WIFI_CTRL.receiver();
     let state_tx = STATE.sender();
     let mut pending = None;
+    let mut rejoin_fails: u32 = 0;
 
     loop {
         let cmd = match pending.take() {
@@ -82,7 +105,7 @@ pub async fn connection(mut controller: WifiController<'static>) {
         };
         match cmd {
             WifiCmd::Scan => publish_scan(&mut controller).await,
-            WifiCmd::Connect { ssid, password } => {
+            WifiCmd::Connect { ssid, password } => loop {
                 let cfg = WifiConfig::Station(
                     StationConfig::default()
                         .with_ssid(ssid.as_str())
@@ -92,7 +115,16 @@ pub async fn connection(mut controller: WifiController<'static>) {
                 if let Err(e) = controller.set_config(&cfg) {
                     warn!("wifi set_config error: {:?}", e);
                     state_tx.send(NetStatus::Disconnected);
-                    continue;
+                    match backoff_or_cmd(&ctrl_rx, rejoin_fails).await {
+                        Some(next) => {
+                            pending = Some(next);
+                            break;
+                        }
+                        None => {
+                            rejoin_fails = rejoin_fails.saturating_add(1);
+                            continue;
+                        }
+                    }
                 }
                 if config::network::WIFI_FORCE_POWER_SAVE_NONE {
                     if let Err(e) = controller.set_power_saving(PowerSaveMode::None) {
@@ -108,50 +140,93 @@ pub async fn connection(mut controller: WifiController<'static>) {
                 }
                 info!("wifi connecting to SSID={}", ssid.as_str());
                 let timeout = Duration::from_millis(config::network::SSID_CONNECTION_TIMEOUT_MS);
-                match select(controller.connect_async(), Timer::after(timeout)).await {
-                    Either::First(Ok(_)) => {
-                        info!("wifi connected");
-                        state_tx.send(NetStatus::WifiConnected);
-                        publish_wifi_link(&controller);
-                        loop {
-                            match select3(
-                                controller.wait_for_disconnect_async(),
-                                Timer::after(Duration::from_secs(1)),
-                                ctrl_rx.receive(),
-                            )
-                            .await
-                            {
-                                Either3::First(_) => {
-                                    WIFI_LINK.sender().send(None);
-                                    warn!("wifi disconnected");
-                                    state_tx.send(NetStatus::Disconnected);
-                                    break;
-                                }
-                                Either3::Second(_) => publish_wifi_link(&controller),
-                                Either3::Third(WifiCmd::Scan) => {
-                                    publish_scan(&mut controller).await;
-                                }
-                                Either3::Third(next @ WifiCmd::Connect { .. }) => {
-                                    info!("wifi reconnect requested");
-                                    let _ = controller.disconnect_async().await;
-                                    WIFI_LINK.sender().send(None);
-                                    pending = Some(next);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    Either::First(Err(e)) => {
+                let associated = match select3(
+                    controller.connect_async(),
+                    Timer::after(timeout),
+                    ctrl_rx.receive(),
+                )
+                .await
+                {
+                    Either3::First(Ok(_)) => true,
+                    Either3::First(Err(e)) => {
                         warn!("wifi connect error: {:?}", e);
                         state_tx.send(NetStatus::Disconnected);
+                        false
                     }
-                    Either::Second(_) => {
+                    Either3::Second(_) => {
                         warn!("wifi connect timeout");
                         let _ = controller.disconnect_async().await;
                         state_tx.send(NetStatus::Disconnected);
+                        false
+                    }
+                    Either3::Third(next) => {
+                        let _ = controller.disconnect_async().await;
+                        pending = Some(next);
+                        break;
+                    }
+                };
+                if !associated {
+                    match backoff_or_cmd(&ctrl_rx, rejoin_fails).await {
+                        Some(next) => {
+                            pending = Some(next);
+                            break;
+                        }
+                        None => {
+                            rejoin_fails = rejoin_fails.saturating_add(1);
+                            continue;
+                        }
                     }
                 }
-            }
+                info!("wifi connected");
+                rejoin_fails = 0;
+                state_tx.send(NetStatus::WifiConnected);
+                publish_wifi_link(&controller);
+                let mut dropped = false;
+                loop {
+                    match select3(
+                        controller.wait_for_disconnect_async(),
+                        Timer::after(Duration::from_secs(1)),
+                        ctrl_rx.receive(),
+                    )
+                    .await
+                    {
+                        Either3::First(_) => {
+                            WIFI_LINK.sender().send(None);
+                            warn!("wifi disconnected");
+                            state_tx.send(NetStatus::Disconnected);
+                            dropped = true;
+                            break;
+                        }
+                        Either3::Second(_) => publish_wifi_link(&controller),
+                        Either3::Third(WifiCmd::Scan) => {
+                            publish_scan(&mut controller).await;
+                        }
+                        Either3::Third(next @ WifiCmd::Connect { .. }) => {
+                            info!("wifi reconnect requested");
+                            let _ = controller.disconnect_async().await;
+                            WIFI_LINK.sender().send(None);
+                            pending = Some(next);
+                            break;
+                        }
+                    }
+                }
+                if pending.is_some() {
+                    break;
+                }
+                if dropped {
+                    match backoff_or_cmd(&ctrl_rx, rejoin_fails).await {
+                        Some(next) => {
+                            pending = Some(next);
+                            break;
+                        }
+                        None => {
+                            rejoin_fails = rejoin_fails.saturating_add(1);
+                            continue;
+                        }
+                    }
+                }
+                break;
+            },
         }
     }
 }
@@ -187,6 +262,7 @@ pub async fn status_task(stack: Stack<'static>) {
         }
         stack.wait_link_down().await;
         warn!("net link down");
+        sender.send(NetStatus::Disconnected);
         crate::net::STA_IPV4.sender().send(None);
         STA_NET.sender().send(None);
         crate::net::HTTP_OTA_ENABLE.sender().send(false);

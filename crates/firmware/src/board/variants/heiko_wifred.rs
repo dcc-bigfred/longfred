@@ -56,7 +56,7 @@ impl HeikoWifredSurface {
     fn on_button(&mut self, id: ButtonId, pressed: bool, out: &mut dyn FnMut(InputEvent)) {
         match id {
             ButtonId::Shift1 => self.shift1 = pressed,
-            ButtonId::Stop => {
+            ButtonId::Stop | ButtonId::EStop => {
                 self.stop = pressed;
                 if pressed {
                     out(InputEvent::EStop);

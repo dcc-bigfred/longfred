@@ -2,7 +2,7 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use esp_hal::analog::adc::{Adc, AdcConfig, AdcPin, Attenuation};
 use esp_hal::gpio::AnalogPin;
 use esp_hal::peripherals::ADC1;
@@ -83,8 +83,19 @@ async fn run<PIN>(
                 && percent < power::USE_BATTERY_SLEEP_AT_PERCENT
                 && !charging
             {
+                let deadline = Instant::now() + Duration::from_millis(200);
                 for throttle in 0..sizes::MAX_THROTTLES as u8 {
-                    let _ = PROTO_COMMANDS.try_send(ClientCommand::EStop { throttle });
+                    let cmd = ClientCommand::EStop { throttle };
+                    loop {
+                        if PROTO_COMMANDS.try_send(cmd.clone()).is_ok() {
+                            break;
+                        }
+                        if Instant::now() >= deadline {
+                            log::warn!("battery: estop dropped, command channel full");
+                            break;
+                        }
+                        Timer::after(Duration::from_millis(10)).await;
+                    }
                 }
                 net::set_http_ota_enabled(false);
                 sleep::begin_sleep(SleepReason::Battery);

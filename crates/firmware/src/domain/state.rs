@@ -21,7 +21,7 @@ use crate::domain::model::{
 };
 use crate::ui::i18n;
 
-pub const CMD_BUF: usize = 12;
+pub const CMD_BUF: usize = config::sizes::MAX_THROTTLES * 3 + 4;
 const SPEED_ECHO_DEBOUNCE_MS: u64 = 500;
 
 pub struct DomainState {
@@ -353,6 +353,7 @@ impl DomainState {
         out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
     ) -> bool {
         self.dead_man_switch_on = !self.dead_man_switch_on;
+        crate::net::DEAD_MAN.sender().send(self.dead_man_switch_on);
         push_cmd(
             out,
             ClientCommand::SetDeadManSwitch(self.dead_man_switch_on),
@@ -632,17 +633,21 @@ impl DomainState {
             ServerEvent::Message(text) => self.on_broadcast(text),
             ServerEvent::Alert(text) => self.on_alert(text),
             ServerEvent::StealNeeded { throttle, addr, .. } => {
-                let idx = throttle_index(throttle).unwrap_or(self.current);
-                push_cmd(
-                    out,
-                    ClientCommand::Steal {
-                        throttle: idx as u8,
-                        loco: LocoId::parse(addr.as_str()).unwrap_or(LocoId {
-                            addr: 0,
-                            long: false,
-                        }),
-                    },
-                );
+                if self.session_caps.is_some_and(|c| c.supports_steal()) {
+                    let idx = throttle_index(throttle).unwrap_or(self.current);
+                    push_cmd(
+                        out,
+                        ClientCommand::Steal {
+                            throttle: idx as u8,
+                            loco: LocoId::parse(addr.as_str()).unwrap_or(LocoId {
+                                addr: 0,
+                                long: false,
+                            }),
+                        },
+                    );
+                } else {
+                    self.show_message(i18n::tr().overlay_loco_busy);
+                }
                 false
             }
             ServerEvent::HeartbeatConfig { .. }
@@ -667,7 +672,13 @@ impl DomainState {
     }
 
     fn on_alert(&mut self, text: LongText) -> bool {
-        if text.as_str() == "Not paired" || text.as_str().contains("steal") {
+        if text.as_str() == "Not paired" {
+            return false;
+        }
+        if text.as_str().contains("steal") {
+            if !self.session_caps.is_some_and(|c| c.supports_steal()) {
+                self.show_message(i18n::tr().overlay_loco_busy);
+            }
             return false;
         }
         self.queue_overlay(text);

@@ -71,21 +71,22 @@ async fn main(spawner: Spawner) -> ! {
         );
         let mut prog_rec = boot.record.clone();
         prog_rec.programming_mode = true;
-        let _ = net::provisioning::spawn_programming_net(
+        if !net::provisioning::spawn_programming_net(
             &spawner,
             peripherals.WIFI,
             seed,
             prog_rec,
             flash,
-        );
+        ) {
+            log::error!("boot: programming net failed — reset");
+            esp_hal::system::software_reset();
+        }
     } else {
         let controller = match WifiController::new(peripherals.WIFI, Default::default()) {
             Ok(c) => c,
             Err(e) => {
-                log::error!("boot: WifiController::new failed: {:?} — hanging", e);
-                loop {
-                    Timer::after(Duration::from_secs(60)).await;
-                }
+                log::error!("boot: WifiController::new failed: {:?}", e);
+                esp_hal::system::software_reset();
             }
         };
         let sta = Interface::station();
@@ -99,30 +100,14 @@ async fn main(spawner: Spawner) -> ! {
         dhcp.hostname = Some(host);
         let (stack, runner) = embassy_net::new(sta, NetConfig::dhcpv4(dhcp), resources, seed);
 
-        if let Ok(token) = net::wifi::connection(controller) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::wifi::net_task(runner) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::wifi::status_task(stack) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::wifi::config_task(stack) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::mdns::task(stack, "") {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::session::task(stack) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::pairing_http::task(stack) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = net::ping::task(stack) {
-            spawner.spawn(token);
-        }
+        longfred_firmware::spawn_or_reset!(spawner, net::wifi::connection(controller), "wifi");
+        longfred_firmware::spawn_or_reset!(spawner, net::wifi::net_task(runner), "net");
+        longfred_firmware::spawn_or_reset!(spawner, net::wifi::status_task(stack), "net-status");
+        longfred_firmware::spawn_or_reset!(spawner, net::wifi::config_task(stack), "net-config");
+        longfred_firmware::spawn_or_reset!(spawner, net::mdns::task(stack, ""), "mdns");
+        longfred_firmware::spawn_or_reset!(spawner, net::session::task(stack), "session");
+        longfred_firmware::spawn_or_reset!(spawner, net::pairing_http::task(stack), "pairing-http");
+        longfred_firmware::spawn_or_reset!(spawner, net::ping::task(stack), "ping");
         net::provisioning::spawn_sta_http(&spawner, stack, boot.record.clone(), flash);
     }
 
@@ -133,24 +118,26 @@ async fn main(spawner: Spawner) -> ! {
         config::network::NETWORKS.len()
     );
 
-    if let Ok(token) = storage::task(flash, boot_entropy) {
-        spawner.spawn(token);
-    }
+    longfred_firmware::spawn_or_reset!(spawner, storage::task(flash, boot_entropy), "storage");
     if config::power::USE_BATTERY_TEST {
         #[cfg(not(feature = "variant-markwtech-v1-1"))]
-        if let Ok(token) = power::battery::task(peripherals.ADC1, peripherals.GPIO1) {
-            spawner.spawn(token);
-        }
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            power::battery::task(peripherals.ADC1, peripherals.GPIO1),
+            "battery"
+        );
         #[cfg(feature = "variant-markwtech-v1-1")]
-        if let Ok(token) =
-            power::battery::task(peripherals.ADC1, peripherals.GPIO4, peripherals.GPIO10)
-        {
-            spawner.spawn(token);
-        }
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            power::battery::task(peripherals.ADC1, peripherals.GPIO4, peripherals.GPIO10),
+            "battery"
+        );
     }
-    if let Ok(token) = power::sleep::task(peripherals.LPWR, peripherals.GPIO0) {
-        spawner.spawn(token);
-    }
+    longfred_firmware::spawn_or_reset!(
+        spawner,
+        power::sleep::task(peripherals.LPWR, peripherals.GPIO0),
+        "sleep"
+    );
 
     let raw_sender = board::RAW_CHANNEL.sender();
     info!("board variant: {}", board::active().id);
@@ -160,16 +147,16 @@ async fn main(spawner: Spawner) -> ! {
 
     // OLED for variants with a display; heiko uses LED presenter instead.
     #[cfg(not(feature = "variant-heiko-wifred"))]
-    if let Ok(token) = ui::display::task(oled_i2c) {
-        spawner.spawn(token);
-    }
+    longfred_firmware::spawn_or_reset!(spawner, ui::display::task(oled_i2c), "display");
     #[cfg(feature = "variant-heiko-wifred")]
     {
         let _ = oled_i2c;
         let (led_stop, led_fwd, led_rev) = ui::led_presenter::build();
-        if let Ok(token) = ui::led_presenter::task(led_stop, led_fwd, led_rev) {
-            spawner.spawn(token);
-        }
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            ui::led_presenter::task(led_stop, led_fwd, led_rev),
+            "leds"
+        );
     }
 
     // LongFred family: GPIO nav cluster.
@@ -187,22 +174,28 @@ async fn main(spawner: Spawner) -> ! {
             peripherals.GPIO23,
             peripherals.GPIO10,
         );
-        if let Ok(token) = input::gpio_nav::task(nav, raw_sender) {
-            spawner.spawn(token);
-        }
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::gpio_nav::task(nav, raw_sender),
+            "gpio-nav"
+        );
     }
 
     // MarkWTech: 3×4 keypad matrix + extra tact cluster (pins from markwtech constants).
     #[cfg(feature = "variant-markwtech")]
     {
         let keypad = input::keypad::build();
-        if let Ok(token) = input::keypad::task(keypad, raw_sender) {
-            spawner.spawn(token);
-        }
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::keypad::task(keypad, raw_sender),
+            "keypad"
+        );
         let extras = input::extra_buttons::build();
-        if let Ok(token) = input::extra_buttons::task(extras, raw_sender) {
-            spawner.spawn(token);
-        }
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::extra_buttons::task(extras, raw_sender),
+            "extra-buttons"
+        );
     }
 
     // Expanders: LongFred family + heiko-wifred.
@@ -211,9 +204,11 @@ async fn main(spawner: Spawner) -> ! {
         feature = "variant-longfred-mini",
         feature = "variant-heiko-wifred"
     ))]
-    if let Ok(token) = input::expander::task(expander_i2c, raw_sender) {
-        spawner.spawn(token);
-    }
+    longfred_firmware::spawn_or_reset!(
+        spawner,
+        input::expander::task(expander_i2c, raw_sender),
+        "expander"
+    );
     #[cfg(feature = "variant-markwtech")]
     {
         let _ = expander_i2c;
@@ -223,20 +218,23 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(not(feature = "variant-heiko-wifred"))]
     {
         let enc = input::encoder::build();
-        if let Ok(token) = input::encoder::task(enc.a, enc.b, raw_sender) {
-            spawner.spawn(token);
-        }
-        if let Ok(token) = input::encoder::button_task(enc.button, raw_sender) {
-            spawner.spawn(token);
-        }
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::encoder::task(enc.a, enc.b, raw_sender),
+            "encoder"
+        );
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::encoder::button_task(enc.button, raw_sender),
+            "encoder-btn"
+        );
     }
 
-    if let Ok(token) = board::bridge::task() {
-        spawner.spawn(token);
-    }
+    longfred_firmware::spawn_or_reset!(spawner, board::bridge::task(), "bridge");
 
-    if !enter_programming && let Ok(token) = domain::task::task() {
-        spawner.spawn(token);
+    if !enter_programming {
+        longfred_firmware::spawn_or_reset!(spawner, domain::task::task(), "domain");
+        longfred_firmware::spawn_or_reset!(spawner, domain::task::watchdog_task(), "domain-wdt");
     }
 
     let _ = raw_sender;

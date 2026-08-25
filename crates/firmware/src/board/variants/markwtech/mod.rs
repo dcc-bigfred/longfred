@@ -101,10 +101,10 @@ impl MarkwtechSurface {
 
     fn on_button(&mut self, id: ButtonId, pressed: bool, out: &mut dyn FnMut(InputEvent)) {
         match id {
-            ButtonId::Stop => {
+            ButtonId::Stop | ButtonId::EStop => {
                 self.stop = pressed;
                 if pressed {
-                    out(InputEvent::Stop);
+                    out(InputEvent::EStop);
                 }
             }
             ButtonId::Star => {

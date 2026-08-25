@@ -1,5 +1,7 @@
 //! OLED rendering model — pure data structures (no logic).
 
+use longfred_proto::network::ConnState;
+
 /// Maximum lines in a [`GridView`] (128×64 uses 8 visible; extras are unused).
 pub const GRID_LINES: usize = 12;
 /// Characters per OLED line (`FONT_6X10` × 6 px on a 128 px panel).
@@ -352,8 +354,8 @@ pub struct ThrottleView {
     pub forward: bool,
     /// Consist size (1 = single loco).
     pub consist_len: u8,
-    /// Command-station session is up (`ConnState::Connected`).
-    pub server_connected: bool,
+    /// Command-station session: live, self-heal, or down.
+    pub conn: ConnState,
     /// Bitmask of DCC functions 0–31.
     pub functions: u32,
     /// Loco name / address line.
@@ -375,7 +377,7 @@ impl Default for ThrottleView {
             speed: 0,
             forward: true,
             consist_len: 0,
-            server_connected: false,
+            conn: ConnState::Disconnected,
             functions: 0,
             loco: Line::new(),
             footer: Line::new(),

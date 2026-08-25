@@ -9,6 +9,7 @@ use embedded_graphics::{
     primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
     text::{Baseline, Text},
 };
+use longfred_proto::network::ConnState;
 use ssd1306::{I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 
 use crate::board::descriptor::{DisplayGeometry, LAYOUT_128X64};
@@ -250,26 +251,55 @@ fn draw_direction_arrow(display: &mut Display, forward: bool, x: i32, y: i32) {
     }
 }
 
-fn draw_conn_icon(display: &mut Display, connected: bool, x: i32, y: i32) {
+fn draw_conn_icon(display: &mut Display, conn: ConnState, x: i32, y: i32) {
     let style = stroke_on();
-    if connected {
-        Line::new(Point::new(x, y + 4), Point::new(x + 3, y + 7))
-            .into_styled(style)
-            .draw(display)
-            .ok();
-        Line::new(Point::new(x + 3, y + 7), Point::new(x + 8, y + 1))
-            .into_styled(style)
-            .draw(display)
-            .ok();
-    } else {
-        Line::new(Point::new(x, y + 1), Point::new(x + 7, y + 8))
-            .into_styled(style)
-            .draw(display)
-            .ok();
-        Line::new(Point::new(x + 7, y + 1), Point::new(x, y + 8))
-            .into_styled(style)
-            .draw(display)
-            .ok();
+    match conn {
+        ConnState::Connected => {
+            Line::new(Point::new(x, y + 4), Point::new(x + 3, y + 7))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 3, y + 7), Point::new(x + 8, y + 1))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+        }
+        ConnState::Connecting => {
+            Line::new(Point::new(x, y + 2), Point::new(x + 5, y + 2))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 5, y + 2), Point::new(x + 3, y))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 5, y + 2), Point::new(x + 3, y + 4))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 2, y + 7), Point::new(x + 7, y + 7))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 2, y + 7), Point::new(x + 4, y + 5))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 2, y + 7), Point::new(x + 4, y + 9))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+        }
+        ConnState::Disconnected => {
+            Line::new(Point::new(x, y + 1), Point::new(x + 7, y + 8))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 7, y + 1), Point::new(x, y + 8))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+        }
     }
 }
 
@@ -356,7 +386,7 @@ fn draw_throttle_standard(
         .ok();
 
     draw_direction_arrow(display, t.forward, 76, 4);
-    draw_conn_icon(display, t.server_connected, 94, 2);
+    draw_conn_icon(display, t.conn, 94, 2);
 
     if let Some(pct) = t.battery {
         draw_battery_percent(display, pct, t.battery_charging, text_style);

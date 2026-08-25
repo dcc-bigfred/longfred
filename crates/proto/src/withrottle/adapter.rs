@@ -49,6 +49,11 @@ impl WtAdapter {
     }
 
     pub fn on_disconnect(&mut self, out: &mut WireBuf) {
+        let _ = out;
+    }
+
+    /// `Q` unpairs a BigFred session. Call only on an operator Disconnect.
+    pub fn on_unpair(&mut self, out: &mut WireBuf) {
         self.push_line(out, &protocol::quit());
     }
 
@@ -197,10 +202,18 @@ mod tests {
     }
 
     #[test]
-    fn disconnect_sends_quit() {
+    fn disconnect_does_not_send_quit() {
         let mut adapter = WtAdapter::new("", "", 10, false, true);
         let mut out = WireBuf::new();
         adapter.on_disconnect(&mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn unpair_sends_quit() {
+        let mut adapter = WtAdapter::new("", "", 10, false, true);
+        let mut out = WireBuf::new();
+        adapter.on_unpair(&mut out);
         assert_eq!(core::str::from_utf8(out.as_slice()), Ok("Q\r\n"));
     }
 
