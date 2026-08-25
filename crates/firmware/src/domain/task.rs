@@ -604,6 +604,7 @@ pub async fn task() {
                     if let input::InputEvent::DirectionSet(dir) = ev {
                         spdt_direction = dir;
                     }
+                    flush_cmds(&cmd_tx, &mut out, &mut last_cmd).await;
                     out.clear();
                     if net::http_ota_busy() {
                         if matches!(ev, input::InputEvent::EStop)
@@ -671,6 +672,7 @@ pub async fn task() {
                 }
             }
             Either3::Second(sev) => {
+                flush_cmds(&cmd_tx, &mut out, &mut last_cmd).await;
                 out.clear();
                 let app_event = match &sev {
                     longfred_proto::ServerEvent::Alert(text) if text.as_str() == "Not paired" => {
@@ -837,6 +839,7 @@ pub async fn task() {
                     }
                     BootWait::ServerConnect if timed_out => {
                         info!("domain: server connect still pending");
+                        ui.state.show_message(i18n::tr().msg_connect_slow);
                         phase_until = None;
                     }
                     _ => {}
@@ -1019,15 +1022,6 @@ pub async fn task() {
 
         if let Some(b) = battery_rx.as_mut().and_then(|r| r.try_get()) {
             ui.battery = b;
-            if let Some(sample) = b
-                && power::USE_BATTERY_SLEEP_AT_PERCENT > 0
-                && sample.percent < power::USE_BATTERY_SLEEP_AT_PERCENT
-                && !sample.charging
-                && !sleep_requested
-            {
-                sleep_requested = true;
-                request_device_sleep(&mut ui.state, &mut out, SleepReason::Battery);
-            }
         }
 
         if let Ok(result) = pairing_http_rx.try_receive() {

@@ -30,3 +30,18 @@ macro_rules! spawn_or_reset {
         }
     }};
 }
+
+/// Spawn a helper task or continue in degraded mode. Does not reset the MCU.
+#[macro_export]
+macro_rules! spawn_or_warn {
+    ($spawner:expr, $expr:expr, $name:expr) => {{
+        match $expr {
+            Ok(token) => {
+                $spawner.spawn(token);
+            }
+            Err(_) => {
+                ::log::warn!("boot: {} task pool busy — degraded mode", $name);
+            }
+        }
+    }};
+}

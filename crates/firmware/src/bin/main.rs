@@ -104,10 +104,10 @@ async fn main(spawner: Spawner) -> ! {
         longfred_firmware::spawn_or_reset!(spawner, net::wifi::net_task(runner), "net");
         longfred_firmware::spawn_or_reset!(spawner, net::wifi::status_task(stack), "net-status");
         longfred_firmware::spawn_or_reset!(spawner, net::wifi::config_task(stack), "net-config");
-        longfred_firmware::spawn_or_reset!(spawner, net::mdns::task(stack, ""), "mdns");
+        longfred_firmware::spawn_or_warn!(spawner, net::mdns::task(stack, ""), "mdns");
         longfred_firmware::spawn_or_reset!(spawner, net::session::task(stack), "session");
         longfred_firmware::spawn_or_reset!(spawner, net::pairing_http::task(stack), "pairing-http");
-        longfred_firmware::spawn_or_reset!(spawner, net::ping::task(stack), "ping");
+        longfred_firmware::spawn_or_warn!(spawner, net::ping::task(stack), "ping");
         net::provisioning::spawn_sta_http(&spawner, stack, boot.record.clone(), flash);
     }
 

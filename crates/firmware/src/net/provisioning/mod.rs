@@ -230,7 +230,7 @@ pub fn spawn_programming_net(
     );
     crate::spawn_or_reset!(spawner, dhcp_task(stack), "prog-dhcp");
     crate::spawn_or_reset!(spawner, pairing_ui_task(ssid), "prog-ui");
-    crate::spawn_or_reset!(spawner, sync_persist_task(rec), "prog-persist");
+    crate::spawn_or_warn!(spawner, sync_persist_task(rec), "prog-persist");
 
     true
 }
@@ -275,8 +275,8 @@ pub fn spawn_sta_http(
         http_server::task_sta(stack, rec, flash),
         "sta-http"
     );
-    crate::spawn_or_reset!(spawner, sync_persist_task(rec), "sta-persist");
-    crate::spawn_or_reset!(
+    crate::spawn_or_warn!(spawner, sync_persist_task(rec), "sta-persist");
+    crate::spawn_or_warn!(
         spawner,
         crate::net::mdns::ota_announce_task(stack),
         "ota-mdns"

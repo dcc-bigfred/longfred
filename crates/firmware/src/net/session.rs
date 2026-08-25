@@ -5,7 +5,7 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
 use embassy_time::{Duration, Instant, Timer};
-use log::{info, warn};
+use log::{debug, info, warn};
 use longfred_proto::adapter::{Adapter, WireBuf};
 use longfred_proto::bigfred::BigFredAdapter;
 use longfred_proto::caps::Transport as WireTransport;
@@ -251,8 +251,13 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
         }
         if hb_last.elapsed() >= hb_period {
             let mut out = WireBuf::new();
-            if adapter.on_tick(&mut out) && !out.is_empty() && !tr.send(&out).await {
+            let sent = adapter.on_tick(&mut out) && !out.is_empty();
+            if sent && !tr.send(&out).await {
                 break;
+            }
+            if sent {
+                last_rx = Instant::now();
+                debug!("proto heartbeat ok, liveness reset");
             }
             hb_last = Instant::now();
         }
