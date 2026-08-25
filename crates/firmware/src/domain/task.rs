@@ -442,6 +442,11 @@ fn has_oled() -> bool {
     crate::board::active().display.is_some()
 }
 
+/// TinyC6 VBUS sense (`BatterySample.charging`). Other variants stay false.
+fn usb_powered(battery: Option<crate::power::battery::BatterySample>) -> bool {
+    battery.is_some_and(|b| b.charging)
+}
+
 /// Last domain-loop pulse; [`watchdog_task`] resets the MCU if this stalls.
 pub static DOMAIN_PULSE: Watch<CriticalSectionRawMutex, Option<Instant>, 1> = Watch::new_with(None);
 
@@ -844,10 +849,16 @@ pub async fn task() {
                     }
                     _ => {}
                 }
+                let usb = usb_powered(ui.battery);
+                if usb && display_blanked {
+                    crate::ui::DISPLAY_ON.sender().send(true);
+                    display_blanked = false;
+                }
                 if !net::http_ota_busy()
                     && boot_wait == BootWait::Done
                     && has_oled()
                     && !display_blanked
+                    && !usb
                     && power::DISPLAY_BLANK_INACTIVITY_MS > 0
                     && last_activity.elapsed().as_millis() > power::DISPLAY_BLANK_INACTIVITY_MS
                 {
@@ -858,6 +869,7 @@ pub async fn task() {
                     && power::AUTO_SLEEP_INACTIVITY_MS > 0
                     && boot_wait == BootWait::Done
                     && !sleep_requested
+                    && !usb
                     && !ui.state.any_loco_moving()
                     && last_activity.elapsed().as_millis() > power::AUTO_SLEEP_INACTIVITY_MS
                 {
