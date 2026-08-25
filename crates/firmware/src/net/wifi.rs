@@ -9,7 +9,7 @@ use esp_radio::wifi::{
     AuthenticationMethod, Config as WifiConfig, Interface, PowerSaveMode, Protocol, Protocols,
     WifiController, WifiError, ap::AccessPointInfo, scan::ScanConfig, sta::StationConfig,
 };
-use log::{info, warn};
+use log::{error, info, warn};
 
 use crate::config;
 use crate::config::sizes;
@@ -75,7 +75,10 @@ async fn publish_scan(controller: &mut WifiController<'static>) {
 ///
 /// Do not drop this future: `disconnect_async` is a no-op while
 /// `is_connected()` is false, so a cancelled connect leaves STA connecting.
+/// The settle timeout bounds how long we wait for a wedged radio so the
+/// connection task can still service WIFI_CTRL (scan / connect commands).
 async fn connect_sta(controller: &mut WifiController<'static>, timeout: Duration) -> bool {
+    let settle = Duration::from_millis(config::network::WIFI_SETTLE_TIMEOUT_MS);
     let mut connect = pin!(controller.connect_async());
     match select(&mut connect, Timer::after(timeout)).await {
         Either::First(Ok(_)) => true,
@@ -85,10 +88,14 @@ async fn connect_sta(controller: &mut WifiController<'static>, timeout: Duration
         }
         Either::Second(()) => {
             warn!("wifi connect timeout; waiting for radio to settle");
-            match connect.await {
-                Ok(_) => true,
-                Err(e) => {
+            match select(&mut connect, Timer::after(settle)).await {
+                Either::First(Ok(_)) => true,
+                Either::First(Err(e)) => {
                     warn!("wifi connect error after timeout: {:?}", e);
+                    false
+                }
+                Either::Second(()) => {
+                    error!("wifi connect wedged after settle timeout; radio unresponsive");
                     false
                 }
             }

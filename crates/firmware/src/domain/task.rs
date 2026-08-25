@@ -32,6 +32,13 @@ use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, StorageCmd};
 use crate::ui::adapter;
 use crate::ui::{UI_VIEW, i18n};
 
+/// Bounded retry window for a safety-critical E-Stop when the command channel
+/// is saturated. Short enough to keep STOP responsive, long enough to drain a
+/// burst of lower-priority commands.
+const ESTOP_FLUSH_DEADLINE_MS: u64 = 100;
+/// Polling interval while waiting for the command channel to drain for an E-Stop.
+const ESTOP_FLUSH_POLL_MS: u64 = 5;
+
 fn drop_stale_speed(out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
     let Some(i) = out
         .iter()
@@ -71,8 +78,27 @@ async fn flush_cmds(
             continue;
         }
         if estop {
-            warn!("domain: estop queued, command channel full");
-            break;
+            // Safety-critical: don't drop silently. Bounded retry — evict
+            // queued speed commands and wait for the channel to drain so the
+            // E-Stop reaches the station instead of being lost.
+            let deadline = Instant::now() + Duration::from_millis(ESTOP_FLUSH_DEADLINE_MS);
+            loop {
+                if cmd_tx.try_send(cmd.clone()).is_ok() {
+                    let _ = out.remove(0);
+                    *last_cmd = Instant::now();
+                    break;
+                }
+                if drop_stale_speed(out) {
+                    continue;
+                }
+                if Instant::now() >= deadline {
+                    error!("domain: estop dropped after retry, command channel full");
+                    let _ = out.remove(0);
+                    break;
+                }
+                Timer::after(Duration::from_millis(ESTOP_FLUSH_POLL_MS)).await;
+            }
+            continue;
         }
         warn!("domain: dropping outbound command (channel full)");
         let _ = out.remove(0);

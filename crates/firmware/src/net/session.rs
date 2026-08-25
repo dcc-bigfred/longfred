@@ -5,7 +5,7 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
 use embassy_time::{Duration, Instant, Timer};
-use log::{debug, info, warn};
+use log::{info, warn};
 use longfred_proto::adapter::{Adapter, WireBuf};
 use longfred_proto::bigfred::BigFredAdapter;
 use longfred_proto::caps::Transport as WireTransport;
@@ -172,7 +172,11 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
     let cmd_rx = PROTO_COMMANDS.receiver();
     let mut rx = [0u8; 512];
     let mut hb_last = Instant::now();
-    let mut last_rx = Instant::now();
+    // Last time we received any inbound bytes from the server. The watchdog
+    // fires when this stalls, so a half-open TCP connection (outbound writes
+    // succeed into the socket buffer but the server never replies) is
+    // detected and the session reconnects. Not reset by outbound heartbeats.
+    let mut last_inbound = Instant::now();
     let mut unpair = false;
     let mut srv_rx = SERVER.receiver();
     if let Some(rx) = srv_rx.as_mut() {
@@ -205,7 +209,7 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
         {
             Either4::First(None) => false,
             Either4::First(Some(n)) => {
-                last_rx = Instant::now();
+                last_inbound = Instant::now();
                 let mut hb_cfg = None;
                 adapter.decode(&rx[..n], &mut |ev| {
                     if let ServerEvent::HeartbeatConfig { seconds } = &ev {
@@ -228,7 +232,7 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                 }
             }
             Either4::Third(_) => {
-                if last_rx.elapsed() > rx_watchdog {
+                if last_inbound.elapsed() > rx_watchdog {
                     warn!("proto watchdog: no inbound data, reconnect");
                     false
                 } else {
@@ -255,10 +259,9 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
             if sent && !tr.send(&out).await {
                 break;
             }
-            if sent {
-                last_rx = Instant::now();
-                debug!("proto heartbeat ok, liveness reset");
-            }
+            // Note: do NOT reset `last_inbound` here. A successful outbound
+            // heartbeat does not prove the server is responsive — only inbound
+            // data does. Resetting on send would mask half-open connections.
             hb_last = Instant::now();
         }
     }

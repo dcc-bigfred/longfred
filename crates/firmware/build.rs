@@ -1,4 +1,10 @@
-//! Build script for LongFred firmware (linker args and friendly link errors).
+//! Build script for `LongFred` firmware (linker args and friendly link errors).
+//!
+//! Host tool, not firmware runtime. Workspace `expect_used` / `panic` / `unwrap_used`
+//! denies target on-device code; a missing `OUT_DIR` or a bad
+//! `LONGFRED_BATTERY_FACTOR` must still fail the build loudly.
+
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use std::env;
 use std::fs;
@@ -19,11 +25,10 @@ fn emit_battery_factor() {
             let value: f32 = raw.parse().unwrap_or_else(|_| {
                 panic!("LONGFRED_BATTERY_FACTOR must be a finite f32, got {raw:?}")
             });
-            if !value.is_finite() || !(0.5..=10.0).contains(&value) {
-                panic!(
-                    "LONGFRED_BATTERY_FACTOR must be in 0.5..=10.0, got {value}"
-                );
-            }
+            assert!(
+                value.is_finite() && (0.5..=10.0).contains(&value),
+                "LONGFRED_BATTERY_FACTOR must be in 0.5..=10.0, got {value}"
+            );
             format!(
                 "/// ADC-to-voltage scaling factor (build-time override).\n\
                  pub const BATTERY_CONVERSION_FACTOR: f32 = {value}_f32;\n"
@@ -40,10 +45,6 @@ fn emit_battery_factor() {
     fs::write(dest, contents).expect("write battery_factor.rs");
 }
 
-// Build script is a host tool, not runtime code; the workspace `unwrap_used`
-// deny policy targets firmware/runtime paths. Allow here for the one-shot
-// linker configuration.
-#[allow(clippy::unwrap_used)]
 fn linker_be_nice() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {

@@ -211,8 +211,8 @@ pub fn spawn_programming_net(
     i18n::set_language(initial.language);
 
     let Some((controller, iface)) = start_ap(wifi) else {
-        error!("programming: no Soft-AP interface — reset");
-        software_reset();
+        error!("programming: no Soft-AP interface");
+        return false;
     };
 
     static RESOURCES: StaticCell<StackResources<{ sizes::PROG_NET_SOCKETS }>> = StaticCell::new();

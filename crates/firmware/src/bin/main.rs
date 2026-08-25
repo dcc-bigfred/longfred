@@ -25,6 +25,11 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 static FLASH: StaticCell<Mutex<CriticalSectionRawMutex, FlashStorage<'static>>> = StaticCell::new();
 
+/// Delay before a boot-time `software_reset()` so a transient radio / AP
+/// failure is observable on the OLED and a persistent failure does not
+/// tight-loop the reset. Brown-outs and marginal radios can recover here.
+const BOOT_RESET_BACKOFF_S: u64 = 2;
+
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
@@ -79,6 +84,7 @@ async fn main(spawner: Spawner) -> ! {
             flash,
         ) {
             log::error!("boot: programming net failed — reset");
+            Timer::after(Duration::from_secs(BOOT_RESET_BACKOFF_S)).await;
             esp_hal::system::software_reset();
         }
     } else {
@@ -86,6 +92,7 @@ async fn main(spawner: Spawner) -> ! {
             Ok(c) => c,
             Err(e) => {
                 log::error!("boot: WifiController::new failed: {:?}", e);
+                Timer::after(Duration::from_secs(BOOT_RESET_BACKOFF_S)).await;
                 esp_hal::system::software_reset();
             }
         };

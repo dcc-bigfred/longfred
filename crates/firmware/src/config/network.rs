@@ -35,6 +35,10 @@ pub const TCP_TIMEOUT_S: u64 = 15;
 // --- WiThrottle reconnect backoff ---
 pub const RECONNECT_MIN_MS: u64 = 500;
 pub const RECONNECT_MAX_MS: u64 = 5_000;
+/// Upper bound on how long `connect_sta` waits for a wedged radio to settle
+/// after the connect timeout, so the connection task can still service
+/// WIFI_CTRL (scan / connect) instead of blocking forever.
+pub const WIFI_SETTLE_TIMEOUT_MS: u64 = 3_000;
 
 // --- WiFi 6 (bigfred event infrastructure) ---
 /// Enable 802.11ax on 2.4 GHz for OFDMA scheduling with WiFi 6 APs.
