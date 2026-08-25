@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::disallowed_types, clippy::disallowed_macros)]
 
+pub mod chart;
 pub mod context;
 pub mod geometry;
 pub mod i18n;
@@ -19,6 +20,7 @@ pub mod session;
 pub mod view;
 pub mod widgets;
 
+pub use chart::{ChartData, ChartScale, build_chart};
 pub use context::{
     BatteryInfo, CompiledNetwork, DriveInfo, MAX_COMPILED_NETWORKS, NetInfo, ScreenCtx, UiEnv,
 };
@@ -31,4 +33,4 @@ pub use nav_profile::{LongFredNav, MarkwtechNav, NavAction, NavProfile};
 pub use router::Router;
 pub use screen::{InputMode, KeyBindings, Screen};
 pub use session::{BatteryMode, ChoiceKind, NetField, UiSession};
-pub use view::{GridView, OverlayView, ThrottleView, UiView};
+pub use view::{ChartView, GridView, OverlayView, ThrottleView, UiView};

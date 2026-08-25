@@ -6,6 +6,7 @@ use longfred_proto::network::WitServer;
 use longfred_ui::i18n::{HintSet, Strings, strings};
 use longfred_ui::nav::ScreenId;
 use longfred_ui::nav_profile::NavProfile;
+use longfred_ui::view::BATTERY_HISTORY_LEN;
 use longfred_ui::{
     BatteryInfo, BatteryMode, DriveInfo, NetInfo, Router, ScreenCtx, UiEnv, UiSession,
 };
@@ -134,6 +135,7 @@ pub struct UiWorld {
     pub scanned: heapless::Vec<SsidInfo, MAX_FOUND_SSIDS>,
     pub servers: heapless::Vec<WitServer, MAX_FOUND_SERVERS>,
     pub battery: Option<BatterySample>,
+    pub battery_history: heapless::Vec<u8, BATTERY_HISTORY_LEN>,
 }
 
 impl UiWorld {
@@ -149,6 +151,7 @@ impl UiWorld {
             scanned: heapless::Vec::new(),
             servers: heapless::Vec::new(),
             battery: None,
+            battery_history: heapless::Vec::new(),
         }
     }
 
@@ -170,6 +173,7 @@ impl UiWorld {
             &self.scanned,
             &self.servers,
             self.battery,
+            &self.battery_history,
             now_ms,
         );
         f(&mut self.router, &mut cx)
@@ -197,6 +201,7 @@ impl UiWorld {
             &self.scanned,
             &self.servers,
             self.battery,
+            &self.battery_history,
             now_ms,
             ui_tx,
         );
@@ -221,6 +226,7 @@ pub fn publish(
     scanned: &heapless::Vec<SsidInfo, MAX_FOUND_SSIDS>,
     servers: &heapless::Vec<WitServer, MAX_FOUND_SERVERS>,
     battery: Option<BatterySample>,
+    battery_history: &[u8],
     now_ms: u64,
     ui_tx: &embassy_sync::watch::Sender<
         'static,
@@ -230,7 +236,18 @@ pub fn publish(
     >,
 ) {
     let cx = screen_ctx(
-        state, session, env, s, net_status, conn, server, scanned, servers, battery, now_ms,
+        state,
+        session,
+        env,
+        s,
+        net_status,
+        conn,
+        server,
+        scanned,
+        servers,
+        battery,
+        battery_history,
+        now_ms,
     );
     let view = router.view(&cx);
     if ui_tx.try_get().as_ref() != Some(&view) {
@@ -250,6 +267,7 @@ pub fn screen_ctx<'a>(
     scanned: &'a heapless::Vec<SsidInfo, MAX_FOUND_SSIDS>,
     servers: &'a heapless::Vec<WitServer, MAX_FOUND_SERVERS>,
     battery: Option<BatterySample>,
+    battery_history: &'a [u8],
     now_ms: u64,
 ) -> ScreenCtx<'a> {
     ScreenCtx {
@@ -287,6 +305,7 @@ pub fn screen_ctx<'a>(
             raw: b.raw,
             charging: b.charging,
         }),
+        battery_history,
         session,
     }
 }

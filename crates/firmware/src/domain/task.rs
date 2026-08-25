@@ -11,6 +11,7 @@ use longfred_proto::menu::parse_ip_endpoint;
 use longfred_proto::model::Direction;
 use longfred_proto::persist::{PersistRecord, SavedServer};
 use longfred_ui::nav::{PageDir, ScreenId};
+use longfred_ui::view::push_battery_sample;
 use longfred_ui::{AppEvent, Intent, UiSession};
 
 use crate::config::{self, power, sizes};
@@ -1032,8 +1033,11 @@ pub async fn task() {
             apply_persist(&mut ui.state, rec);
         }
 
-        if let Some(b) = battery_rx.as_mut().and_then(|r| r.try_get()) {
+        if let Some(b) = battery_rx.as_mut().and_then(|r| r.try_changed()) {
             ui.battery = b;
+            if let Some(sample) = b {
+                push_battery_sample(&mut ui.battery_history, sample.percent);
+            }
         }
 
         if let Ok(result) = pairing_http_rx.try_receive() {

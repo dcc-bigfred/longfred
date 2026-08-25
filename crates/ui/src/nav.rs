@@ -69,6 +69,8 @@ pub enum ScreenId {
     WifiFailed,
     /// Five-page diagnostics (battery / version / board / RF+ping / Wi-Fi).
     Diagnostics,
+    /// Battery percent chart, voltage, and estimated time-to-empty.
+    Battery,
 }
 
 /// List cursor step.

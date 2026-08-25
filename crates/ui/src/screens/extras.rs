@@ -23,10 +23,11 @@ enum ExtrasItem {
     RosterSource,
     Firmware,
     Diagnostics,
+    Battery,
 }
 
 impl ExtrasItem {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Device,
         Self::HashFunctions,
         Self::DeadManSwitch,
@@ -36,6 +37,7 @@ impl ExtrasItem {
         Self::RosterSource,
         Self::Firmware,
         Self::Diagnostics,
+        Self::Battery,
     ];
 
     fn label(self, s: &Strings, roster_mode: RosterMode) -> &'static str {
@@ -53,6 +55,7 @@ impl ExtrasItem {
             },
             Self::Firmware => s.extras_firmware,
             Self::Diagnostics => s.extras_diag,
+            Self::Battery => s.extras_battery,
         }
     }
 
@@ -85,6 +88,7 @@ impl ExtrasItem {
             }
             Self::Firmware => nav.go(ScreenId::FirmwareUpdate),
             Self::Diagnostics => nav.go(ScreenId::Diagnostics),
+            Self::Battery => nav.go(ScreenId::Battery),
         }
     }
 }
@@ -103,7 +107,7 @@ impl ExtrasScreen {
         }
     }
 
-    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 9] {
+    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 10] {
         ExtrasItem::ALL.map(|item| item.label(cx.s, cx.drive.persist.roster_mode))
     }
 

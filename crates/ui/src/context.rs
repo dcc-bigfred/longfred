@@ -148,6 +148,8 @@ pub struct ScreenCtx<'a> {
     pub now_ms: u64,
     /// Latest battery sample.
     pub battery: Option<BatteryInfo>,
+    /// Ring of battery percent samples (oldest first), one per ADC poll.
+    pub battery_history: &'a [u8],
     /// Drafts that outlive a screen object.
     pub session: &'a mut UiSession,
 }

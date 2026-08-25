@@ -1,6 +1,7 @@
 //! Per-screen objects. Each [`ScreenId`] has a concrete type in this module.
 
 mod addr_edit;
+mod battery;
 mod choice;
 mod device;
 mod device_id;
@@ -40,6 +41,7 @@ use crate::screen::{KeyBindings, Screen};
 use crate::view::UiView;
 
 pub use addr_edit::AddrEditScreen;
+pub use battery::BatteryScreen;
 pub use choice::ChoiceScreen;
 pub use device::DeviceScreen;
 pub use device_id::DeviceIdEditScreen;
@@ -105,6 +107,7 @@ pub enum ScreenState {
     FirmwareUpdate(FirmwareUpdateScreen),
     WifiFailed(WifiFailedScreen),
     Diagnostics(DiagnosticsScreen),
+    Battery(BatteryScreen),
 }
 
 /// Construct the concrete screen object for `id` (fresh local state).
@@ -142,6 +145,7 @@ pub fn new_screen(id: ScreenId) -> ScreenState {
         ScreenId::FirmwareUpdate => ScreenState::FirmwareUpdate(FirmwareUpdateScreen),
         ScreenId::WifiFailed => ScreenState::WifiFailed(WifiFailedScreen),
         ScreenId::Diagnostics => ScreenState::Diagnostics(DiagnosticsScreen::new()),
+        ScreenId::Battery => ScreenState::Battery(BatteryScreen::new()),
     }
 }
 
@@ -180,6 +184,7 @@ macro_rules! dispatch_screen {
             ScreenState::FirmwareUpdate(s) => s.$method($($arg),*),
             ScreenState::WifiFailed(s) => s.$method($($arg),*),
             ScreenState::Diagnostics(s) => s.$method($($arg),*),
+            ScreenState::Battery(s) => s.$method($($arg),*),
         }
     };
 }

@@ -15,7 +15,8 @@ use longfred_ui::screen::InputMode;
 use longfred_ui::view::UiView;
 use longfred_ui::widgets::{KeyboardMode, TextKeyboard};
 use longfred_ui::{
-    DriveInfo, LAYOUT_128X32, LAYOUT_128X64, NetField, NetInfo, Router, ScreenCtx, UiEnv, UiSession,
+    BatteryInfo, DriveInfo, LAYOUT_128X32, LAYOUT_128X64, NetField, NetInfo, Router, ScreenCtx,
+    UiEnv, UiSession,
 };
 
 struct Fixture {
@@ -28,6 +29,8 @@ struct Fixture {
     env: UiEnv,
     strings: &'static longfred_ui::i18n::Strings,
     conn: ConnState,
+    battery: Option<BatteryInfo>,
+    battery_history: heapless::Vec<u8, 30>,
 }
 
 impl Fixture {
@@ -59,6 +62,8 @@ impl Fixture {
             },
             strings: strings(Language::En, HintSet::Joystick),
             conn: ConnState::Disconnected,
+            battery: None,
+            battery_history: heapless::Vec::new(),
         }
     }
 
@@ -92,7 +97,8 @@ impl Fixture {
             env: &self.env,
             s: self.strings,
             now_ms: 0,
-            battery: None,
+            battery: self.battery,
+            battery_history: &self.battery_history,
             session: &mut self.session,
         }
     }
@@ -930,7 +936,7 @@ fn diagnostics_pages_wrap() {
             grid_line(&view, 2)
         );
     }
-    for _ in 0..2 {
+    for _ in 0..4 {
         let mut cx = fx.ctx();
         let _ = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
     }
@@ -938,6 +944,41 @@ fn diagnostics_pages_wrap() {
     {
         let cx = fx.ctx();
         assert!(grid_line(&router.view(&cx), 0).contains("Battery"));
+    }
+}
+
+#[test]
+fn diagnostics_rssi_and_ping_chart_pages() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Diagnostics);
+    for _ in 0..5 {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
+    }
+    {
+        let cx = fx.ctx();
+        let view = router.view(&cx);
+        assert!(matches!(view, UiView::Chart(_)));
+        let UiView::Chart(chart) = view else {
+            return;
+        };
+        assert_eq!(chart.title, "WiFi signal");
+        assert_eq!(chart.threshold, None);
+    }
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Right), &mut cx);
+    }
+    {
+        let cx = fx.ctx();
+        let view = router.view(&cx);
+        assert!(matches!(view, UiView::Chart(_)));
+        let UiView::Chart(chart) = view else {
+            return;
+        };
+        assert_eq!(chart.title, "WiFi ping");
+        assert_eq!(chart.threshold, Some(50));
+        assert_eq!(chart.y_max, 250);
     }
 }
 
@@ -1272,6 +1313,69 @@ fn extras_digit_shortcuts_match_label_numbers() {
         let _ = router.handle(InputEvent::Digit('6'), &mut cx);
     }
     assert_eq!(router.screen_id(), ScreenId::Language);
+}
+
+#[test]
+fn extras_digit_zero_opens_battery() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Battery);
+    let view = router.view(&fx.ctx());
+    assert!(matches!(view, UiView::Chart(_)));
+}
+
+#[test]
+fn extras_fn_zero_opens_battery() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::FnPress(0), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Battery);
+}
+
+#[test]
+fn battery_chart_shows_eta_and_volts() {
+    let mut fx = Fixture::new();
+    fx.battery = Some(BatteryInfo {
+        percent: 50,
+        millivolts: 3850,
+        raw: 2000,
+        charging: false,
+    });
+    let _ = fx.battery_history.push(100);
+    let _ = fx.battery_history.push(50);
+    let router = Router::new(&LONGFRED, ScreenId::Battery);
+    let view = router.view(&fx.ctx());
+    assert!(matches!(view, UiView::Chart(_)));
+    let UiView::Chart(chart) = view else {
+        return;
+    };
+    assert_eq!(chart.title, "Battery");
+    assert_eq!(chart.samples.as_slice(), &[100, 50]);
+    assert_eq!(chart.footer[0].as_str(), "1m");
+    assert_eq!(chart.footer[1].as_str(), "3.85 V");
+}
+
+#[test]
+fn battery_left_returns_to_extras() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Extras);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('0'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Battery);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Nav(NavDir::Left), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::Extras);
 }
 
 #[test]
