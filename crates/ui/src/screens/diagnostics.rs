@@ -84,6 +84,10 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
                 let mut l = Line::new();
                 let _ = write!(l, "ADC {}", b.raw);
                 let _ = lines.push(l);
+                let mut l = Line::new();
+                let yn = if b.charging { t.diag_yes } else { t.diag_no };
+                let _ = write!(l, "{} {}", t.diag_charging, yn);
+                let _ = lines.push(l);
             } else {
                 let mut l = Line::new();
                 let _ = l.push_str(na);

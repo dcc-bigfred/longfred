@@ -1159,6 +1159,17 @@ fn overlay_replaces_previous_message() {
 }
 
 #[test]
+fn overlay_skips_empty_and_whitespace() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Throttle);
+    let cx = fx.ctx();
+    router.show_overlay("", 0, 5_000);
+    assert!(matches!(router.view(&cx), UiView::Throttle(_)));
+    router.show_overlay("   ", 0, 5_000);
+    assert!(matches!(router.view(&cx), UiView::Throttle(_)));
+}
+
+#[test]
 fn menu_speed_mult_shows_overlay_and_returns_to_throttle() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Menu);

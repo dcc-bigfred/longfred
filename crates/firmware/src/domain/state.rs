@@ -396,6 +396,9 @@ impl DomainState {
     }
 
     fn queue_overlay_for(&mut self, text: LongText, timeout_ms: u64) {
+        if text.as_str().trim().is_empty() {
+            return;
+        }
         self.message = Some((text.clone(), Instant::now()));
         self.overlay_pending = Some((text, timeout_ms));
     }

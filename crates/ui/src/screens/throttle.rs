@@ -125,6 +125,7 @@ impl Screen for ThrottleScreen {
             footer,
             next_hint: Line::new(),
             battery: cx.battery.map(|b| b.percent),
+            battery_charging: cx.battery.is_some_and(|b| b.charging),
         })
     }
 

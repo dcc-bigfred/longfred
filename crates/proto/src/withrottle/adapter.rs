@@ -203,4 +203,22 @@ mod tests {
         adapter.on_disconnect(&mut out);
         assert_eq!(core::str::from_utf8(out.as_slice()), Ok("Q\r\n"));
     }
+
+    #[test]
+    fn on_tick_still_emits_heartbeat_after_inbound_and_command() {
+        let mut adapter = WtAdapter::new("", "", 10, false, true);
+        adapter.decode(b"MTAL3<;>V10\n", &mut |_| {});
+        let mut out = WireBuf::new();
+        adapter.encode(
+            &ClientCommand::SetSpeed {
+                throttle: 0,
+                speed: 20,
+            },
+            &mut out,
+            &mut |_| {},
+        );
+        out.clear();
+        assert!(adapter.on_tick(&mut out));
+        assert_eq!(core::str::from_utf8(out.as_slice()), Ok("*\r\n"));
+    }
 }

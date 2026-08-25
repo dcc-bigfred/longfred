@@ -364,6 +364,8 @@ pub struct ThrottleView {
     pub next_hint: Line,
     /// Battery percent when known.
     pub battery: Option<u8>,
+    /// USB / VBUS present (charging / plugged in).
+    pub battery_charging: bool,
 }
 
 impl Default for ThrottleView {
@@ -379,6 +381,7 @@ impl Default for ThrottleView {
             footer: Line::new(),
             next_hint: Line::new(),
             battery: None,
+            battery_charging: false,
         }
     }
 }

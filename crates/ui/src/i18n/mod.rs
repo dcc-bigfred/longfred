@@ -231,6 +231,9 @@ pub struct Strings {
     pub diag_ping: &'static str,
     pub diag_na: &'static str,
     pub diag_timeout: &'static str,
+    pub diag_charging: &'static str,
+    pub diag_yes: &'static str,
+    pub diag_no: &'static str,
 }
 
 pub const EN: Strings = Strings {
@@ -359,6 +362,9 @@ pub const EN: Strings = Strings {
     diag_ping: "Ping",
     diag_na: "---",
     diag_timeout: "timeout",
+    diag_charging: "Charge",
+    diag_yes: "yes",
+    diag_no: "no",
 };
 
 pub const PL: Strings = Strings {
@@ -487,6 +493,9 @@ pub const PL: Strings = Strings {
     diag_ping: "Ping",
     diag_na: "---",
     diag_timeout: "timeout",
+    diag_charging: "Ladowanie",
+    diag_yes: "tak",
+    diag_no: "nie",
 };
 
 pub const DE: Strings = Strings {
@@ -615,6 +624,9 @@ pub const DE: Strings = Strings {
     diag_ping: "Ping",
     diag_na: "---",
     diag_timeout: "timeout",
+    diag_charging: "Laden",
+    diag_yes: "ja",
+    diag_no: "nein",
 };
 
 const fn with_hints(mut s: Strings, h: HintRow) -> Strings {

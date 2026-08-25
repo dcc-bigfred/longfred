@@ -50,6 +50,12 @@ pub fn heartbeat() -> Cmd {
     cmd(&["*"])
 }
 
+/// `*n` is a server timeout. Clients should send `*` at half that period.
+#[must_use]
+pub fn heartbeat_send_period_s(advertised_s: u32) -> u32 {
+    (advertised_s / 2).max(1)
+}
+
 pub fn dead_man_switch_enable(on: bool) -> Cmd {
     if on {
         cmd(&["*", "+"])

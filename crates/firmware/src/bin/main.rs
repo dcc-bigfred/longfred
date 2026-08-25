@@ -142,7 +142,9 @@ async fn main(spawner: Spawner) -> ! {
             spawner.spawn(token);
         }
         #[cfg(feature = "variant-markwtech-v1-1")]
-        if let Ok(token) = power::battery::task(peripherals.ADC1, peripherals.GPIO4) {
+        if let Ok(token) =
+            power::battery::task(peripherals.ADC1, peripherals.GPIO4, peripherals.GPIO10)
+        {
             spawner.spawn(token);
         }
     }

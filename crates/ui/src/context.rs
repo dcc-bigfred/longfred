@@ -73,6 +73,8 @@ pub struct BatteryInfo {
     pub millivolts: u16,
     /// Raw ADC counts.
     pub raw: u16,
+    /// USB / VBUS present (plugged in / charging).
+    pub charging: bool,
 }
 
 /// Firmware-compiled SSIDs shown in the picker. Extra `NETWORKS` entries are dropped

@@ -1,7 +1,8 @@
 //! MarkWTech v1.1 pin map: Unexpected Maker TinyC6.
 //!
 //! Header GPIO only (17 lines). GPIO 4 is the onboard VBAT divider (ADC, not
-//! a goldpin). GPIO 10 (VBUS sense), 12/13 (USB), 22/23 (NeoPixel) are unused.
+//! a goldpin). GPIO 10 (VBUS sense) is read by the battery task. GPIO 12/13
+//! (USB) and 22/23 (NeoPixel) are unused.
 //!
 //! GPIO 9 is an input-only extra button (onboard BOOT in parallel). Do not
 //! drive it as a keypad row.
@@ -34,6 +35,9 @@ pub const WAKE_PIN: Gpio = ENCODER_BUTTON;
 
 /// Onboard VBAT sense divider on GPIO 4 (`ADC1_CH4`). Not broken out.
 pub const BATTERY_ADC: Gpio = 4;
+
+/// Onboard VBUS sense (USB present). Not on the header.
+pub const VBUS_PIN: Gpio = 10;
 
 /// UM TinyC6 VBAT divider 442 kΩ / 160 kΩ → (442+160)/160 ≈ 3.76.
 /// Calibrate from the `suggested_factor` battery log on a full cell.

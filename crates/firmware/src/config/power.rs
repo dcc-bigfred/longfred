@@ -3,11 +3,7 @@
 /// Enables ADC battery measurement and icon on the throttle screen.
 pub const USE_BATTERY_TEST: bool = true;
 
-/// ADC-to-voltage scaling factor (hardware calibration).
-///
-/// LongFred / Heiko / MarkWTech v1.0 use the 1:2 divider factor. MarkWTech v1.1
-/// (TinyC6 onboard VBAT sense) overrides this from the variant pin map.
-pub const BATTERY_CONVERSION_FACTOR: f32 = crate::board::pins::BATTERY_CONVERSION_FACTOR;
+include!(concat!(env!("OUT_DIR"), "/battery_factor.rs"));
 
 /// Default display mode: icon + percent (when `USE_BATTERY_TEST`).
 pub const USE_BATTERY_PERCENT_WITH_ICON: bool = false;

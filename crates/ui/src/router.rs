@@ -56,6 +56,9 @@ impl Router {
 
     /// Show a full-screen overlay until `now_ms + timeout_ms` or dismiss.
     pub fn show_overlay(&mut self, text: &str, now_ms: u64, timeout_ms: u64) {
+        if text.trim().is_empty() {
+            return;
+        }
         let mut s = heapless::String::<64>::new();
         for c in text.chars() {
             if s.push(c).is_err() {

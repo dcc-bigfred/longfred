@@ -276,9 +276,13 @@ fn draw_conn_icon(display: &mut Display, connected: bool, x: i32, y: i32) {
 fn draw_battery_percent(
     display: &mut Display,
     percent: u8,
+    charging: bool,
     text_style: MonoTextStyle<'_, BinaryColor>,
 ) {
-    let mut s = heapless::String::<4>::new();
+    let mut s = heapless::String::<5>::new();
+    if charging {
+        let _ = s.push('+');
+    }
     if percent >= 100 {
         let _ = s.push_str("100");
     } else if percent >= 10 {
@@ -355,7 +359,7 @@ fn draw_throttle_standard(
     draw_conn_icon(display, t.server_connected, 94, 2);
 
     if let Some(pct) = t.battery {
-        draw_battery_percent(display, pct, text_style);
+        draw_battery_percent(display, pct, t.battery_charging, text_style);
     }
 
     Text::with_baseline(

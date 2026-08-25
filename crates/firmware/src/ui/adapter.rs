@@ -285,6 +285,7 @@ pub fn screen_ctx<'a>(
             percent: b.percent,
             millivolts: b.millivolts,
             raw: b.raw,
+            charging: b.charging,
         }),
         session,
     }

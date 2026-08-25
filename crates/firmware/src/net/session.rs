@@ -12,7 +12,7 @@ use longfred_proto::caps::Transport as WireTransport;
 use longfred_proto::command::Protocol;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::persist::DeviceIdentity;
-use longfred_proto::withrottle::WtAdapter;
+use longfred_proto::withrottle::{WtAdapter, protocol};
 use longfred_proto::z21::Z21Adapter;
 
 use crate::config;
@@ -163,7 +163,8 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
     }
 
     loop {
-        let hb_period = Duration::from_secs(adapter.tick_period_s() as u64);
+        let hb_period =
+            Duration::from_secs(protocol::heartbeat_send_period_s(adapter.tick_period_s()) as u64);
         let server_changed = async {
             if let Some(rx) = srv_rx.as_mut() {
                 let _ = rx.changed().await;
@@ -171,7 +172,7 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                 core::future::pending::<()>().await;
             }
         };
-        match select4(
+        let live = match select4(
             tr.recv(&mut rx),
             cmd_rx.receive(),
             Timer::after(SESSION_TICK),
@@ -179,7 +180,7 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
         )
         .await
         {
-            Either4::First(None) => break,
+            Either4::First(None) => false,
             Either4::First(Some(n)) => {
                 let mut hb_cfg = None;
                 adapter.decode(&rx[..n], &mut |ev| {
@@ -191,29 +192,37 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                 if let Some(seconds) = hb_cfg {
                     adapter.set_heartbeat_period(seconds);
                 }
+                true
             }
             Either4::Second(cmd) => {
                 let mut out = WireBuf::new();
                 adapter.encode(&cmd, &mut out, &mut |ev| emit_event(ev));
                 if !out.is_empty() && !tr.send(&out).await {
-                    break;
+                    false
+                } else {
+                    true
                 }
             }
             Either4::Third(_) => {
                 let mut out = WireBuf::new();
                 let polled = adapter.poll(&mut out, &mut |ev| emit_event(ev));
                 if polled && !out.is_empty() && !tr.send(&out).await {
-                    break;
-                }
-                if hb_last.elapsed() >= hb_period {
-                    let mut out = WireBuf::new();
-                    if adapter.on_tick(&mut out) && !out.is_empty() && !tr.send(&out).await {
-                        break;
-                    }
-                    hb_last = Instant::now();
+                    false
+                } else {
+                    true
                 }
             }
-            Either4::Fourth(_) => break,
+            Either4::Fourth(_) => false,
+        };
+        if !live {
+            break;
+        }
+        if hb_last.elapsed() >= hb_period {
+            let mut out = WireBuf::new();
+            if adapter.on_tick(&mut out) && !out.is_empty() && !tr.send(&out).await {
+                break;
+            }
+            hb_last = Instant::now();
         }
     }
     let mut out = WireBuf::new();
