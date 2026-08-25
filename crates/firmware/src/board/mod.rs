@@ -3,6 +3,7 @@
 pub mod bridge;
 pub mod chord;
 pub mod descriptor;
+pub mod pins;
 pub mod raw;
 pub mod shift_layers;
 pub mod variants;

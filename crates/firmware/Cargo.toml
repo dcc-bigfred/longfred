@@ -14,18 +14,17 @@ path = "src/bin/main.rs"
 [features]
 default = ["variant-longfred-standard"]
 # Hardware variants (mutually exclusive — see board/variants).
-variant-longfred-standard = []
-variant-longfred-mini = []
+# `print-auto` is UART-or-JTAG. MarkWTech v1.0 adds it explicitly (cannot nest
+# it in `variant-markwtech` because v1.1 would then enable both print backends).
+variant-longfred-standard = ["print-auto"]
+variant-longfred-mini = ["print-auto"]
 variant-markwtech = []
-variant-heiko-wifred = []
-# Wokwi/host-friendly: skip WiFi/radio; spawn OLED + nav + encoder + MCP + domain.
-sim = []
-# Diagnostic: sim + spawn no tasks at all.
-sim_bare = ["sim"]
-# Legacy aliases (all input/UI tasks are on by default under `sim`).
-sim_nav = ["sim"]
-sim_input = ["sim"]
-sim_domain = ["sim"]
+# TinyC6 pin map; implies variant-markwtech. Logging is USB Serial/JTAG only
+# because UART0 (GPIO 16/17) is used for extra buttons.
+variant-markwtech-v1-1 = ["variant-markwtech", "print-jtag"]
+variant-heiko-wifred = ["print-auto"]
+print-auto = ["esp-println/auto"]
+print-jtag = ["esp-println/jtag-serial"]
 
 [dependencies]
 longfred-proto = { path = "../proto" }
@@ -38,7 +37,7 @@ esp-alloc = "0.10"
 esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6", "log-04"] }
 esp-storage = { version = "0.9.0", features = ["esp32c6"] }
 embedded-storage = "0.3"
-esp-println = { version = "0.17.0", features = ["esp32c6", "log-04"] }
+esp-println = { version = "0.17.0", default-features = false, features = ["esp32c6", "log-04", "colors", "critical-section"] }
 esp-backtrace = { version = "0.19.0", features = ["esp32c6", "panic-handler", "println"] }
 
 embassy-executor = { version = "0.10.0", features = ["log"] }

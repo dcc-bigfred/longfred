@@ -7,7 +7,7 @@ use embassy_time::{Duration, Instant, Timer, with_timeout};
 use log::{info, warn};
 use longfred_proto::command::Protocol;
 use longfred_proto::network::{
-    MDNS_MULTICAST_V4, MDNS_PORT, WitServer, build_ptr_query, collect_servers,
+    MDNS_MULTICAST_V4, MDNS_PORT, WitServer, build_ptr_query, collect_servers, sort_bigfred_first,
 };
 
 use crate::config::{network, sizes};
@@ -141,6 +141,8 @@ async fn run_discovery(
         let _ = label.push_str("DCC-EX");
         let _ = v.push(WitServer {
             label,
+            layout_name: heapless::String::new(),
+            host: heapless::String::new(),
             ipv4: Some(network::DEFAULT_WIT_IP),
             port: network::DEFAULT_WIT_PORT,
             protocol: Protocol::WiThrottle,
@@ -150,6 +152,7 @@ async fn run_discovery(
 
     let mut servers = discover(stack).await;
     probe_wit_hosts(stack, &mut servers, probe_rx, probe_tx).await;
+    sort_bigfred_first(servers.as_mut_slice());
     for s in &servers {
         info!(
             "server: {} {:?}:{} {:?}",

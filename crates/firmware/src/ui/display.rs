@@ -9,14 +9,15 @@ use embedded_graphics::{
     primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
     text::{Baseline, Text},
 };
+use longfred_proto::network::ConnState;
 use ssd1306::{I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 
 use crate::board::descriptor::{DisplayGeometry, LAYOUT_128X64};
 use crate::config::board;
 use crate::config::network::PAIRING_HTTP_URL;
 use crate::input::i2c_bus::SharedI2cDevice;
-use crate::ui::view::{GridView, LINE_LEN, ThrottleView, UiView};
-use crate::ui::{UI_VIEW, fonts, splash};
+use crate::ui::view::{ChartView, GridView, LINE_LEN, ThrottleView, UiView, push_oled};
+use crate::ui::{DISPLAY_ON, UI_VIEW, fonts, splash};
 
 const BLINK_PERIOD_MS: u64 = 200;
 const GRID_LEFT_X: i32 = 0;
@@ -250,35 +251,68 @@ fn draw_direction_arrow(display: &mut Display, forward: bool, x: i32, y: i32) {
     }
 }
 
-fn draw_conn_icon(display: &mut Display, connected: bool, x: i32, y: i32) {
+fn draw_conn_icon(display: &mut Display, conn: ConnState, x: i32, y: i32) {
     let style = stroke_on();
-    if connected {
-        Line::new(Point::new(x, y + 4), Point::new(x + 3, y + 7))
-            .into_styled(style)
-            .draw(display)
-            .ok();
-        Line::new(Point::new(x + 3, y + 7), Point::new(x + 8, y + 1))
-            .into_styled(style)
-            .draw(display)
-            .ok();
-    } else {
-        Line::new(Point::new(x, y + 1), Point::new(x + 7, y + 8))
-            .into_styled(style)
-            .draw(display)
-            .ok();
-        Line::new(Point::new(x + 7, y + 1), Point::new(x, y + 8))
-            .into_styled(style)
-            .draw(display)
-            .ok();
+    match conn {
+        ConnState::Connected => {
+            Line::new(Point::new(x, y + 4), Point::new(x + 3, y + 7))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 3, y + 7), Point::new(x + 8, y + 1))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+        }
+        ConnState::Connecting => {
+            Line::new(Point::new(x, y + 2), Point::new(x + 5, y + 2))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 5, y + 2), Point::new(x + 3, y))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 5, y + 2), Point::new(x + 3, y + 4))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 2, y + 7), Point::new(x + 7, y + 7))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 2, y + 7), Point::new(x + 4, y + 5))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 2, y + 7), Point::new(x + 4, y + 9))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+        }
+        ConnState::Disconnected => {
+            Line::new(Point::new(x, y + 1), Point::new(x + 7, y + 8))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+            Line::new(Point::new(x + 7, y + 1), Point::new(x, y + 8))
+                .into_styled(style)
+                .draw(display)
+                .ok();
+        }
     }
 }
 
 fn draw_battery_percent(
     display: &mut Display,
     percent: u8,
+    charging: bool,
     text_style: MonoTextStyle<'_, BinaryColor>,
 ) {
-    let mut s = heapless::String::<4>::new();
+    let mut s = heapless::String::<5>::new();
+    if charging {
+        let _ = s.push('+');
+    }
     if percent >= 100 {
         let _ = s.push_str("100");
     } else if percent >= 10 {
@@ -352,10 +386,10 @@ fn draw_throttle_standard(
         .ok();
 
     draw_direction_arrow(display, t.forward, 76, 4);
-    draw_conn_icon(display, t.server_connected, 94, 2);
+    draw_conn_icon(display, t.conn, 94, 2);
 
     if let Some(pct) = t.battery {
-        draw_battery_percent(display, pct, text_style);
+        draw_battery_percent(display, pct, t.battery_charging, text_style);
     }
 
     Text::with_baseline(
@@ -527,6 +561,195 @@ fn draw_pairing_qr(display: &mut Display, text_style: MonoTextStyle<'_, BinaryCo
         .ok();
 }
 
+fn chart_sample_y(value: i16, y_min: i16, y_max: i16, inner_y: i32, inner_h: i32) -> i32 {
+    let span = (i32::from(y_max) - i32::from(y_min)).max(1);
+    let v = i32::from(value).clamp(i32::from(y_min), i32::from(y_max));
+    let max_y = (inner_h - 1).max(0);
+    inner_y + max_y - (v - i32::from(y_min)) * max_y / span
+}
+
+const AXIS_CHAR_W: i32 = 4;
+const AXIS_FONT_H: i32 = 6;
+
+fn format_i16(n: i16) -> heapless::String<6> {
+    let mut out = heapless::String::<6>::new();
+    if n < 0 {
+        let _ = out.push('-');
+    }
+    let mut mag = u32::from(n.unsigned_abs());
+    if mag == 0 {
+        let _ = out.push('0');
+        return out;
+    }
+    let mut digits = [0u8; 5];
+    let mut len = 0usize;
+    while mag > 0 {
+        digits[len] = (mag % 10) as u8;
+        len += 1;
+        mag /= 10;
+    }
+    for i in (0..len).rev() {
+        let _ = out.push((b'0' + digits[i]) as char);
+    }
+    out
+}
+
+fn chart_y_mid(y_min: i16, y_max: i16) -> i16 {
+    ((i32::from(y_min) + i32::from(y_max)) / 2) as i16
+}
+
+fn chart_axis_gutter(y_min: i16, y_max: i16) -> i32 {
+    let y_mid = chart_y_mid(y_min, y_max);
+    let n = format_i16(y_min)
+        .len()
+        .max(format_i16(y_max).len())
+        .max(format_i16(y_mid).len());
+    (n as i32) * AXIS_CHAR_W
+}
+
+fn draw_axis_label(
+    display: &mut Display,
+    text: &str,
+    axis_w: i32,
+    y: i32,
+    style: MonoTextStyle<'_, BinaryColor>,
+) {
+    let x = 1 + axis_w - (text.len() as i32) * AXIS_CHAR_W;
+    Text::with_baseline(text, Point::new(x.max(1), y), style, Baseline::Top)
+        .draw(display)
+        .ok();
+}
+
+fn draw_chart_y_labels(
+    display: &mut Display,
+    chart: &ChartView,
+    plot_y: i32,
+    plot_h: i32,
+    axis_w: i32,
+    show_mid: bool,
+) {
+    let style = MonoTextStyleBuilder::new()
+        .font(&fonts::FONT_4X6)
+        .text_color(BinaryColor::On)
+        .build();
+    let y_mid = chart_y_mid(chart.y_min, chart.y_max);
+    draw_axis_label(
+        display,
+        format_i16(chart.y_max).as_str(),
+        axis_w,
+        plot_y,
+        style,
+    );
+    if show_mid {
+        draw_axis_label(
+            display,
+            format_i16(y_mid).as_str(),
+            axis_w,
+            plot_y + (plot_h - AXIS_FONT_H) / 2,
+            style,
+        );
+    }
+    draw_axis_label(
+        display,
+        format_i16(chart.y_min).as_str(),
+        axis_w,
+        plot_y + plot_h - AXIS_FONT_H,
+        style,
+    );
+}
+
+fn draw_chart(
+    display: &mut Display,
+    chart: &ChartView,
+    text_style: MonoTextStyle<'_, BinaryColor>,
+) {
+    let geom = geometry();
+    let is_mini = geom.height <= 32;
+    let width = i32::from(geom.width);
+
+    let title_y = if is_mini { 0 } else { 2 };
+    Text::with_baseline(
+        chart.title,
+        Point::new(2, title_y),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)
+    .ok();
+
+    let axis_w = chart_axis_gutter(chart.y_min, chart.y_max);
+    let plot_x = 1 + axis_w + 1;
+    let plot_y = if is_mini { 11_i32 } else { 14_i32 };
+    let plot_w = (width - plot_x - 1).max(8);
+    let plot_h = if is_mini { 11_i32 } else { 26_i32 };
+
+    Rectangle::new(
+        Point::new(plot_x, plot_y),
+        Size::new(
+            u32::try_from(plot_w.max(0)).unwrap_or(0),
+            u32::try_from(plot_h.max(0)).unwrap_or(0),
+        ),
+    )
+    .into_styled(stroke_on())
+    .draw(display)
+    .ok();
+
+    let inner_x = plot_x + 1;
+    let inner_y = plot_y + 1;
+    let inner_w = (plot_w - 2).max(1);
+    let inner_h = (plot_h - 2).max(1);
+    let samples = chart.samples.as_slice();
+    if samples.len() >= 2 {
+        let last_i = i32::try_from(samples.len() - 1).unwrap_or(1);
+        for (idx, pair) in samples.windows(2).enumerate() {
+            let idx = i32::try_from(idx).unwrap_or(0);
+            let x0 = inner_x + idx * (inner_w - 1) / last_i;
+            let x1 = inner_x + (idx + 1) * (inner_w - 1) / last_i;
+            let y0 = chart_sample_y(pair[0], chart.y_min, chart.y_max, inner_y, inner_h);
+            let y1 = chart_sample_y(pair[1], chart.y_min, chart.y_max, inner_y, inner_h);
+            Line::new(Point::new(x0, y0), Point::new(x1, y1))
+                .into_styled(stroke_on())
+                .draw(display)
+                .ok();
+        }
+    } else if let Some(&value) = samples.first() {
+        let y = chart_sample_y(value, chart.y_min, chart.y_max, inner_y, inner_h);
+        if let (Ok(x), Ok(py)) = (u32::try_from(inner_x), u32::try_from(y)) {
+            display.set_pixel(x, py, true);
+        }
+    }
+
+    if let Some(th) = chart.threshold {
+        let y = chart_sample_y(th, chart.y_min, chart.y_max, inner_y, inner_h);
+        Line::new(Point::new(inner_x, y), Point::new(inner_x + inner_w - 1, y))
+            .into_styled(stroke_on())
+            .draw(display)
+            .ok();
+    }
+
+    draw_chart_y_labels(display, chart, plot_y, plot_h, axis_w, !is_mini);
+
+    if is_mini {
+        let mut cap = crate::ui::view::Line::new();
+        for (i, line) in chart.footer.iter().enumerate() {
+            if i > 0 && cap.len() < LINE_LEN.saturating_sub(1) {
+                let _ = cap.push(' ');
+            }
+            push_oled(&mut cap, line.as_str());
+        }
+        Text::with_baseline(cap.as_str(), Point::new(2, 22), text_style, Baseline::Top)
+            .draw(display)
+            .ok();
+    } else {
+        const FOOTER_Y: [i32; 2] = [44, 54];
+        for (line, y) in chart.footer.iter().zip(FOOTER_Y) {
+            Text::with_baseline(line.as_str(), Point::new(2, y), text_style, Baseline::Top)
+                .draw(display)
+                .ok();
+        }
+    }
+}
+
 #[embassy_executor::task]
 pub async fn task(i2c: SharedI2cDevice) {
     let geom = geometry();
@@ -536,7 +759,6 @@ pub async fn task(i2c: SharedI2cDevice) {
     let mut display: Display = Ssd1306::new(interface, PanelSize {}, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
 
-    // Blocking I2C: async esp-hal master hard-resets in Wokwi on first xfer.
     if display.init().is_err() {
         log::error!("oled: init failed");
         return;
@@ -562,8 +784,20 @@ pub async fn task(i2c: SharedI2cDevice) {
 
     let mut blink = false;
     let mut ui_rx = UI_VIEW.receiver();
+    let mut power_rx = DISPLAY_ON.receiver();
+    let mut panel_on = true;
 
     loop {
+        let want_on = power_rx.as_mut().and_then(|r| r.try_get()).unwrap_or(true);
+        if want_on != panel_on {
+            display.set_display_on(want_on).ok();
+            panel_on = want_on;
+        }
+        if !panel_on {
+            Timer::after(Duration::from_millis(BLINK_PERIOD_MS)).await;
+            continue;
+        }
+
         display.clear_buffer();
 
         let view = ui_rx.as_mut().and_then(|r| r.try_get()).unwrap_or_default();
@@ -583,6 +817,7 @@ pub async fn task(i2c: SharedI2cDevice) {
             UiView::Throttle(t) => draw_throttle(&mut display, t, title_style, text_style),
             UiView::Splash => draw_splash(&mut display),
             UiView::PairingQr => draw_pairing_qr(&mut display, text_style),
+            UiView::Chart(c) => draw_chart(&mut display, c, text_style),
         }
 
         if blink {

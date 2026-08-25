@@ -101,3 +101,10 @@ fn release_loco() {
 fn steal_loco() {
     assert_eq!(p::steal_loco('T', "L341").as_str(), "MTSL341<;>L341");
 }
+
+#[test]
+fn heartbeat_send_period_is_half_advertised_timeout() {
+    assert_eq!(p::heartbeat_send_period_s(10), 5);
+    assert_eq!(p::heartbeat_send_period_s(1), 1);
+    assert_eq!(p::heartbeat_send_period_s(2), 1);
+}

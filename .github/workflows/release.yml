@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          for variant in longfred-standard longfred-mini markwtech heiko-wifred; do
+          for variant in longfred-standard longfred-mini markwtech markwtech-v1-1 heiko-wifred; do
             gh run download "${{ steps.ci.outputs.run_id }}" \
               --name "firmware-${variant}" \
               --dir "release-assets/${variant}"

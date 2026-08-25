@@ -1,7 +1,7 @@
 //! Board Support Package: central, single board pinout.
 //!
-//! ALL physical GPIO numbers live here. Board changes / tuning for
-//! ESP32-C6-DevKitC-1U = edit only this file.
+//! LongFred-family and Heiko GPIO numbers live here. MarkWTech revisions
+//! override encoder / I2C / battery / wake via [`crate::board::pins`].
 
 /// GPIO pin number (raw index on the package).
 pub type Gpio = u8;
@@ -24,7 +24,7 @@ pub const ENCODER_B: Gpio = 3;
 pub const ENCODER_BUTTON: Gpio = 0;
 
 // --- Nav cluster on ESP GPIO (active-low, internal pull-up) ---
-// Header pins 18–23 on DevKitC-1 (avoid strapping 4/5/8/9/15 — weak/no effect in Wokwi).
+// Header pins 18–23 on DevKitC-1 (avoid strapping 4/5/8/9/15).
 pub const NAV_UP: Gpio = 18;
 pub const NAV_DOWN: Gpio = 19;
 pub const NAV_LEFT: Gpio = 20;

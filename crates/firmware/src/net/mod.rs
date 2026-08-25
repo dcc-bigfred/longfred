@@ -2,10 +2,8 @@
 
 pub mod mdns;
 pub mod pairing_http;
-#[cfg(not(feature = "sim"))]
 pub mod ping;
 pub mod probe;
-#[cfg(not(feature = "sim"))]
 pub mod provisioning;
 pub mod session;
 pub mod wifi;
@@ -37,8 +35,12 @@ pub static SERVER: Watch<CriticalSectionRawMutex, Option<ServerEndpoint>, 2> =
 pub static CONN: Watch<CriticalSectionRawMutex, ConnState, 2> =
     Watch::new_with(ConnState::Disconnected);
 
+/// Live dead-man switch (`*+` / `*-`). Session handshake reads this on connect.
+pub static DEAD_MAN: Watch<CriticalSectionRawMutex, bool, 2> =
+    Watch::new_with(crate::config::buttons::DEAD_MAN_SWITCH_ENABLED);
+
 /// One WiThrottle roster line can decode to count + 70 entry events in one read.
-pub const PROTO_EVENTS_DEPTH: usize = 80;
+pub const PROTO_EVENTS_DEPTH: usize = 96;
 pub const PROTO_COMMANDS_DEPTH: usize = 16;
 pub const WIFI_CTRL_DEPTH: usize = 4;
 

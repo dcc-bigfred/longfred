@@ -3,27 +3,21 @@
 //! LongFred firmware entry point: HAL init, task spawn, and Soft-AP programming mode.
 
 use embassy_executor::Spawner;
+use embassy_net::{Config as NetConfig, DhcpConfig, StackResources};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
-#[cfg(not(feature = "sim"))]
 use esp_hal::clock::CpuClock;
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println as _;
+use esp_radio::wifi::{Interface, WifiController};
 use esp_storage::FlashStorage;
 use log::info;
 use static_cell::StaticCell;
 
-#[cfg(not(feature = "sim"))]
-use embassy_net::{Config as NetConfig, DhcpConfig, StackResources};
-#[cfg(not(feature = "sim"))]
-use esp_radio::wifi::{Interface, WifiController};
-
-#[cfg(not(feature = "sim"))]
 use longfred_firmware::net;
-#[cfg(not(feature = "sim"))]
 use longfred_firmware::power;
 use longfred_firmware::{board, config, domain, input, storage, ui};
 
@@ -31,14 +25,15 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 static FLASH: StaticCell<Mutex<CriticalSectionRawMutex, FlashStorage<'static>>> = StaticCell::new();
 
+/// Delay before a boot-time `software_reset()` so a transient radio / AP
+/// failure is observable on the OLED and a persistent failure does not
+/// tight-loop the reset. Brown-outs and marginal radios can recover here.
+const BOOT_RESET_BACKOFF_S: u64 = 2;
+
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
 
-    // Wokwi: default clock is enough and avoids I2C edge-timing quirks at max MHz.
-    #[cfg(feature = "sim")]
-    let hal_cfg = esp_hal::Config::default();
-    #[cfg(not(feature = "sim"))]
     let hal_cfg = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(hal_cfg);
 
@@ -55,7 +50,6 @@ async fn main(spawner: Spawner) -> ! {
     let mut flash_dev = FlashStorage::new(peripherals.FLASH);
     let boot = storage::ensure_boot(&mut flash_dev, boot_entropy);
     info!("wifi hostname: {}", boot.wifi_hostname.as_str());
-    #[cfg(not(feature = "sim"))]
     net::provisioning::ota::mark_running_slot_valid(&mut flash_dev);
 
     let enter_programming = boot.programming_mode
@@ -70,80 +64,58 @@ async fn main(spawner: Spawner) -> ! {
     }
     let flash = FLASH.init(Mutex::new(flash_dev));
 
-    #[cfg(not(feature = "sim"))]
-    {
-        let seed = ((rng.random() as u64) << 32) | rng.random() as u64;
-        net::WIFI_HOSTNAME.sender().send(boot.wifi_hostname.clone());
+    let seed = ((rng.random() as u64) << 32) | rng.random() as u64;
+    net::WIFI_HOSTNAME.sender().send(boot.wifi_hostname.clone());
 
-        if enter_programming {
-            info!(
-                "boot: programming mode (flag={} auto_pair={} creds={})",
-                boot.programming_mode,
-                board::active_variant().auto_pair_when_unconfigured,
-                boot.has_wifi_credentials
-            );
-            let mut prog_rec = boot.record.clone();
-            prog_rec.programming_mode = true;
-            let _ = net::provisioning::spawn_programming_net(
-                &spawner,
-                peripherals.WIFI,
-                seed,
-                prog_rec,
-                flash,
-            );
-        } else {
-            let controller = match WifiController::new(peripherals.WIFI, Default::default()) {
-                Ok(c) => c,
-                Err(e) => {
-                    log::error!("boot: WifiController::new failed: {:?} — hanging", e);
-                    loop {
-                        Timer::after(Duration::from_secs(60)).await;
-                    }
-                }
-            };
-            let sta = Interface::station();
-
-            static RESOURCES: StaticCell<StackResources<{ config::sizes::NET_SOCKETS }>> =
-                StaticCell::new();
-            let resources = RESOURCES.init(StackResources::new());
-            let mut dhcp = DhcpConfig::default();
-            let mut host = heapless::String::<32>::new();
-            let _ = host.push_str(boot.wifi_hostname.as_str());
-            dhcp.hostname = Some(host);
-            let (stack, runner) = embassy_net::new(sta, NetConfig::dhcpv4(dhcp), resources, seed);
-
-            if let Ok(token) = net::wifi::connection(controller) {
-                spawner.spawn(token);
-            }
-            if let Ok(token) = net::wifi::net_task(runner) {
-                spawner.spawn(token);
-            }
-            if let Ok(token) = net::wifi::status_task(stack) {
-                spawner.spawn(token);
-            }
-            if let Ok(token) = net::wifi::config_task(stack) {
-                spawner.spawn(token);
-            }
-            if let Ok(token) = net::mdns::task(stack, "") {
-                spawner.spawn(token);
-            }
-            if let Ok(token) = net::session::task(stack) {
-                spawner.spawn(token);
-            }
-            if let Ok(token) = net::pairing_http::task(stack) {
-                spawner.spawn(token);
-            }
-            if let Ok(token) = net::ping::task(stack) {
-                spawner.spawn(token);
-            }
-            net::provisioning::spawn_sta_http(&spawner, stack, boot.record.clone(), flash);
+    if enter_programming {
+        info!(
+            "boot: programming mode (flag={} auto_pair={} creds={})",
+            boot.programming_mode,
+            board::active_variant().auto_pair_when_unconfigured,
+            boot.has_wifi_credentials
+        );
+        let mut prog_rec = boot.record.clone();
+        prog_rec.programming_mode = true;
+        if !net::provisioning::spawn_programming_net(
+            &spawner,
+            peripherals.WIFI,
+            seed,
+            prog_rec,
+            flash,
+        ) {
+            log::error!("boot: programming net failed — reset");
+            Timer::after(Duration::from_secs(BOOT_RESET_BACKOFF_S)).await;
+            esp_hal::system::software_reset();
         }
-    }
+    } else {
+        let controller = match WifiController::new(peripherals.WIFI, Default::default()) {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("boot: WifiController::new failed: {:?}", e);
+                Timer::after(Duration::from_secs(BOOT_RESET_BACKOFF_S)).await;
+                esp_hal::system::software_reset();
+            }
+        };
+        let sta = Interface::station();
 
-    #[cfg(feature = "sim")]
-    {
-        let _ = enter_programming;
-        info!("sim: WiFi/net bring-up skipped");
+        static RESOURCES: StaticCell<StackResources<{ config::sizes::NET_SOCKETS }>> =
+            StaticCell::new();
+        let resources = RESOURCES.init(StackResources::new());
+        let mut dhcp = DhcpConfig::default();
+        let mut host = heapless::String::<32>::new();
+        let _ = host.push_str(boot.wifi_hostname.as_str());
+        dhcp.hostname = Some(host);
+        let (stack, runner) = embassy_net::new(sta, NetConfig::dhcpv4(dhcp), resources, seed);
+
+        longfred_firmware::spawn_or_reset!(spawner, net::wifi::connection(controller), "wifi");
+        longfred_firmware::spawn_or_reset!(spawner, net::wifi::net_task(runner), "net");
+        longfred_firmware::spawn_or_reset!(spawner, net::wifi::status_task(stack), "net-status");
+        longfred_firmware::spawn_or_reset!(spawner, net::wifi::config_task(stack), "net-config");
+        longfred_firmware::spawn_or_warn!(spawner, net::mdns::task(stack, ""), "mdns");
+        longfred_firmware::spawn_or_reset!(spawner, net::session::task(stack), "session");
+        longfred_firmware::spawn_or_reset!(spawner, net::pairing_http::task(stack), "pairing-http");
+        longfred_firmware::spawn_or_warn!(spawner, net::ping::task(stack), "ping");
+        net::provisioning::spawn_sta_http(&spawner, stack, boot.record.clone(), flash);
     }
 
     info!(
@@ -153,127 +125,126 @@ async fn main(spawner: Spawner) -> ! {
         config::network::NETWORKS.len()
     );
 
-    #[cfg(not(feature = "sim"))]
-    {
-        if let Ok(token) = storage::task(flash, boot_entropy) {
-            spawner.spawn(token);
-        }
-        if config::power::USE_BATTERY_TEST {
-            if let Ok(token) = power::battery::task(peripherals.ADC1, peripherals.GPIO1) {
-                spawner.spawn(token);
-            }
-        }
-        if let Ok(token) = power::sleep::task(peripherals.LPWR, peripherals.GPIO0) {
-            spawner.spawn(token);
-        }
+    longfred_firmware::spawn_or_reset!(spawner, storage::task(flash, boot_entropy), "storage");
+    if config::power::USE_BATTERY_TEST {
+        #[cfg(not(feature = "variant-markwtech-v1-1"))]
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            power::battery::task(peripherals.ADC1, peripherals.GPIO1),
+            "battery"
+        );
+        #[cfg(feature = "variant-markwtech-v1-1")]
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            power::battery::task(peripherals.ADC1, peripherals.GPIO4, peripherals.GPIO10),
+            "battery"
+        );
     }
-    #[cfg(feature = "sim")]
+    longfred_firmware::spawn_or_reset!(
+        spawner,
+        power::sleep::task(peripherals.LPWR, peripherals.GPIO0),
+        "sleep"
+    );
+
+    let raw_sender = board::RAW_CHANNEL.sender();
+    info!("board variant: {}", board::active().id);
+
+    info!("main: i2c init");
+    let (oled_i2c, expander_i2c) = input::i2c_bus::init(peripherals.I2C0);
+
+    // OLED for variants with a display; heiko uses LED presenter instead.
+    #[cfg(not(feature = "variant-heiko-wifred"))]
+    longfred_firmware::spawn_or_reset!(spawner, ui::display::task(oled_i2c), "display");
+    #[cfg(feature = "variant-heiko-wifred")]
     {
-        let _ = flash;
-        info!("sim: storage/battery/sleep skipped");
+        let _ = oled_i2c;
+        let (led_stop, led_fwd, led_rev) = ui::led_presenter::build();
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            ui::led_presenter::task(led_stop, led_fwd, led_rev),
+            "leds"
+        );
     }
 
-    #[cfg(feature = "sim_bare")]
-    info!("sim_bare: no tasks spawned, heartbeat only");
-
-    #[cfg(not(feature = "sim_bare"))]
+    // LongFred family: GPIO nav cluster.
+    #[cfg(any(
+        feature = "variant-longfred-standard",
+        feature = "variant-longfred-mini"
+    ))]
     {
-        let raw_sender = board::RAW_CHANNEL.sender();
-        info!("board variant: {}", board::active().id);
-
-        info!("main: i2c init");
-        let (oled_i2c, expander_i2c) = input::i2c_bus::init(peripherals.I2C0);
-
-        // OLED for variants with a display; heiko uses LED presenter instead.
-        #[cfg(not(feature = "variant-heiko-wifred"))]
-        if let Ok(token) = ui::display::task(oled_i2c) {
-            spawner.spawn(token);
-        }
-        #[cfg(feature = "variant-heiko-wifred")]
-        {
-            let _ = oled_i2c;
-            let (led_stop, led_fwd, led_rev) = ui::led_presenter::build();
-            if let Ok(token) = ui::led_presenter::task(led_stop, led_fwd, led_rev) {
-                spawner.spawn(token);
-            }
-        }
-
-        // LongFred family: GPIO nav cluster.
-        #[cfg(any(
-            feature = "variant-longfred-standard",
-            feature = "variant-longfred-mini"
-        ))]
-        {
-            let nav = input::gpio_nav::build(
-                peripherals.GPIO18,
-                peripherals.GPIO19,
-                peripherals.GPIO20,
-                peripherals.GPIO21,
-                peripherals.GPIO22,
-                peripherals.GPIO23,
-                peripherals.GPIO10,
-            );
-            if let Ok(token) = input::gpio_nav::task(nav, raw_sender) {
-                spawner.spawn(token);
-            }
-        }
-
-        // MarkWTech: 3×4 keypad matrix + extra tact cluster (pins from markwtech constants).
-        #[cfg(feature = "variant-markwtech")]
-        {
-            let keypad = input::keypad::build();
-            if let Ok(token) = input::keypad::task(keypad, raw_sender) {
-                spawner.spawn(token);
-            }
-            let extras = input::extra_buttons::build();
-            if let Ok(token) = input::extra_buttons::task(extras, raw_sender) {
-                spawner.spawn(token);
-            }
-        }
-
-        // Expanders: LongFred family + heiko-wifred.
-        #[cfg(any(
-            feature = "variant-longfred-standard",
-            feature = "variant-longfred-mini",
-            feature = "variant-heiko-wifred"
-        ))]
-        if let Ok(token) = input::expander::task(expander_i2c, raw_sender) {
-            spawner.spawn(token);
-        }
-        #[cfg(feature = "variant-markwtech")]
-        {
-            let _ = expander_i2c;
-        }
-
-        // Encoder: LongFred family + markwtech (heiko uses pot).
-        #[cfg(not(feature = "variant-heiko-wifred"))]
-        {
-            let enc = input::encoder::build();
-            if let Ok(token) = input::encoder::task(enc.a, enc.b, raw_sender) {
-                spawner.spawn(token);
-            }
-            if let Ok(token) = input::encoder::button_task(enc.button, raw_sender) {
-                spawner.spawn(token);
-            }
-        }
-
-        if let Ok(token) = board::bridge::task() {
-            spawner.spawn(token);
-        }
-
-        // Normal throttle domain only when not in Soft-AP programming path.
-        #[cfg(feature = "sim")]
-        let spawn_domain = true;
-        #[cfg(not(feature = "sim"))]
-        let spawn_domain = !enter_programming;
-        if spawn_domain {
-            if let Ok(token) = domain::task::task() {
-                spawner.spawn(token);
-            }
-        }
-
-        let _ = raw_sender;
+        let nav = input::gpio_nav::build(
+            peripherals.GPIO18,
+            peripherals.GPIO19,
+            peripherals.GPIO20,
+            peripherals.GPIO21,
+            peripherals.GPIO22,
+            peripherals.GPIO23,
+            peripherals.GPIO10,
+        );
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::gpio_nav::task(nav, raw_sender),
+            "gpio-nav"
+        );
     }
+
+    // MarkWTech: 3×4 keypad matrix + extra tact cluster (pins from markwtech constants).
+    #[cfg(feature = "variant-markwtech")]
+    {
+        let keypad = input::keypad::build();
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::keypad::task(keypad, raw_sender),
+            "keypad"
+        );
+        let extras = input::extra_buttons::build();
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::extra_buttons::task(extras, raw_sender),
+            "extra-buttons"
+        );
+    }
+
+    // Expanders: LongFred family + heiko-wifred.
+    #[cfg(any(
+        feature = "variant-longfred-standard",
+        feature = "variant-longfred-mini",
+        feature = "variant-heiko-wifred"
+    ))]
+    longfred_firmware::spawn_or_reset!(
+        spawner,
+        input::expander::task(expander_i2c, raw_sender),
+        "expander"
+    );
+    #[cfg(feature = "variant-markwtech")]
+    {
+        let _ = expander_i2c;
+    }
+
+    // Encoder: LongFred family + markwtech (heiko uses pot).
+    #[cfg(not(feature = "variant-heiko-wifred"))]
+    {
+        let enc = input::encoder::build();
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::encoder::task(enc.a, enc.b, raw_sender),
+            "encoder"
+        );
+        longfred_firmware::spawn_or_reset!(
+            spawner,
+            input::encoder::button_task(enc.button, raw_sender),
+            "encoder-btn"
+        );
+    }
+
+    longfred_firmware::spawn_or_reset!(spawner, board::bridge::task(), "bridge");
+
+    if !enter_programming {
+        longfred_firmware::spawn_or_reset!(spawner, domain::task::task(), "domain");
+        longfred_firmware::spawn_or_reset!(spawner, domain::task::watchdog_task(), "domain-wdt");
+    }
+
+    let _ = raw_sender;
 
     loop {
         Timer::after(Duration::from_secs(60)).await;

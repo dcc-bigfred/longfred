@@ -4,13 +4,14 @@ use longfred_proto::command::Protocol;
 use longfred_proto::model::MAX_FOUND_SERVERS;
 
 use super::helpers::{
-    digit_key, height, list_digit, list_star_confirms, page_list, set_list_hint, step_list,
+    digit_key, format_found_server_name, height, list_digit, list_star_confirms, page_list,
+    set_list_hint, step_list,
 };
 use crate::context::ScreenCtx;
 use crate::intent::{AppEvent, Intent};
 use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::screen::Screen;
-use crate::view::{LINE_LEN, Line, UiView, push_oled};
+use crate::view::{Line, UiView};
 use crate::widgets::PagedList;
 
 /// mDNS command-station list.
@@ -27,20 +28,11 @@ impl ServerListScreen {
         }
     }
 
-    /// `"label W|Z|B"` rows for discovered endpoints.
+    /// `"label W|Z"` or `{layoutName}/BigFred B|Z21` rows for discovered endpoints.
     fn labels(cx: &ScreenCtx<'_>) -> heapless::Vec<Line, MAX_FOUND_SERVERS> {
         let mut v = heapless::Vec::new();
         for s in cx.net.found_servers {
-            let mut name = Line::new();
-            push_oled(&mut name, s.label.as_str());
-            while name.len() > LINE_LEN.saturating_sub(2) {
-                let _ = name.pop();
-            }
-            let mut line = Line::new();
-            push_oled(&mut line, name.as_str());
-            let _ = line.push(' ');
-            let _ = line.push(s.protocol.glyph());
-            let _ = v.push(line);
+            let _ = v.push(format_found_server_name(s));
         }
         v
     }
@@ -55,8 +47,8 @@ impl ServerListScreen {
 
     fn connect_at(cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>, idx: usize) {
         if idx < cx.net.found_servers.len() {
-            nav.emit(Intent::ServerSelect(idx));
-            nav.root(ScreenId::Throttle);
+            cx.session.pending_server_idx = Some(idx);
+            nav.go(ScreenId::ServerConfirm);
         }
     }
 

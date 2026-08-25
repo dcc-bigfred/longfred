@@ -16,3 +16,6 @@ use crate::ui::view::UiView;
 
 /// Current OLED view (domain router → renderer).
 pub static UI_VIEW: Watch<CriticalSectionRawMutex, UiView, 2> = Watch::new();
+
+/// OLED panel power (domain / sleep → display task). `true` = panel on.
+pub static DISPLAY_ON: Watch<CriticalSectionRawMutex, bool, 2> = Watch::new_with(true);

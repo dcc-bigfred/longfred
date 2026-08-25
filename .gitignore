@@ -7,7 +7,6 @@
 .embuild/
 *.bin
 *.elf
-wokwi/longfred
 
 # logs / OS / editors
 *.log

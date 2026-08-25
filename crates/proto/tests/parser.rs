@@ -185,3 +185,32 @@ fn roster_function_labels() {
 fn unknown_command() {
     assert!(matches!(collect("XYZZY")[0], ServerEvent::Unknown(_)));
 }
+
+#[test]
+fn heartbeat_config_truncates_fractional() {
+    let events = collect("*10.5");
+    assert_eq!(events[0], ServerEvent::HeartbeatConfig { seconds: 10 });
+}
+
+#[test]
+fn alert_empty_hm_is_empty() {
+    let events = collect("HM");
+    match &events[0] {
+        ServerEvent::Alert(text) => assert!(text.is_empty()),
+        other => panic!("expected Alert, got {other:?}"),
+    }
+}
+
+#[test]
+fn alert_longer_than_64_is_truncated_not_blank() {
+    let payload: String = (0..80).map(|_| 'x').collect();
+    let events = collect(&format!("HM{payload}"));
+    match &events[0] {
+        ServerEvent::Alert(text) => {
+            assert!(!text.is_empty());
+            assert_eq!(text.len(), 64);
+            assert!(text.as_str().chars().all(|c| c == 'x'));
+        }
+        other => panic!("expected Alert, got {other:?}"),
+    }
+}

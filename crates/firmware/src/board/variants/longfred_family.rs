@@ -89,6 +89,11 @@ impl LongFredSurface {
                     out(InputEvent::Stop);
                 }
             }
+            ButtonId::EStop => {
+                if pressed {
+                    out(InputEvent::EStop);
+                }
+            }
             ButtonId::JoyUp if pressed => out(InputEvent::Nav(NavDir::Up)),
             ButtonId::JoyDown if pressed => out(InputEvent::Nav(NavDir::Down)),
             ButtonId::JoyLeft if pressed => out(InputEvent::Nav(NavDir::Left)),

@@ -2,14 +2,16 @@
 
 use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
-use log::{info, warn};
+use log::{error, info, warn};
 use longfred_proto::command::ClientCommand;
 use longfred_proto::menu::parse_ip_endpoint;
 use longfred_proto::model::Direction;
 use longfred_proto::persist::{PersistRecord, SavedServer};
 use longfred_ui::nav::{PageDir, ScreenId};
+use longfred_ui::view::push_battery_sample;
 use longfred_ui::{AppEvent, Intent, UiSession};
 
 use crate::config::{self, power, sizes};
@@ -25,10 +27,28 @@ use crate::net::{
     WIFI_SCAN, WifiCmd,
 };
 use crate::power::battery::BATTERY;
-use crate::power::sleep::{SLEEP_CTRL, SleepReason};
+use crate::power::sleep::{self, SleepReason};
 use crate::storage::{PERSIST_LOADED, STORAGE_ACK, STORAGE_CTRL, StorageCmd};
 use crate::ui::adapter;
 use crate::ui::{UI_VIEW, i18n};
+
+/// Bounded retry window for a safety-critical E-Stop when the command channel
+/// is saturated. Short enough to keep STOP responsive, long enough to drain a
+/// burst of lower-priority commands.
+const ESTOP_FLUSH_DEADLINE_MS: u64 = 100;
+/// Polling interval while waiting for the command channel to drain for an E-Stop.
+const ESTOP_FLUSH_POLL_MS: u64 = 5;
+
+fn drop_stale_speed(out: &mut heapless::Vec<ClientCommand, CMD_BUF>) -> bool {
+    let Some(i) = out
+        .iter()
+        .rposition(|c| matches!(c, ClientCommand::SetSpeed { .. }))
+    else {
+        return false;
+    };
+    let _ = out.remove(i);
+    true
+}
 
 async fn flush_cmds(
     cmd_tx: &embassy_sync::channel::Sender<
@@ -42,13 +62,46 @@ async fn flush_cmds(
 ) {
     let min_delay = Duration::from_millis(config::network::OUTBOUND_COMMANDS_MIN_DELAY_MS);
     while let Some(cmd) = out.first().cloned() {
-        let elapsed = last_cmd.elapsed();
-        if elapsed < min_delay {
-            Timer::after(min_delay - elapsed).await;
+        let estop = matches!(cmd, ClientCommand::EStop { .. });
+        if !estop {
+            let elapsed = last_cmd.elapsed();
+            if elapsed < min_delay {
+                Timer::after(min_delay - elapsed).await;
+            }
         }
+        if cmd_tx.try_send(cmd.clone()).is_ok() {
+            let _ = out.remove(0);
+            *last_cmd = Instant::now();
+            continue;
+        }
+        if drop_stale_speed(out) {
+            continue;
+        }
+        if estop {
+            // Safety-critical: don't drop silently. Bounded retry — evict
+            // queued speed commands and wait for the channel to drain so the
+            // E-Stop reaches the station instead of being lost.
+            let deadline = Instant::now() + Duration::from_millis(ESTOP_FLUSH_DEADLINE_MS);
+            loop {
+                if cmd_tx.try_send(cmd.clone()).is_ok() {
+                    let _ = out.remove(0);
+                    *last_cmd = Instant::now();
+                    break;
+                }
+                if drop_stale_speed(out) {
+                    continue;
+                }
+                if Instant::now() >= deadline {
+                    error!("domain: estop dropped after retry, command channel full");
+                    let _ = out.remove(0);
+                    break;
+                }
+                Timer::after(Duration::from_millis(ESTOP_FLUSH_POLL_MS)).await;
+            }
+            continue;
+        }
+        warn!("domain: dropping outbound command (channel full)");
         let _ = out.remove(0);
-        cmd_tx.send(cmd).await;
-        *last_cmd = Instant::now();
     }
 }
 
@@ -59,6 +112,7 @@ fn apply_persist(state: &mut DomainState, rec: PersistRecord) {
     let hostname = rec.wifi_hostname.clone();
     let language = rec.language;
     state.load_persist(rec);
+    crate::net::DEAD_MAN.sender().send(state.dead_man_switch_on);
     i18n::set_language(language);
     DEVICE.sender().send(device);
     if !hostname.is_empty() {
@@ -94,8 +148,7 @@ fn interpret(
     match intent {
         Intent::Action(Action::ShowHideBattery) => session.cycle_battery_mode(),
         Intent::Action(Action::Sleep) => {
-            net::set_http_ota_enabled(false);
-            SLEEP_CTRL.signal(SleepReason::Command);
+            request_device_sleep(state, out, SleepReason::Command);
         }
         Intent::Action(a) => {
             let _ = state.apply_action(a, true, out);
@@ -201,8 +254,7 @@ fn interpret(
             session.hash_functions = !session.hash_functions;
         }
         Intent::Sleep => {
-            net::set_http_ota_enabled(false);
-            SLEEP_CTRL.signal(SleepReason::Command);
+            request_device_sleep(state, out, SleepReason::Command);
         }
         Intent::RequestMdns => {
             let _ = MDNS_CTRL.try_send(());
@@ -403,6 +455,48 @@ fn begin_pairing_flow(
     PairingStart::CodeDialog
 }
 
+fn request_device_sleep(
+    state: &mut DomainState,
+    out: &mut heapless::Vec<ClientCommand, CMD_BUF>,
+    reason: SleepReason,
+) {
+    let _ = state.apply_action(Action::EStop, true, out);
+    net::set_http_ota_enabled(false);
+    sleep::begin_sleep(reason);
+}
+
+fn has_oled() -> bool {
+    crate::board::active().display.is_some()
+}
+
+/// TinyC6 VBUS sense (`BatterySample.charging`). Other variants stay false.
+fn usb_powered(battery: Option<crate::power::battery::BatterySample>) -> bool {
+    battery.is_some_and(|b| b.charging)
+}
+
+/// Last domain-loop pulse; [`watchdog_task`] resets the MCU if this stalls.
+pub static DOMAIN_PULSE: Watch<CriticalSectionRawMutex, Option<Instant>, 1> = Watch::new_with(None);
+
+fn pulse_domain() {
+    DOMAIN_PULSE.sender().send(Some(Instant::now()));
+}
+
+/// Software watchdog for the domain loop (frozen UI / blocked command path).
+#[embassy_executor::task]
+pub async fn watchdog_task() {
+    Timer::after(Duration::from_secs(15)).await;
+    loop {
+        Timer::after(Duration::from_secs(2)).await;
+        match DOMAIN_PULSE.sender().try_get().flatten() {
+            Some(t) if t.elapsed() < Duration::from_secs(5) => {}
+            _ => {
+                error!("domain watchdog: stall — reset");
+                esp_hal::system::software_reset();
+            }
+        }
+    }
+}
+
 #[embassy_executor::task]
 pub async fn task() {
     let mut ui = adapter::UiWorld::new();
@@ -420,6 +514,8 @@ pub async fn task() {
 
     let mut restored_this_session = false;
     let mut last_activity = Instant::now();
+    let mut display_blanked = false;
+    let mut sleep_requested = false;
     let mut spdt_direction = Direction::Forward;
     let mut pairing_active = false;
     let mut pairing_http_tried = false;
@@ -441,16 +537,13 @@ pub async fn task() {
             );
             apply_persist(&mut ui.state, rec);
         } else {
-            #[cfg(not(feature = "sim"))]
-            {
-                let rec = rx.get().await;
-                info!(
-                    "domain: persist ready lang_chosen={} creds={}",
-                    rec.language_chosen,
-                    rec.credentials.len()
-                );
-                apply_persist(&mut ui.state, rec);
-            }
+            let rec = rx.get().await;
+            info!(
+                "domain: persist ready lang_chosen={} creds={}",
+                rec.language_chosen,
+                rec.credentials.len()
+            );
+            apply_persist(&mut ui.state, rec);
         }
     } else {
         warn!("domain: persist watch has no free receiver");
@@ -487,8 +580,10 @@ pub async fn task() {
     }
 
     ui.publish_view(Instant::now().as_millis(), &ui_tx);
+    pulse_domain();
 
     loop {
+        pulse_domain();
         match select3(
             input_rx.receive(),
             events_rx.receive(),
@@ -498,117 +593,118 @@ pub async fn task() {
         {
             Either3::First(ev) => {
                 last_activity = Instant::now();
-                let splash_active =
-                    boot_wait == BootWait::Splash || ui.router.screen_id() == ScreenId::Splash;
-                if splash_active {
-                    if matches!(
-                        ev,
-                        input::InputEvent::Stop
-                            | input::InputEvent::EStop
-                            | input::InputEvent::EnterProgrammingMode
-                    ) {
-                        info!("domain: splash STOP — programming mode");
+                if display_blanked {
+                    crate::ui::DISPLAY_ON.sender().send(true);
+                    display_blanked = false;
+                    if matches!(ev, input::InputEvent::EStop | input::InputEvent::Stop) {
+                        out.clear();
+                        let _ = ui.state.apply_action(Action::EStop, true, &mut out);
+                    } else {
+                        continue;
+                    }
+                } else {
+                    let splash_active =
+                        boot_wait == BootWait::Splash || ui.router.screen_id() == ScreenId::Splash;
+                    if splash_active {
+                        if matches!(
+                            ev,
+                            input::InputEvent::Stop
+                                | input::InputEvent::EStop
+                                | input::InputEvent::EnterProgrammingMode
+                        ) {
+                            info!("domain: splash STOP — programming mode");
+                            let _ = storage_tx.try_send(StorageCmd::SetProgrammingMode(true));
+                            if !STORAGE_ACK.wait().await {
+                                warn!("domain: programming_mode persist failed — not resetting");
+                                continue;
+                            }
+                            Timer::after(Duration::from_millis(50)).await;
+                            esp_hal::system::software_reset();
+                        }
+                        continue;
+                    }
+                    if matches!(ev, input::InputEvent::EnterProgrammingMode) {
+                        info!("domain: enter programming mode — saving flag and resetting");
                         let _ = storage_tx.try_send(StorageCmd::SetProgrammingMode(true));
                         if !STORAGE_ACK.wait().await {
                             warn!("domain: programming_mode persist failed — not resetting");
                             continue;
                         }
                         Timer::after(Duration::from_millis(50)).await;
-                        #[cfg(not(feature = "sim"))]
                         esp_hal::system::software_reset();
-                        #[cfg(feature = "sim")]
+                    }
+                    if let input::InputEvent::DirectionSet(dir) = ev {
+                        spdt_direction = dir;
+                    }
+                    flush_cmds(&cmd_tx, &mut out, &mut last_cmd).await;
+                    out.clear();
+                    if net::http_ota_busy() {
+                        if matches!(ev, input::InputEvent::EStop)
+                            || (matches!(ev, input::InputEvent::Stop)
+                                && ui.router.screen_id() == ScreenId::Throttle)
                         {
-                            warn!("sim: software_reset skipped");
-                            continue;
+                            let _ = ui.state.apply_action(Action::EStop, true, &mut out);
                         }
-                    }
-                    continue;
-                }
-                if matches!(ev, input::InputEvent::EnterProgrammingMode) {
-                    info!("domain: enter programming mode — saving flag and resetting");
-                    let _ = storage_tx.try_send(StorageCmd::SetProgrammingMode(true));
-                    if !STORAGE_ACK.wait().await {
-                        warn!("domain: programming_mode persist failed — not resetting");
-                        continue;
-                    }
-                    Timer::after(Duration::from_millis(50)).await;
-                    #[cfg(not(feature = "sim"))]
-                    esp_hal::system::software_reset();
-                    #[cfg(feature = "sim")]
-                    {
-                        warn!("sim: software_reset skipped");
-                        continue;
-                    }
-                }
-                if let input::InputEvent::DirectionSet(dir) = ev {
-                    spdt_direction = dir;
-                }
-                out.clear();
-                if net::http_ota_busy() {
-                    if matches!(ev, input::InputEvent::EStop)
-                        || (matches!(ev, input::InputEvent::Stop)
-                            && ui.router.screen_id() == ScreenId::Throttle)
-                    {
-                        let _ = ui.state.apply_action(Action::EStop, true, &mut out);
-                    }
-                } else {
-                    let intents = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
-                        router.handle(adapter::map_input(ev), cx)
-                    });
-                    let screen_after = ui.router.screen_id();
-                    let wifi_after_lang =
-                        intents.iter().any(|i| matches!(i, Intent::SetLanguage(_)))
-                            && screen_after == ScreenId::Language;
-                    if intents.iter().any(|i| matches!(i, Intent::Pair(_))) {
-                        pairing_active = true;
-                        pairing_user_initiated = true;
-                    }
-                    run_intents(
-                        &mut ui,
-                        intents,
-                        spdt_direction,
-                        &mut out,
-                        &wifi_tx,
-                        &srv_tx,
-                        &storage_tx,
-                    );
-                    if ui.router.screen_id() == ScreenId::ServerList
-                        && boot_wait != BootWait::ServerConnect
-                    {
-                        boot_wait = BootWait::Done;
-                        phase_until = None;
-                    }
-                    if wifi_after_lang {
-                        let ssid = last_ssid_owned(&ui.state);
-                        let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
-                            adapter::begin_wifi_setup(router, cx, ssid.as_deref())
+                    } else {
+                        let intents = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                            router.handle(adapter::map_input(ev), cx)
                         });
-                        if follow.iter().any(|i| *i == Intent::WifiConnect) {
-                            boot_wait = BootWait::WifiConnect;
-                            saw_wifi_connecting = false;
-                            phase_until = Some(
-                                Instant::now()
-                                    + Duration::from_millis(
-                                        config::network::SSID_CONNECTION_TIMEOUT_MS,
-                                    ),
-                            );
-                        } else {
-                            boot_wait = BootWait::Done;
-                            phase_until = None;
+                        let screen_after = ui.router.screen_id();
+                        let wifi_after_lang =
+                            intents.iter().any(|i| matches!(i, Intent::SetLanguage(_)))
+                                && screen_after == ScreenId::Language;
+                        if intents.iter().any(|i| matches!(i, Intent::Pair(_))) {
+                            pairing_active = true;
+                            pairing_user_initiated = true;
                         }
                         run_intents(
                             &mut ui,
-                            follow,
+                            intents,
                             spdt_direction,
                             &mut out,
                             &wifi_tx,
                             &srv_tx,
                             &storage_tx,
                         );
+                        if ui.router.screen_id() == ScreenId::ServerList
+                            && boot_wait != BootWait::ServerConnect
+                        {
+                            boot_wait = BootWait::Done;
+                            phase_until = None;
+                        }
+                        if wifi_after_lang {
+                            let ssid = last_ssid_owned(&ui.state);
+                            let follow = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
+                                adapter::begin_wifi_setup(router, cx, ssid.as_deref())
+                            });
+                            if follow.iter().any(|i| *i == Intent::WifiConnect) {
+                                boot_wait = BootWait::WifiConnect;
+                                saw_wifi_connecting = false;
+                                phase_until = Some(
+                                    Instant::now()
+                                        + Duration::from_millis(
+                                            config::network::SSID_CONNECTION_TIMEOUT_MS,
+                                        ),
+                                );
+                            } else {
+                                boot_wait = BootWait::Done;
+                                phase_until = None;
+                            }
+                            run_intents(
+                                &mut ui,
+                                follow,
+                                spdt_direction,
+                                &mut out,
+                                &wifi_tx,
+                                &srv_tx,
+                                &storage_tx,
+                            );
+                        }
                     }
                 }
             }
             Either3::Second(sev) => {
+                flush_cmds(&cmd_tx, &mut out, &mut last_cmd).await;
                 out.clear();
                 let app_event = match &sev {
                     longfred_proto::ServerEvent::Alert(text) if text.as_str() == "Not paired" => {
@@ -774,33 +870,39 @@ pub async fn task() {
                         );
                     }
                     BootWait::ServerConnect if timed_out => {
-                        info!("domain: server connect timed out");
-                        srv_tx.send(None);
-                        let follow = ui.with_ctx(now.as_millis(), |router, cx| {
-                            router.replace_screen(ScreenId::ServerList, cx)
-                        });
-                        boot_wait = BootWait::Done;
+                        info!("domain: server connect still pending");
+                        ui.state.show_message(i18n::tr().msg_connect_slow);
                         phase_until = None;
-                        run_intents(
-                            &mut ui,
-                            follow,
-                            spdt_direction,
-                            &mut out,
-                            &wifi_tx,
-                            &srv_tx,
-                            &storage_tx,
-                        );
                     }
                     _ => {}
                 }
+                let usb = usb_powered(ui.battery);
+                if usb && display_blanked {
+                    crate::ui::DISPLAY_ON.sender().send(true);
+                    display_blanked = false;
+                }
+                if !net::http_ota_busy()
+                    && boot_wait == BootWait::Done
+                    && has_oled()
+                    && !display_blanked
+                    && !usb
+                    && power::DISPLAY_BLANK_INACTIVITY_MS > 0
+                    && last_activity.elapsed().as_millis() > power::DISPLAY_BLANK_INACTIVITY_MS
+                {
+                    crate::ui::DISPLAY_ON.sender().send(false);
+                    display_blanked = true;
+                }
                 if !net::http_ota_busy()
                     && power::AUTO_SLEEP_INACTIVITY_MS > 0
-                    && ui.conn != ConnState::Connected
                     && boot_wait == BootWait::Done
+                    && !sleep_requested
+                    && !usb
+                    && !ui.state.any_loco_moving()
                     && last_activity.elapsed().as_millis() > power::AUTO_SLEEP_INACTIVITY_MS
                 {
-                    net::set_http_ota_enabled(false);
-                    SLEEP_CTRL.signal(SleepReason::Inactivity);
+                    display_blanked = false;
+                    sleep_requested = true;
+                    request_device_sleep(&mut ui.state, &mut out, SleepReason::Inactivity);
                 }
             }
         }
@@ -879,6 +981,7 @@ pub async fn task() {
 
         if let Some(w) = conn_rx.as_mut().and_then(|r| r.try_get()) {
             if w != ui.conn {
+                let prev = ui.conn;
                 ui.conn = w;
                 if w == ConnState::Connected {
                     last_activity = Instant::now();
@@ -910,7 +1013,9 @@ pub async fn task() {
                         ui.state.reacquire_session_locos(&mut out);
                         restored_this_session = true;
                     }
-                } else if w == ConnState::Disconnected {
+                } else if w == ConnState::Disconnected
+                    || (w == ConnState::Connecting && prev == ConnState::Connected)
+                {
                     ui.state.end_session();
                     pairing_active = false;
                     pairing_http_tried = false;
@@ -954,8 +1059,11 @@ pub async fn task() {
             apply_persist(&mut ui.state, rec);
         }
 
-        if let Some(b) = battery_rx.as_mut().and_then(|r| r.try_get()) {
+        if let Some(b) = battery_rx.as_mut().and_then(|r| r.try_changed()) {
             ui.battery = b;
+            if let Some(sample) = b {
+                push_battery_sample(&mut ui.battery_history, sample.percent);
+            }
         }
 
         if let Ok(result) = pairing_http_rx.try_receive() {

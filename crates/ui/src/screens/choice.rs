@@ -7,11 +7,11 @@ use crate::context::ScreenCtx;
 use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::screen::{KeyBindings, Screen};
-use crate::session::ChoiceKind;
+use crate::session::{ChoiceKind, NetField};
 use crate::view::UiView;
 use crate::widgets::PagedList;
 
-/// Generic numbered picker (dead-man, roster source, how to connect).
+/// Generic numbered picker (dead-man, roster source, how to connect, IP mode).
 pub struct ChoiceScreen {
     list: PagedList,
 }
@@ -41,6 +41,10 @@ impl ChoiceScreen {
                 let _ = v.push(cx.s.server_find);
                 let _ = v.push(cx.s.server_manual);
             }
+            ChoiceKind::IpMode => {
+                let _ = v.push(cx.s.msg_net_dhcp);
+                let _ = v.push(cx.s.msg_net_static);
+            }
         }
         v
     }
@@ -50,6 +54,7 @@ impl ChoiceScreen {
             ChoiceKind::DeadMan => cx.s.extras_dead_man_tgl,
             ChoiceKind::RosterSource => cx.s.choice_roster,
             ChoiceKind::ServerConnect => cx.s.choice_connection,
+            ChoiceKind::IpMode => cx.s.wifi_address,
         }
     }
 
@@ -62,6 +67,7 @@ impl ChoiceScreen {
                 RosterMode::AddressOnly => 2,
             },
             ChoiceKind::ServerConnect => 0,
+            ChoiceKind::IpMode => usize::from(cx.drive.persist.network.is_some_and(|n| !n.dhcp)),
         }
     }
 
@@ -93,6 +99,18 @@ impl ChoiceScreen {
                     cx.session.server_digits.clear();
                     cx.session.server_entry_from_list = false;
                     nav.go(ScreenId::ServerProto);
+                }
+            }
+            ChoiceKind::IpMode => {
+                cx.session.net_cfg = cx.drive.persist.network.unwrap_or_default();
+                if idx == 0 {
+                    cx.session.net_cfg.dhcp = true;
+                    nav.emit(Intent::SaveNetwork(cx.session.net_cfg));
+                    nav.root(ScreenId::Throttle);
+                } else {
+                    cx.session.net_cfg.dhcp = false;
+                    cx.session.ip_field = NetField::Ip;
+                    nav.go(ScreenId::IpEdit);
                 }
             }
         }

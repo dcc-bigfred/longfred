@@ -1,9 +1,8 @@
-//! Server submenu: reconnect, pair, change connection, disconnect.
+//! Wi-Fi submenu: live scan and client address mode.
 
 use super::helpers::{digit_key, list_digit, list_star_confirms, page_list};
 use crate::context::ScreenCtx;
 use crate::i18n::Strings;
-use crate::intent::Intent;
 use crate::nav::{Nav, PageDir, ScreenId, Step};
 use crate::screen::{KeyBindings, Screen};
 use crate::session::ChoiceKind;
@@ -11,60 +10,42 @@ use crate::view::UiView;
 use crate::widgets::PagedList;
 
 #[derive(Clone, Copy)]
-enum ServerMenuItem {
-    Reconnect,
-    Pair,
-    Change,
-    Disconnect,
-    WifiSettings,
+enum WifiSettingsItem {
+    Search,
+    Address,
 }
 
-impl ServerMenuItem {
-    const ALL: [Self; 5] = [
-        Self::Reconnect,
-        Self::Pair,
-        Self::Change,
-        Self::Disconnect,
-        Self::WifiSettings,
-    ];
+impl WifiSettingsItem {
+    const ALL: [Self; 2] = [Self::Search, Self::Address];
 
     fn label(self, s: &Strings) -> &'static str {
         match self {
-            Self::Reconnect => s.server_reconnect,
-            Self::Pair => s.server_pair,
-            Self::Change => s.server_change,
-            Self::Disconnect => s.server_disconnect,
-            Self::WifiSettings => s.menu_wifi_settings,
+            Self::Search => s.wifi_search,
+            Self::Address => s.wifi_address,
         }
     }
 
     fn activate(self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match self {
-            Self::Reconnect => {
-                if cx.drive.persist.last_server.is_some() {
-                    nav.emit(Intent::ServerReconnect);
-                } else {
-                    nav.overlay(cx.s.overlay_no_saved_server);
-                }
+            Self::Search => {
+                cx.session.wifi_from_settings = true;
+                nav.go(ScreenId::SsidScanning);
             }
-            Self::Pair => nav.go(ScreenId::Pairing),
-            Self::Change => {
-                cx.session.choice = ChoiceKind::ServerConnect;
+            Self::Address => {
+                cx.session.choice = ChoiceKind::IpMode;
                 nav.go(ScreenId::Choice);
             }
-            Self::Disconnect => nav.emit(Intent::ServerDisconnect),
-            Self::WifiSettings => nav.go(ScreenId::WifiSettings),
         }
     }
 }
 
-/// Server submenu from the main menu.
-pub struct ServerMenuScreen {
+/// Wi-Fi settings from the server menu.
+pub struct WifiSettingsScreen {
     list: PagedList,
 }
 
-impl ServerMenuScreen {
-    /// Numbered five-item server menu.
+impl WifiSettingsScreen {
+    /// Numbered two-item Wi-Fi menu.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -72,34 +53,34 @@ impl ServerMenuScreen {
         }
     }
 
-    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 5] {
-        ServerMenuItem::ALL.map(|item| item.label(cx.s))
+    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 2] {
+        WifiSettingsItem::ALL.map(|item| item.label(cx.s))
     }
 
     fn height(cx: &ScreenCtx<'_>) -> u16 {
         cx.env.geometry.height
     }
 
-    fn current_at(&self, labels: &[&str], h: u16) -> Option<ServerMenuItem> {
-        ServerMenuItem::ALL
+    fn current_at(&self, labels: &[&str], h: u16) -> Option<WifiSettingsItem> {
+        WifiSettingsItem::ALL
             .get(self.list.global_index(labels, h))
             .copied()
     }
 
-    fn current(&self, cx: &ScreenCtx<'_>) -> Option<ServerMenuItem> {
+    fn current(&self, cx: &ScreenCtx<'_>) -> Option<WifiSettingsItem> {
         self.current_at(&Self::labels(cx), Self::height(cx))
     }
 }
 
-impl Default for ServerMenuScreen {
+impl Default for WifiSettingsScreen {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Screen for ServerMenuScreen {
+impl Screen for WifiSettingsScreen {
     fn id(&self) -> ScreenId {
-        ScreenId::ServerMenu
+        ScreenId::WifiSettings
     }
 
     fn key_bindings(&self, _cx: &ScreenCtx<'_>) -> KeyBindings {
@@ -109,8 +90,12 @@ impl Screen for ServerMenuScreen {
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
         let mut g = crate::view::GridView::new();
         let labels = Self::labels(cx);
-        self.list
-            .draw(&mut g, Some(cx.s.menu_server), &labels, Self::height(cx));
+        self.list.draw(
+            &mut g,
+            Some(cx.s.menu_wifi_settings),
+            &labels,
+            Self::height(cx),
+        );
         UiView::Grid(g)
     }
 

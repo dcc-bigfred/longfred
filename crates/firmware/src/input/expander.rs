@@ -90,7 +90,8 @@ fn logical_to_button(btn: LogicalButton) -> Option<ButtonId> {
         LogicalButton::JoyLeft => ButtonId::JoyLeft,
         LogicalButton::JoyRight => ButtonId::JoyRight,
         LogicalButton::JoyOk => ButtonId::JoyMenu,
-        LogicalButton::Back | LogicalButton::EStop => ButtonId::Stop,
+        LogicalButton::Back => ButtonId::Stop,
+        LogicalButton::EStop => ButtonId::EStop,
         LogicalButton::Menu => ButtonId::Menu,
         LogicalButton::Direction => return None,
         LogicalButton::F0 => ButtonId::F0,
@@ -161,7 +162,7 @@ pub async fn task(mut i2c: SharedI2cDevice, sender: RawSender) {
         }
     }
     if present == 0 {
-        // No expanders (e.g. Wokwi diagram): do not poll — NACKs starve OLED on the shared bus.
+        // No expanders: do not poll — NACKs starve OLED on the shared bus.
         log::warn!("expander: no MCP23017 on I2C, input via encoder only");
         return;
     }

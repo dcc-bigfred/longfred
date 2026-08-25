@@ -12,12 +12,12 @@ use longfred_proto::caps::Transport as WireTransport;
 use longfred_proto::command::Protocol;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::persist::DeviceIdentity;
-use longfred_proto::withrottle::WtAdapter;
+use longfred_proto::withrottle::{WtAdapter, protocol};
 use longfred_proto::z21::Z21Adapter;
 
 use crate::config;
 use crate::net::{
-    CONN, ConnState, DEVICE, PROTO_COMMANDS, PROTO_EVENTS, SERVER, ServerEndpoint, probe,
+    CONN, ConnState, DEAD_MAN, DEVICE, PROTO_COMMANDS, PROTO_EVENTS, SERVER, ServerEndpoint, probe,
 };
 
 const TCP_RX_SIZE: usize = 1024;
@@ -113,11 +113,25 @@ async fn classify_endpoint(
     mut ep: ServerEndpoint,
     rx: &mut [u8],
     tx: &mut [u8],
+    known_bigfred: &mut Option<[u8; 4]>,
 ) -> ServerEndpoint {
-    if ep.protocol == Protocol::WiThrottle && probe::is_bigfred(stack, ep.ip, rx, tx).await {
-        ep.protocol = Protocol::BigFred;
-        SERVER.sender().send(Some(ep));
-        info!("HTTP probe identified BigFred");
+    if ep.protocol == Protocol::BigFred {
+        *known_bigfred = Some(ep.ip);
+        return ep;
+    }
+    if ep.protocol == Protocol::WiThrottle {
+        if known_bigfred.is_some_and(|ip| ip == ep.ip) {
+            ep.protocol = Protocol::BigFred;
+            SERVER.sender().send(Some(ep));
+            info!("cached HTTP probe: BigFred");
+            return ep;
+        }
+        if probe::is_bigfred(stack, ep.ip, rx, tx).await {
+            ep.protocol = Protocol::BigFred;
+            *known_bigfred = Some(ep.ip);
+            SERVER.sender().send(Some(ep));
+            info!("HTTP probe identified BigFred");
+        }
     }
     ep
 }
@@ -128,20 +142,21 @@ fn make_adapter(ep: ServerEndpoint) -> Adapter {
         .try_get()
         .unwrap_or_else(DeviceIdentity::empty);
     let id = dev.id_wire();
+    let dead_man = DEAD_MAN.sender().try_get().unwrap_or(true);
     match ep.protocol {
         Protocol::WiThrottle => Adapter::Wt(WtAdapter::new(
             dev.name.as_str(),
             id.as_str(),
             config::buttons::DEFAULT_HEARTBEAT_PERIOD_S,
             config::network::SEND_LEADING_CR_LF,
-            config::buttons::DEAD_MAN_SWITCH_ENABLED,
+            dead_man,
         )),
         Protocol::BigFred => Adapter::BigFred(BigFredAdapter::new(
             dev.name.as_str(),
             id.as_str(),
             config::buttons::DEFAULT_HEARTBEAT_PERIOD_S,
             config::network::SEND_LEADING_CR_LF,
-            config::buttons::DEAD_MAN_SWITCH_ENABLED,
+            dead_man,
         )),
         Protocol::Z21 => Adapter::Z21(Z21Adapter::new()),
     }
@@ -157,13 +172,26 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
     let cmd_rx = PROTO_COMMANDS.receiver();
     let mut rx = [0u8; 512];
     let mut hb_last = Instant::now();
+    // Last time we received any inbound bytes from the server. The watchdog
+    // fires when this stalls, so a half-open TCP connection (outbound writes
+    // succeed into the socket buffer but the server never replies) is
+    // detected and the session reconnects. Not reset by outbound heartbeats.
+    let mut last_inbound = Instant::now();
+    let mut unpair = false;
     let mut srv_rx = SERVER.receiver();
     if let Some(rx) = srv_rx.as_mut() {
         let _ = rx.try_get();
     }
 
     loop {
-        let hb_period = Duration::from_secs(adapter.tick_period_s() as u64);
+        let advertised_s = adapter.tick_period_s() as u64;
+        let hb_period =
+            Duration::from_secs(protocol::heartbeat_send_period_s(adapter.tick_period_s()) as u64);
+        let rx_watchdog = Duration::from_secs(
+            advertised_s
+                .saturating_mul(2)
+                .max(config::network::TCP_TIMEOUT_S),
+        );
         let server_changed = async {
             if let Some(rx) = srv_rx.as_mut() {
                 let _ = rx.changed().await;
@@ -171,7 +199,7 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                 core::future::pending::<()>().await;
             }
         };
-        match select4(
+        let live = match select4(
             tr.recv(&mut rx),
             cmd_rx.receive(),
             Timer::after(SESSION_TICK),
@@ -179,8 +207,9 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
         )
         .await
         {
-            Either4::First(None) => break,
+            Either4::First(None) => false,
             Either4::First(Some(n)) => {
+                last_inbound = Instant::now();
                 let mut hb_cfg = None;
                 adapter.decode(&rx[..n], &mut |ev| {
                     if let ServerEvent::HeartbeatConfig { seconds } = &ev {
@@ -191,33 +220,57 @@ async fn run_session<T: Transport>(mut tr: T, mut adapter: Adapter) -> bool {
                 if let Some(seconds) = hb_cfg {
                     adapter.set_heartbeat_period(seconds);
                 }
+                true
             }
             Either4::Second(cmd) => {
                 let mut out = WireBuf::new();
                 adapter.encode(&cmd, &mut out, &mut |ev| emit_event(ev));
                 if !out.is_empty() && !tr.send(&out).await {
-                    break;
+                    false
+                } else {
+                    true
                 }
             }
             Either4::Third(_) => {
-                let mut out = WireBuf::new();
-                let polled = adapter.poll(&mut out, &mut |ev| emit_event(ev));
-                if polled && !out.is_empty() && !tr.send(&out).await {
-                    break;
-                }
-                if hb_last.elapsed() >= hb_period {
+                if last_inbound.elapsed() > rx_watchdog {
+                    warn!("proto watchdog: no inbound data, reconnect");
+                    false
+                } else {
                     let mut out = WireBuf::new();
-                    if adapter.on_tick(&mut out) && !out.is_empty() && !tr.send(&out).await {
-                        break;
+                    let polled = adapter.poll(&mut out, &mut |ev| emit_event(ev));
+                    if polled && !out.is_empty() && !tr.send(&out).await {
+                        false
+                    } else {
+                        true
                     }
-                    hb_last = Instant::now();
                 }
             }
-            Either4::Fourth(_) => break,
+            Either4::Fourth(_) => {
+                unpair = SERVER.sender().try_get().flatten().is_none();
+                false
+            }
+        };
+        if !live {
+            break;
+        }
+        if hb_last.elapsed() >= hb_period {
+            let mut out = WireBuf::new();
+            let sent = adapter.on_tick(&mut out) && !out.is_empty();
+            if sent && !tr.send(&out).await {
+                break;
+            }
+            // Note: do NOT reset `last_inbound` here. A successful outbound
+            // heartbeat does not prove the server is responsive — only inbound
+            // data does. Resetting on send would mask half-open connections.
+            hb_last = Instant::now();
         }
     }
     let mut out = WireBuf::new();
-    adapter.on_disconnect(&mut out);
+    if unpair {
+        adapter.on_unpair(&mut out);
+    } else {
+        adapter.on_disconnect(&mut out);
+    }
     if !out.is_empty() {
         let _ = tr.send(&out).await;
     }
@@ -310,17 +363,23 @@ pub async fn task(stack: Stack<'static>) {
     let udp_tx = UDP_TX.take();
 
     let mut connect_fails: u32 = 0;
+    let mut known_bigfred: Option<[u8; 4]> = None;
     loop {
-        CONN.sender().send(ConnState::Connecting);
         let ep = wait_for_server().await;
-        let ep = classify_endpoint(stack, ep, tcp_rx, tcp_tx).await;
+        CONN.sender().send(ConnState::Connecting);
+        let ep = classify_endpoint(stack, ep, tcp_rx, tcp_tx, &mut known_bigfred).await;
         let established = match ep.protocol.caps().transport {
             WireTransport::Tcp => run_tcp_session(stack, ep, tcp_rx, tcp_tx).await,
             WireTransport::Udp => {
                 run_udp_session(stack, ep, udp_rx_meta, udp_rx, udp_tx_meta, udp_tx).await
             }
         };
-        CONN.sender().send(ConnState::Disconnected);
+        let still_selected = SERVER.sender().try_get().flatten().is_some();
+        if still_selected {
+            CONN.sender().send(ConnState::Connecting);
+        } else {
+            CONN.sender().send(ConnState::Disconnected);
+        }
         if established {
             connect_fails = 0;
             Timer::after(Duration::from_millis(config::network::RECONNECT_MIN_MS)).await;

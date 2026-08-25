@@ -19,6 +19,8 @@ pub enum ScreenId {
     Password,
     /// mDNS command-station list.
     ServerList,
+    /// Confirm a discovered server before connecting.
+    ServerConfirm,
     /// WIT vs Z21 protocol pick.
     ServerProto,
     /// Manual IP:port entry.
@@ -31,8 +33,10 @@ pub enum ScreenId {
     Menu,
     /// Settings / extras.
     Extras,
-    /// Server reconnect / pair / change / disconnect.
+    /// Server reconnect / pair / change / disconnect / Wi-Fi.
     ServerMenu,
+    /// Scan networks / DHCP vs static.
+    WifiSettings,
     /// Generic numbered option list ([`crate::session::ChoiceKind`]).
     Choice,
     /// Roster / loco picker.
@@ -47,8 +51,6 @@ pub enum ScreenId {
     FunctionList,
     /// Direct command list (`MarkWTech` extra keys).
     DirectCommands,
-    /// DHCP vs static summary.
-    IpConfig,
     /// Field-by-field IPv4 editor.
     IpEdit,
     /// Device name / id summary.
@@ -67,6 +69,8 @@ pub enum ScreenId {
     WifiFailed,
     /// Five-page diagnostics (battery / version / board / RF+ping / Wi-Fi).
     Diagnostics,
+    /// Battery percent chart, voltage, and estimated time-to-empty.
+    Battery,
 }
 
 /// List cursor step.

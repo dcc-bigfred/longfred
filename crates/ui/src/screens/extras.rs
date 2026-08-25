@@ -14,7 +14,6 @@ use crate::widgets::PagedList;
 
 #[derive(Clone, Copy)]
 enum ExtrasItem {
-    NetConfig,
     Device,
     HashFunctions,
     DeadManSwitch,
@@ -24,11 +23,11 @@ enum ExtrasItem {
     RosterSource,
     Firmware,
     Diagnostics,
+    Battery,
 }
 
 impl ExtrasItem {
     const ALL: [Self; 10] = [
-        Self::NetConfig,
         Self::Device,
         Self::HashFunctions,
         Self::DeadManSwitch,
@@ -38,11 +37,11 @@ impl ExtrasItem {
         Self::RosterSource,
         Self::Firmware,
         Self::Diagnostics,
+        Self::Battery,
     ];
 
     fn label(self, s: &Strings, roster_mode: RosterMode) -> &'static str {
         match self {
-            Self::NetConfig => s.extras_net_config,
             Self::Device => s.extras_device,
             Self::HashFunctions => s.extras_fnc_key_tgl,
             Self::DeadManSwitch => s.extras_dead_man_tgl,
@@ -56,12 +55,12 @@ impl ExtrasItem {
             },
             Self::Firmware => s.extras_firmware,
             Self::Diagnostics => s.extras_diag,
+            Self::Battery => s.extras_battery,
         }
     }
 
     fn activate(self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match self {
-            Self::NetConfig => nav.go(ScreenId::IpConfig),
             Self::Device => nav.go(ScreenId::Device),
             Self::HashFunctions => {
                 nav.emit(Intent::HashFunctionsToggle);
@@ -89,6 +88,7 @@ impl ExtrasItem {
             }
             Self::Firmware => nav.go(ScreenId::FirmwareUpdate),
             Self::Diagnostics => nav.go(ScreenId::Diagnostics),
+            Self::Battery => nav.go(ScreenId::Battery),
         }
     }
 }

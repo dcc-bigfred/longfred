@@ -49,6 +49,12 @@ flowchart LR
 
 Exact MCP bit map: [`config/board.rs`](../../crates/firmware/src/config/board.rs) `BUTTON_MAP`.
 
+## Power / sleep
+
+- **30 s** without input: OLED off (`DisplayOff`). Any key or encoder detent wakes the panel without running the action, except Stop/EStop which still emergency-stops.
+- **5 min** without input and no acquired loco moving: EStop, then deep sleep. Wake on encoder `SW` (GPIO 0).
+- Battery below **5 %**: EStop, then deep sleep.
+
 ## BOM (core)
 
 - ESP32-C6-DevKitC-1U

@@ -1,5 +1,7 @@
 //! OLED rendering model — pure data structures (no logic).
 
+use longfred_proto::network::ConnState;
+
 /// Maximum lines in a [`GridView`] (128×64 uses 8 visible; extras are unused).
 pub const GRID_LINES: usize = 12;
 /// Characters per OLED line (`FONT_6X10` × 6 px on a 128 px panel).
@@ -352,8 +354,8 @@ pub struct ThrottleView {
     pub forward: bool,
     /// Consist size (1 = single loco).
     pub consist_len: u8,
-    /// Command-station session is up (`ConnState::Connected`).
-    pub server_connected: bool,
+    /// Command-station session: live, self-heal, or down.
+    pub conn: ConnState,
     /// Bitmask of DCC functions 0–31.
     pub functions: u32,
     /// Loco name / address line.
@@ -364,6 +366,8 @@ pub struct ThrottleView {
     pub next_hint: Line,
     /// Battery percent when known.
     pub battery: Option<u8>,
+    /// USB / VBUS present (charging / plugged in).
+    pub battery_charging: bool,
 }
 
 impl Default for ThrottleView {
@@ -373,12 +377,13 @@ impl Default for ThrottleView {
             speed: 0,
             forward: true,
             consist_len: 0,
-            server_connected: false,
+            conn: ConnState::Disconnected,
             functions: 0,
             loco: Line::new(),
             footer: Line::new(),
             next_hint: Line::new(),
             battery: None,
+            battery_charging: false,
         }
     }
 }
@@ -406,6 +411,59 @@ impl OverlayView {
     }
 }
 
+/// Samples kept for charts (oldest first).
+pub const CHART_HISTORY_LEN: usize = 30;
+/// Battery ring capacity (ADC history). Matches [`CHART_HISTORY_LEN`].
+pub const BATTERY_HISTORY_LEN: usize = CHART_HISTORY_LEN;
+/// Seconds between ADC publishes. Must match firmware `BATTERY_POLL_S`.
+pub const BATTERY_SAMPLE_INTERVAL_S: u32 = 10;
+
+/// Push `percent` onto a ring of [`BATTERY_HISTORY_LEN`] samples.
+pub fn push_battery_sample(hist: &mut heapless::Vec<u8, BATTERY_HISTORY_LEN>, percent: u8) {
+    if hist.is_full() {
+        hist.remove(0);
+    }
+    let _ = hist.push(percent);
+}
+
+/// Pixel line chart: samples, Y range, optional threshold, footer captions.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ChartView {
+    /// Screen title (row 0).
+    pub title: &'static str,
+    /// Sample series, oldest first (percent, ms, dB, …).
+    pub samples: heapless::Vec<i16, CHART_HISTORY_LEN>,
+    /// Lower Y bound (sample units).
+    pub y_min: i16,
+    /// Upper Y bound (sample units).
+    pub y_max: i16,
+    /// Optional horizontal threshold in sample units.
+    pub threshold: Option<i16>,
+    /// Captions under the plot (percentiles and/or extra lines).
+    pub footer: heapless::Vec<Line, 3>,
+}
+
+impl ChartView {
+    /// Empty chart with a title and a 0..100 scale.
+    #[must_use]
+    pub fn new(title: &'static str) -> Self {
+        Self {
+            title,
+            samples: heapless::Vec::new(),
+            y_min: 0,
+            y_max: 100,
+            threshold: None,
+            footer: heapless::Vec::new(),
+        }
+    }
+}
+
+impl Default for ChartView {
+    fn default() -> Self {
+        Self::new("")
+    }
+}
+
 /// Fold and wrap `text` at [`col_chars`] for overlay / multi-line bodies.
 #[must_use]
 pub fn wrap_text(text: &str) -> heapless::Vec<Line, 8> {
@@ -430,6 +488,8 @@ pub enum UiView {
     Splash,
     /// Soft-AP wizard page 2 on 128×64: QR + HTTP URL.
     PairingQr,
+    /// Line chart (battery / diagnostics). Drawn only while this view is active.
+    Chart(ChartView),
 }
 
 impl Default for UiView {
@@ -477,5 +537,16 @@ mod tests {
         assert_eq!(list_slots_for(32, true), &[1, 2]);
         assert_eq!(list_hint_row(64), 6);
         assert_eq!(list_hint_row(32), 3);
+    }
+
+    #[test]
+    fn battery_history_rings_at_capacity() {
+        let mut hist = heapless::Vec::<u8, BATTERY_HISTORY_LEN>::new();
+        for i in 0..35u8 {
+            push_battery_sample(&mut hist, i);
+        }
+        assert_eq!(hist.len(), BATTERY_HISTORY_LEN);
+        assert_eq!(hist[0], 5);
+        assert_eq!(hist[BATTERY_HISTORY_LEN - 1], 34);
     }
 }

@@ -1,27 +1,47 @@
-//! Five-page diagnostics (battery / version / board / RF+ping / Wi-Fi).
+//! Seven-page diagnostics (battery / version / board / RF+ping / Wi-Fi / RSSI chart / ping chart).
 
 use core::fmt::Write as _;
 
 use longfred_proto::network::{PingStatus, ServerEndpoint};
 
 use super::helpers::{write_ip_line, write_mac};
+use crate::chart::{
+    ChartData, ChartScale, PING_THRESHOLD_MS, PING_TIMEOUT_MS, PING_Y_MAX_DEFAULT, RSSI_FIT_PAD,
+    RSSI_Y_MAX_DEFAULT, RSSI_Y_MIN_DEFAULT, build_chart, push_sample,
+};
 use crate::context::ScreenCtx;
 use crate::nav::{Nav, PageDir, ScreenId};
 use crate::screen::Screen;
-use crate::view::{Line, UiView, fill_list_page};
+use crate::view::{CHART_HISTORY_LEN, Line, UiView, fill_list_page};
 
-const DIAG_PAGES: usize = 5;
+const DIAG_PAGES: usize = 7;
+const PAGE_RSSI_CHART: usize = 5;
+const PAGE_PING_CHART: usize = 6;
+const RSSI_SAMPLE_MS: u64 = 1000;
+const PING_SAMPLE_MS: u64 = 5000;
 
-/// Five-page diagnostics (battery / version / board / RF+ping / Wi-Fi).
+/// Seven-page diagnostics (text pages plus RSSI / ping charts).
 pub struct DiagnosticsScreen {
     page: usize,
+    rssi_hist: heapless::Vec<i16, CHART_HISTORY_LEN>,
+    ping_hist: heapless::Vec<i16, CHART_HISTORY_LEN>,
+    last_rssi_ms: u64,
+    last_ping_ms: u64,
+    last_ping_value: Option<i16>,
 }
 
 impl DiagnosticsScreen {
     /// Starts on the battery page.
     #[must_use]
     pub fn new() -> Self {
-        Self { page: 0 }
+        Self {
+            page: 0,
+            rssi_hist: heapless::Vec::new(),
+            ping_hist: heapless::Vec::new(),
+            last_rssi_ms: 0,
+            last_ping_ms: 0,
+            last_ping_value: None,
+        }
     }
 }
 
@@ -36,14 +56,40 @@ impl Screen for DiagnosticsScreen {
         ScreenId::Diagnostics
     }
 
-    /// Title plus the current diagnostics page (battery / version / board / RF+ping / Wi-Fi).
+    /// Title plus the current diagnostics page (text grid or live chart).
     fn view(&self, cx: &ScreenCtx<'_>) -> UiView {
-        let mut g = crate::view::GridView::new();
-        draw_diagnostics(&mut g, self.page, cx);
-        UiView::Grid(g)
+        match self.page {
+            PAGE_RSSI_CHART => UiView::Chart(build_chart(ChartData {
+                title: cx.s.diag_rssi_chart,
+                samples: self.rssi_hist.as_slice(),
+                y_min: RSSI_Y_MIN_DEFAULT,
+                y_max: RSSI_Y_MAX_DEFAULT,
+                threshold: None,
+                unit: "dB",
+                percentiles: true,
+                extra_lines: &[],
+                scale: ChartScale::FitPad { pad: RSSI_FIT_PAD },
+            })),
+            PAGE_PING_CHART => UiView::Chart(build_chart(ChartData {
+                title: cx.s.diag_ping_chart,
+                samples: self.ping_hist.as_slice(),
+                y_min: 0,
+                y_max: PING_Y_MAX_DEFAULT,
+                threshold: Some(PING_THRESHOLD_MS),
+                unit: "ms",
+                percentiles: true,
+                extra_lines: &[],
+                scale: ChartScale::ExpandMax,
+            })),
+            page => {
+                let mut g = crate::view::GridView::new();
+                draw_diagnostics(&mut g, page, cx);
+                UiView::Grid(g)
+            }
+        }
     }
 
-    /// Next wraps 0..4. Prev on page 0 leaves diagnostics; otherwise goes back one page.
+    /// Next wraps 0..6. Prev on page 0 leaves diagnostics; otherwise goes back one page.
     fn on_page(&mut self, d: PageDir, _cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         match d {
             PageDir::Next => self.page = (self.page + 1) % DIAG_PAGES,
@@ -54,9 +100,50 @@ impl Screen for DiagnosticsScreen {
 
     /// Select is unused; paging is the only interaction.
     fn on_select(&mut self, _cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {}
+
+    /// Record RSSI / ping samples only while that chart page is visible.
+    fn on_tick(&mut self, cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
+        match self.page {
+            PAGE_RSSI_CHART => self.sample_rssi(cx),
+            PAGE_PING_CHART => self.sample_ping(cx),
+            _ => {}
+        }
+    }
 }
 
-/// Fill `g` with one of five diagnostic pages. Title is row 0; body uses list layout.
+impl DiagnosticsScreen {
+    fn sample_rssi(&mut self, cx: &ScreenCtx<'_>) {
+        let Some(link) = cx.net.wifi_link.as_ref() else {
+            return;
+        };
+        let due =
+            self.last_rssi_ms == 0 || cx.now_ms.saturating_sub(self.last_rssi_ms) >= RSSI_SAMPLE_MS;
+        if !due {
+            return;
+        }
+        push_sample(&mut self.rssi_hist, i16::from(link.rssi));
+        self.last_rssi_ms = cx.now_ms.max(1);
+    }
+
+    fn sample_ping(&mut self, cx: &ScreenCtx<'_>) {
+        let value = match cx.net.ping {
+            PingStatus::Ms(ms) => i16::try_from(ms).unwrap_or(i16::MAX),
+            PingStatus::Timeout => PING_TIMEOUT_MS,
+            PingStatus::Idle => return,
+        };
+        let changed = self.last_ping_value != Some(value);
+        let due =
+            self.last_ping_ms == 0 || cx.now_ms.saturating_sub(self.last_ping_ms) >= PING_SAMPLE_MS;
+        if !changed && !due {
+            return;
+        }
+        push_sample(&mut self.ping_hist, value);
+        self.last_ping_ms = cx.now_ms.max(1);
+        self.last_ping_value = Some(value);
+    }
+}
+
+/// Fill `g` with one of the text diagnostic pages. Title is row 0; body uses list layout.
 #[allow(clippy::too_many_lines)]
 fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'_>) {
     g.foot_line = false;
@@ -83,6 +170,10 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
                 let _ = lines.push(l);
                 let mut l = Line::new();
                 let _ = write!(l, "ADC {}", b.raw);
+                let _ = lines.push(l);
+                let mut l = Line::new();
+                let yn = if b.charging { t.diag_yes } else { t.diag_no };
+                let _ = write!(l, "{} {}", t.diag_charging, yn);
                 let _ = lines.push(l);
             } else {
                 let mut l = Line::new();

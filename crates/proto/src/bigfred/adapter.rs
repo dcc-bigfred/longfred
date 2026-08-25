@@ -53,6 +53,10 @@ impl BigFredAdapter {
         self.inner.on_disconnect(out);
     }
 
+    pub fn on_unpair(&mut self, out: &mut WireBuf) {
+        self.inner.on_unpair(out);
+    }
+
     pub fn encode(
         &mut self,
         cmd: &ClientCommand,

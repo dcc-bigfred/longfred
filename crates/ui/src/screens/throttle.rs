@@ -3,7 +3,6 @@
 use core::fmt::Write as _;
 
 use longfred_proto::catalog::{Catalog, LocoCatalog};
-use longfred_proto::network::ConnState;
 use longfred_proto::{LocoId, LocoSource};
 
 use super::helpers::has_loco;
@@ -119,12 +118,13 @@ impl Screen for ThrottleScreen {
             speed,
             forward,
             consist_len,
-            server_connected: matches!(cx.net.conn, ConnState::Connected),
+            conn: cx.net.conn,
             functions,
             loco,
             footer,
             next_hint: Line::new(),
             battery: cx.battery.map(|b| b.percent),
+            battery_charging: cx.battery.is_some_and(|b| b.charging),
         })
     }
 

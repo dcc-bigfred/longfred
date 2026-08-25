@@ -60,7 +60,11 @@ fn parse_heartbeat(s: &str, emit: &mut impl FnMut(ServerEvent)) {
     if s.is_empty() || s == "+" || s == "-" {
         return;
     }
-    if let Ok(seconds) = s.parse::<u32>() {
+    let seconds = s
+        .parse::<u32>()
+        .ok()
+        .or_else(|| s.parse::<f32>().ok().map(|v| v as u32));
+    if let Some(seconds) = seconds {
         if seconds > 0 {
             emit(ServerEvent::HeartbeatConfig { seconds });
         }
@@ -238,14 +242,20 @@ fn trim(s: &str) -> &str {
 }
 
 fn short(s: &str) -> ShortText {
-    let mut out = ShortText::new();
-    let _ = out.push_str(s);
-    out
+    push_limited(s)
 }
 
 fn long(s: &str) -> LongText {
-    let mut out = LongText::new();
-    let _ = out.push_str(s);
+    push_limited(s)
+}
+
+fn push_limited<const N: usize>(s: &str) -> heapless::String<N> {
+    let mut out = heapless::String::new();
+    for c in s.chars() {
+        if out.push(c).is_err() {
+            break;
+        }
+    }
     out
 }
 
