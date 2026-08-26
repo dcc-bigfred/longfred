@@ -59,4 +59,4 @@ flowchart LR
 
 ## Power / sleep
 
-No OLED, so there is no 30 s display blank. After **5 minutes** of no input with no loco moving, the firmware EStops and enters deep sleep (also below **5 %** battery). Headless builds do not wire encoder `SW` on GPIO 0, so wake is a reset or power cycle.
+No OLED, so there is no display blank. After **15 minutes** of no input with no loco moving, the firmware EStops and enters deep sleep (also below **5 %** battery). Headless builds do not wire encoder `SW` on GPIO 0, so wake is a reset or power cycle.

@@ -27,7 +27,7 @@ Menu grids use 3 rows × 2 columns (~6 lines) instead of 12.
 
 Same as [longfred-standard.md](longfred-standard.md); swap the OLED for a 128×32 module.
 
-Idle timeouts (OLED blank 30 s, deep sleep 5 min when no loco is moving) are the same as Standard.
+Idle timeouts (OLED blank 5 min, deep sleep 15 min when no loco is moving) are the same as Standard.
 
 ## Programming mode
 

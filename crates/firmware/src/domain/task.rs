@@ -886,6 +886,7 @@ pub async fn task() {
                     && has_oled()
                     && !display_blanked
                     && !usb
+                    && !ui.state.any_loco_moving()
                     && power::DISPLAY_BLANK_INACTIVITY_MS > 0
                     && last_activity.elapsed().as_millis() > power::DISPLAY_BLANK_INACTIVITY_MS
                 {

@@ -14,13 +14,14 @@ pub const USE_BATTERY_SLEEP_AT_PERCENT: u8 = 5;
 pub const BATTERY_POLL_S: u64 = 10;
 pub const ADC_READS: usize = 20;
 
-/// OLED panel off after this much input inactivity, ms.
-/// 0 = disabled. Ignored on headless variants (`display: None`).
-pub const DISPLAY_BLANK_INACTIVITY_MS: u64 = 30_000;
+/// OLED panel off after this much input inactivity, ms, when no acquired
+/// loco has speed > 0. 0 = disabled. Ignored on headless variants
+/// (`display: None`).
+pub const DISPLAY_BLANK_INACTIVITY_MS: u64 = 300_000;
 
 /// Deep sleep after this much input inactivity, ms, when no acquired loco
 /// has speed > 0. 0 = disabled.
-pub const AUTO_SLEEP_INACTIVITY_MS: u64 = 300_000;
+pub const AUTO_SLEEP_INACTIVITY_MS: u64 = 900_000;
 
 /// Sleep screen delay before deep sleep, ms.
 pub const SLEEP_SCREEN_DELAY_MS: u64 = 2_000;
