@@ -159,11 +159,12 @@ Boot in `crates/firmware/src/bin/main.rs` initializes HAL, optionally
 enters Soft-AP programming mode, then spawns wifi, mDNS, session,
 pairing HTTP, ping, storage, power, input, domain, and display tasks.
 
-Idle: after 30 s without input the domain sets `DISPLAY_ON` false (OLED
-`DisplayOff` on variants that have a panel). A later input wakes the
-panel without routing the event, except Stop/EStop which still send
-track EStop. After 5 min without input, if no acquired loco is moving,
-the domain EStops and signals `SLEEP_CTRL` for deep sleep.
+Idle: after 5 min without input, if no acquired loco is moving, the
+domain sets `DISPLAY_ON` false (OLED `DisplayOff` on variants that have
+a panel). A later input wakes the panel without routing the event,
+except Stop/EStop which still send track EStop. After 15 min without
+input, if no acquired loco is moving, the domain EStops and signals
+`SLEEP_CTRL` for deep sleep. A loco with speed > 0 keeps the panel on.
 
 ---
 
