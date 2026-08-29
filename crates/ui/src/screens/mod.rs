@@ -17,6 +17,8 @@ mod language;
 mod menu;
 mod pairing;
 mod pairing_wait;
+mod radio_edit;
+mod radio_settings;
 mod roster;
 mod server_confirm;
 mod server_entry;
@@ -56,6 +58,8 @@ pub use language::LanguageScreen;
 pub use menu::MenuScreen;
 pub use pairing::PairingScreen;
 pub use pairing_wait::PairingWaitScreen;
+pub use radio_edit::RadioEditScreen;
+pub use radio_settings::RadioSettingsScreen;
 pub use roster::RosterListScreen;
 pub use server_confirm::ServerConfirmScreen;
 pub use server_entry::ServerEntryScreen;
@@ -108,6 +112,8 @@ pub enum ScreenState {
     WifiFailed(WifiFailedScreen),
     Diagnostics(DiagnosticsScreen),
     Battery(BatteryScreen),
+    RadioSettings(RadioSettingsScreen),
+    RadioEdit(RadioEditScreen),
 }
 
 /// Construct the concrete screen object for `id` (fresh local state).
@@ -146,6 +152,8 @@ pub fn new_screen(id: ScreenId) -> ScreenState {
         ScreenId::WifiFailed => ScreenState::WifiFailed(WifiFailedScreen),
         ScreenId::Diagnostics => ScreenState::Diagnostics(DiagnosticsScreen::new()),
         ScreenId::Battery => ScreenState::Battery(BatteryScreen::new()),
+        ScreenId::RadioSettings => ScreenState::RadioSettings(RadioSettingsScreen::new()),
+        ScreenId::RadioEdit => ScreenState::RadioEdit(RadioEditScreen::new()),
     }
 }
 
@@ -185,6 +193,8 @@ macro_rules! dispatch_screen {
             ScreenState::WifiFailed(s) => s.$method($($arg),*),
             ScreenState::Diagnostics(s) => s.$method($($arg),*),
             ScreenState::Battery(s) => s.$method($($arg),*),
+            ScreenState::RadioSettings(s) => s.$method($($arg),*),
+            ScreenState::RadioEdit(s) => s.$method($($arg),*),
         }
     };
 }

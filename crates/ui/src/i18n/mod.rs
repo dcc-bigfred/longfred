@@ -237,6 +237,16 @@ pub struct Strings {
     pub diag_charging: &'static str,
     pub diag_yes: &'static str,
     pub diag_no: &'static str,
+    /// Wi-Fi settings → Radio / roaming submenu row.
+    pub wifi_radio: &'static str,
+    /// Title of the radio settings list.
+    pub msg_radio: &'static str,
+    /// Overlay shown after radio settings are saved.
+    pub saved_radio: &'static str,
+    /// Hint line for the radio settings list.
+    pub hint_radio: &'static str,
+    /// Hint line for the radio numeric editor.
+    pub hint_radio_edit: &'static str,
 }
 
 pub const EN: Strings = Strings {
@@ -371,6 +381,11 @@ pub const EN: Strings = Strings {
     diag_charging: "Charge",
     diag_yes: "yes",
     diag_no: "no",
+    wifi_radio: "Radio settings",
+    msg_radio: "Radio",
+    saved_radio: "Radio saved",
+    hint_radio: "Nav OK Tgl  Back",
+    hint_radio_edit: "Menu SW  Back",
 };
 
 pub const PL: Strings = Strings {
@@ -505,6 +520,11 @@ pub const PL: Strings = Strings {
     diag_charging: "Ladowanie",
     diag_yes: "tak",
     diag_no: "nie",
+    wifi_radio: "Ustawienia radia",
+    msg_radio: "Radio",
+    saved_radio: "Radio zapisane",
+    hint_radio: "Nav OK Przel  Wst",
+    hint_radio_edit: "Menu SW  Wst",
 };
 
 pub const DE: Strings = Strings {
@@ -639,6 +659,11 @@ pub const DE: Strings = Strings {
     diag_charging: "Laden",
     diag_yes: "ja",
     diag_no: "nein",
+    wifi_radio: "Funk-Einstellung",
+    msg_radio: "Funk",
+    saved_radio: "Funk gespeichert",
+    hint_radio: "Nav OK Ums  Zur",
+    hint_radio_edit: "Menu SW  Zur",
 };
 
 const fn with_hints(mut s: Strings, h: HintRow) -> Strings {
