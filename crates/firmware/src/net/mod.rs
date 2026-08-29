@@ -16,7 +16,7 @@ use heapless::String;
 use longfred_proto::command::ClientCommand;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::network::WitServer;
-use longfred_proto::persist::{DeviceIdentity, StaticIpConfig};
+use longfred_proto::persist::{DeviceIdentity, RadioConfig, StaticIpConfig};
 
 use crate::config::sizes;
 
@@ -59,6 +59,12 @@ pub enum WifiCmd {
     Connect {
         ssid: String<32>,
         password: String<64>,
+        /// Lock to a specific BSSID for BSSID-locked roaming.
+        /// `None` = pick the best AP by signal.
+        bssid: Option<[u8; 6]>,
+        /// Lock to a specific channel.
+        /// `None` = scan all channels.
+        channel: Option<u8>,
     },
 }
 
@@ -95,6 +101,10 @@ pub static STA_IPV4: Watch<CriticalSectionRawMutex, Option<[u8; 4]>, 2> = Watch:
 pub static STA_NET: Watch<CriticalSectionRawMutex, Option<StaNet>, 2> = Watch::new_with(None);
 
 pub static WIFI_LINK: Watch<CriticalSectionRawMutex, Option<WifiLink>, 2> = Watch::new_with(None);
+
+/// Radio / roaming configuration (domain → wifi connection task).
+pub static RADIO: Watch<CriticalSectionRawMutex, RadioConfig, 2> =
+    Watch::new_with(RadioConfig::default());
 
 pub static PING: Watch<CriticalSectionRawMutex, PingStatus, 2> = Watch::new_with(PingStatus::Idle);
 

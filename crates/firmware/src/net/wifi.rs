@@ -40,6 +40,8 @@ fn ap_to_ssid_info(ap: &AccessPointInfo) -> SsidInfo {
         ssid,
         rssi: ap.signal_strength,
         open: ap.auth_method == Some(AuthenticationMethod::None),
+        bssid: ap.bssid,
+        channel: ap.channel,
     }
 }
 
@@ -143,12 +145,19 @@ pub async fn connection(mut controller: WifiController<'static>) {
             WifiCmd::Connect {
                 mut ssid,
                 mut password,
+                mut bssid,
+                mut channel,
             } => loop {
-                let cfg = WifiConfig::Station(
-                    StationConfig::default()
-                        .with_ssid(ssid.as_str())
-                        .with_password(password.as_str().into()),
-                );
+                let mut sta = StationConfig::default()
+                    .with_ssid(ssid.as_str())
+                    .with_password(password.as_str().into());
+                if let Some(b) = bssid {
+                    sta = sta.with_bssid(b);
+                }
+                if let Some(ch) = channel {
+                    sta = sta.with_channel(ch);
+                }
+                let cfg = WifiConfig::Station(sta);
                 state_tx.send(NetStatus::Connecting);
                 if let Err(e) = controller.set_config(&cfg) {
                     warn!("wifi set_config error: {:?}", e);
@@ -191,9 +200,13 @@ pub async fn connection(mut controller: WifiController<'static>) {
                         WifiCmd::Connect {
                             ssid: next_ssid,
                             password: next_password,
+                            bssid: next_bssid,
+                            channel: next_channel,
                         } => {
                             ssid = next_ssid;
                             password = next_password;
+                            bssid = next_bssid;
+                            channel = next_channel;
                             rejoin_fails = 0;
                             continue;
                         }

@@ -71,6 +71,14 @@ pub struct RadioConfig {
 
 impl Default for RadioConfig {
     fn default() -> Self {
+        Self::default()
+    }
+}
+
+impl RadioConfig {
+    /// Const default for use in `static` initializers.
+    #[must_use]
+    pub const fn default() -> Self {
         Self {
             roam_enabled: false,
             rrm_enabled: true,
@@ -88,9 +96,7 @@ impl Default for RadioConfig {
             dhcp_discover_timeout_s: 2,
         }
     }
-}
 
-impl RadioConfig {
     /// Clamp all fields to their valid ranges. Called after decode and in
     /// `apply_settings_put` so a single source of truth validates.
     #[must_use]

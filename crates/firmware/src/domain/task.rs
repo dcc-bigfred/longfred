@@ -212,6 +212,8 @@ fn interpret(
                 let _ = wifi_tx.try_send(WifiCmd::Connect {
                     ssid: ss,
                     password: pp,
+                    bssid: None,
+                    channel: None,
                 });
             }
         }
