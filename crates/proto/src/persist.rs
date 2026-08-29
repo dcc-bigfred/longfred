@@ -563,7 +563,13 @@ impl PersistRecord {
             return None;
         }
         let version = read_u16(buf, &mut off)?;
-        if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 {
+        if version != 1
+            && version != 2
+            && version != 3
+            && version != 4
+            && version != 5
+            && version != 6
+        {
             return None;
         }
         let cred_count = read_u16(buf, &mut off)? as usize;
@@ -1327,8 +1333,14 @@ mod tests {
         assert!(decoded.radio.roam_enabled);
         assert_eq!(decoded.radio.roam_rssi_threshold, -68);
         // Fields beyond the 2-byte payload keep defaults.
-        assert_eq!(decoded.radio.roam_hysteresis_db, RadioConfig::default().roam_hysteresis_db);
-        assert_eq!(decoded.radio.roam_sample_ms, RadioConfig::default().roam_sample_ms);
+        assert_eq!(
+            decoded.radio.roam_hysteresis_db,
+            RadioConfig::default().roam_hysteresis_db
+        );
+        assert_eq!(
+            decoded.radio.roam_sample_ms,
+            RadioConfig::default().roam_sample_ms
+        );
     }
 
     #[test]

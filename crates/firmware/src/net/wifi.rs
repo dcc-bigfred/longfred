@@ -34,7 +34,8 @@ fn dhcp_config_with_hostname() -> ConfigV4 {
     // smoltcp defaults: discover 10 s, request 5 s, 5 retries.
     let radio = RADIO.try_get().unwrap_or_default();
     let mut retry = smoltcp::socket::dhcpv4::RetryConfig::default();
-    retry.discover_timeout = smoltcp::time::Duration::from_secs(radio.dhcp_discover_timeout_s as u64);
+    retry.discover_timeout =
+        smoltcp::time::Duration::from_secs(radio.dhcp_discover_timeout_s as u64);
     retry.initial_request_timeout = smoltcp::time::Duration::from_secs(1);
     retry.request_retries = 3;
     dhcp.retry_config = retry;

@@ -26,7 +26,9 @@ pub enum RoamAction {
     /// Threshold crossed for `debounce` consecutive samples: scan for a better AP.
     /// `channels` is `None` for a full scan, or a filtered list from a
     /// 802.11k neighbor report.
-    Scan { channels: Option<heapless::Vec<u8, 4>> },
+    Scan {
+        channels: Option<heapless::Vec<u8, 4>>,
+    },
     /// A better AP was found (from scan results or a neighbor report):
     /// roam to this BSSID.
     RoamTo { bssid: [u8; 6], channel: u8 },
@@ -36,9 +38,16 @@ impl PartialEq for RoamAction {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Idle, Self::Idle) => true,
-            (Self::RoamTo { bssid: a, channel: ca }, Self::RoamTo { bssid: b, channel: cb }) => {
-                a == b && ca == cb
-            }
+            (
+                Self::RoamTo {
+                    bssid: a,
+                    channel: ca,
+                },
+                Self::RoamTo {
+                    bssid: b,
+                    channel: cb,
+                },
+            ) => a == b && ca == cb,
             (Self::Scan { channels: a }, Self::Scan { channels: b }) => a == b,
             _ => false,
         }
@@ -92,12 +101,7 @@ impl RoamEngine {
     /// - Below threshold for < `debounce` samples: increment, return `Idle`.
     /// - Below threshold for >= `debounce` samples: return `Scan` (if
     ///   `roam_scan_interval_s` has elapsed and cooldown is over).
-    pub fn on_sample(
-        &mut self,
-        rssi: i8,
-        now_ms: u64,
-        cfg: &RadioConfig,
-    ) -> RoamAction {
+    pub fn on_sample(&mut self, rssi: i8, now_ms: u64, cfg: &RadioConfig) -> RoamAction {
         if !cfg.roam_enabled {
             self.below_count = 0;
             return RoamAction::Idle;
@@ -160,9 +164,7 @@ impl RoamEngine {
     ///
     /// Returns up to [`MAX_NEIGHBORS`] candidates. Unknown/truncated
     /// elements are silently skipped.
-    pub fn parse_neighbor_report(
-        bytes: &[u8],
-    ) -> heapless::Vec<BssCandidate, MAX_NEIGHBORS> {
+    pub fn parse_neighbor_report(bytes: &[u8]) -> heapless::Vec<BssCandidate, MAX_NEIGHBORS> {
         let mut out = heapless::Vec::new();
         let mut i = 0;
         while i + 13 <= bytes.len() && !out.is_full() {
@@ -204,10 +206,7 @@ mod tests {
     fn below_threshold_no_roam_disabled() {
         let mut eng = RoamEngine::new([1; 6]);
         let c = cfg(false);
-        assert_eq!(
-            eng.on_sample(-80, 0, &c),
-            RoamAction::Idle,
-        );
+        assert_eq!(eng.on_sample(-80, 0, &c), RoamAction::Idle,);
     }
 
     #[test]
@@ -269,10 +268,7 @@ mod tests {
             channel: 6,
             rssi: -78,
         }];
-        assert_eq!(
-            eng.on_scan_results(-75, &candidates, &c),
-            None,
-        );
+        assert_eq!(eng.on_scan_results(-75, &candidates, &c), None,);
     }
 
     #[test]
@@ -318,10 +314,7 @@ mod tests {
             channel: 1,
             rssi: -50,
         }];
-        assert_eq!(
-            eng.on_scan_results(-80, &candidates, &c),
-            None,
-        );
+        assert_eq!(eng.on_scan_results(-80, &candidates, &c), None,);
     }
 
     #[test]
@@ -332,7 +325,10 @@ mod tests {
         // then scan at t=10_001 (past scan_interval = 10 s).
         assert_eq!(eng.on_sample(-80, 0, &c), RoamAction::Idle);
         assert_eq!(eng.on_sample(-80, 5_000, &c), RoamAction::Idle);
-        assert_eq!(eng.on_sample(-80, 10_001, &c), RoamAction::Scan { channels: None });
+        assert_eq!(
+            eng.on_sample(-80, 10_001, &c),
+            RoamAction::Scan { channels: None }
+        );
         eng.on_roam_done([2; 6], 10_001, &c);
         // Immediately after: cooldown active, should not scan.
         assert_eq!(eng.on_sample(-80, 10_250, &c), RoamAction::Idle);

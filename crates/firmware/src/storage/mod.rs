@@ -15,7 +15,8 @@ use heapless::String;
 use log::{info, warn};
 use longfred_proto::persist::{
     DeviceIdentity, Language, MAX_SAVED_LOCOS, MAX_WIFI_HOSTNAME_LEN, PersistRecord, RadioConfig,
-    RosterMode, SavedLoco, SavedServer, StaticIpConfig, id_from_entropy, wifi_hostname_from_entropy,
+    RosterMode, SavedLoco, SavedServer, StaticIpConfig, id_from_entropy,
+    wifi_hostname_from_entropy,
 };
 
 /// Latest NVS snapshot. `Watch` (not `Signal`) so domain **and** HTTP provisioning
