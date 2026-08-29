@@ -4,7 +4,7 @@ use crate::caps::LocoSource;
 use crate::command::{LocoId, Protocol};
 
 pub const MAGIC: u32 = 0x4C46_5031; // "LFP1"
-pub const VERSION: u16 = 5;
+pub const VERSION: u16 = 6;
 pub const MAX_CREDENTIALS: usize = 8;
 pub const MAX_SAVED_LOCOS: usize = 12;
 pub const MAX_DEVICE_NAME_LEN: usize = 32;
@@ -29,6 +29,90 @@ const TAG_BIGFRED: u8 = 8;
 const TAG_ROSTER: u8 = 9;
 const TAG_LANG_CHOSEN: u8 = 10;
 const TAG_SERVER: u8 = 11;
+const TAG_RADIO: u8 = 12;
+
+/// Radio / roaming configuration (NVS `TAG_RADIO`).
+///
+/// Defaults mirror the previous compile-time constants (`WIFI_FORCE_POWER_SAVE_NONE`,
+/// `WIFI_ENABLE_11AX`), so a v5 -> v6 upgrade does not change behavior except
+/// for the new roaming knobs, which are off by default.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RadioConfig {
+    /// Master switch for the RSSI-driven roaming engine.
+    /// `false` = sticky client (hold AP until signal loss).
+    pub roam_enabled: bool,
+    /// 802.11k (RRM). Default `true`; no-op until Tier B lands in esp-radio.
+    pub rrm_enabled: bool,
+    /// 802.11v (BTM). Default `true`; no-op until Tier B lands in esp-radio.
+    pub btm_enabled: bool,
+    /// 802.11r (FT). Default `true`; no-op until Tier C lands in esp-radio.
+    pub ft_enabled: bool,
+    /// Disable modem power-save / TWT (latency over energy).
+    pub power_save_off: bool,
+    /// Enable 802.11ax (OFDMA) on 2.4 GHz.
+    pub enable_11ax: bool,
+    /// RSSI in -dBm below which `RoamEngine` starts looking for a better AP.
+    pub roam_rssi_threshold: i8,
+    /// Minimum RSSI delta (dB) between current and candidate for a roam to fire.
+    pub roam_hysteresis_db: u8,
+    /// Consecutive samples below threshold before `RoamEngine` reacts.
+    pub roam_debounce_samples: u8,
+    /// Minimum gap (seconds) between roam-initiated scans.
+    pub roam_scan_interval_s: u8,
+    /// RSSI sampling period (milliseconds).
+    pub roam_sample_ms: u16,
+    /// Pin the last DHCP lease as static IPv4 on link-down (roam or coverage loss).
+    pub ip_pinning: bool,
+    /// Unpin after this many seconds of link-down gap.
+    pub ip_pin_max_gap_s: u16,
+    /// smoltcp DHCP DISCOVER timeout (seconds). smoltcp default is 10.
+    pub dhcp_discover_timeout_s: u8,
+}
+
+impl Default for RadioConfig {
+    fn default() -> Self {
+        Self {
+            roam_enabled: false,
+            rrm_enabled: true,
+            btm_enabled: true,
+            ft_enabled: true,
+            power_save_off: true,
+            enable_11ax: true,
+            roam_rssi_threshold: -72,
+            roam_hysteresis_db: 8,
+            roam_debounce_samples: 3,
+            roam_scan_interval_s: 10,
+            roam_sample_ms: 250,
+            ip_pinning: true,
+            ip_pin_max_gap_s: 120,
+            dhcp_discover_timeout_s: 2,
+        }
+    }
+}
+
+impl RadioConfig {
+    /// Clamp all fields to their valid ranges. Called after decode and in
+    /// `apply_settings_put` so a single source of truth validates.
+    #[must_use]
+    pub fn clamped(self) -> Self {
+        Self {
+            roam_enabled: self.roam_enabled,
+            rrm_enabled: self.rrm_enabled,
+            btm_enabled: self.btm_enabled,
+            ft_enabled: self.ft_enabled,
+            power_save_off: self.power_save_off,
+            enable_11ax: self.enable_11ax,
+            roam_rssi_threshold: self.roam_rssi_threshold.clamp(-90, -50),
+            roam_hysteresis_db: self.roam_hysteresis_db.clamp(3, 20),
+            roam_debounce_samples: self.roam_debounce_samples.clamp(1, 10),
+            roam_scan_interval_s: self.roam_scan_interval_s.clamp(1, 60),
+            roam_sample_ms: self.roam_sample_ms.clamp(100, 2000),
+            ip_pinning: self.ip_pinning,
+            ip_pin_max_gap_s: self.ip_pin_max_gap_s.clamp(5, 3600),
+            dhcp_discover_timeout_s: self.dhcp_discover_timeout_s.clamp(1, 30),
+        }
+    }
+}
 
 /// UI language (stored in NVS).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -270,6 +354,7 @@ pub struct PersistRecord {
     pub bigfred_pairing_code: heapless::String<MAX_BIGFRED_PAIRING_CODE_LEN>,
     pub static_roster: heapless::Vec<StaticRosterEntry, MAX_SAVED_LOCOS>,
     pub roster_mode: RosterMode,
+    pub radio: RadioConfig,
 }
 
 impl Default for PersistRecord {
@@ -289,6 +374,7 @@ impl Default for PersistRecord {
             bigfred_pairing_code: heapless::String::new(),
             static_roster: heapless::Vec::new(),
             roster_mode: RosterMode::default(),
+            radio: RadioConfig::default(),
         }
     }
 }
@@ -433,6 +519,29 @@ impl PersistRecord {
             off = write_bytes(buf, off, e.name.as_bytes())?;
         }
 
+        // TAG_RADIO: length-prefixed payload for forward-compat within the tag.
+        // Layout: len:u8, flags:u8, rssi:i8, hyst:u8, debounce:u8,
+        //         scan_interval:u8, sample_ms:u16 LE, pin_gap:u16 LE, dhcp_to:u8
+        let radio = self.radio.clamped();
+        let mut radio_payload = [0u8; 10];
+        radio_payload[0] = radio.roam_enabled as u8
+            | ((radio.rrm_enabled as u8) << 1)
+            | ((radio.btm_enabled as u8) << 2)
+            | ((radio.ft_enabled as u8) << 3)
+            | ((radio.power_save_off as u8) << 4)
+            | ((radio.enable_11ax as u8) << 5)
+            | ((radio.ip_pinning as u8) << 6);
+        radio_payload[1] = radio.roam_rssi_threshold as u8;
+        radio_payload[2] = radio.roam_hysteresis_db;
+        radio_payload[3] = radio.roam_debounce_samples;
+        radio_payload[4] = radio.roam_scan_interval_s;
+        radio_payload[5..7].copy_from_slice(&radio.roam_sample_ms.to_le_bytes());
+        radio_payload[7..9].copy_from_slice(&radio.ip_pin_max_gap_s.to_le_bytes());
+        radio_payload[9] = radio.dhcp_discover_timeout_s;
+        off = write_u8(buf, off, TAG_RADIO)?;
+        off = write_u8(buf, off, radio_payload.len() as u8)?;
+        off = write_bytes(buf, off, &radio_payload)?;
+
         let crc = crc32(&buf[0..off]);
         off = write_u32(buf, off, crc)?;
         Some(off)
@@ -448,7 +557,7 @@ impl PersistRecord {
             return None;
         }
         let version = read_u16(buf, &mut off)?;
-        if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 {
+        if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 {
             return None;
         }
         let cred_count = read_u16(buf, &mut off)? as usize;
@@ -615,6 +724,44 @@ impl PersistRecord {
                         let _ = entry.name.push_str(core::str::from_utf8(name_bytes).ok()?);
                         let _ = rec.static_roster.push(entry);
                     }
+                }
+                TAG_RADIO => {
+                    // Length-prefixed payload: parse known fields, skip
+                    // the rest so future fields do not require a VERSION bump.
+                    let len = read_u8(buf, &mut off)? as usize;
+                    let payload = read_slice(buf, &mut off, len)?;
+                    let mut r = RadioConfig::default();
+                    if let Some(&f) = payload.get(0) {
+                        r.roam_enabled = (f & 0x01) != 0;
+                        r.rrm_enabled = (f & 0x02) != 0;
+                        r.btm_enabled = (f & 0x04) != 0;
+                        r.ft_enabled = (f & 0x08) != 0;
+                        r.power_save_off = (f & 0x10) != 0;
+                        r.enable_11ax = (f & 0x20) != 0;
+                        r.ip_pinning = (f & 0x40) != 0;
+                    }
+                    if let Some(&v) = payload.get(1) {
+                        r.roam_rssi_threshold = v as i8;
+                    }
+                    if let Some(&v) = payload.get(2) {
+                        r.roam_hysteresis_db = v;
+                    }
+                    if let Some(&v) = payload.get(3) {
+                        r.roam_debounce_samples = v;
+                    }
+                    if let Some(&v) = payload.get(4) {
+                        r.roam_scan_interval_s = v;
+                    }
+                    if payload.len() >= 7 {
+                        r.roam_sample_ms = u16::from_le_bytes([payload[5], payload[6]]);
+                    }
+                    if payload.len() >= 9 {
+                        r.ip_pin_max_gap_s = u16::from_le_bytes([payload[7], payload[8]]);
+                    }
+                    if let Some(&v) = payload.get(9) {
+                        r.dhcp_discover_timeout_s = v;
+                    }
+                    rec.radio = r.clamped();
                 }
                 _ => return None,
             }
@@ -1082,6 +1229,120 @@ mod tests {
         let n = rec.encode(&mut buf).unwrap();
         let decoded = PersistRecord::decode(&buf[..n]).unwrap();
         assert_eq!(decoded.last_server, rec.last_server);
+    }
+
+    #[test]
+    fn roundtrip_radio_defaults() {
+        let rec = PersistRecord::default();
+        let mut buf = [0u8; 512];
+        let n = rec.encode(&mut buf).unwrap();
+        let decoded = PersistRecord::decode(&buf[..n]).unwrap();
+        assert_eq!(decoded.radio, rec.radio);
+        assert!(!decoded.radio.roam_enabled);
+        assert!(decoded.radio.rrm_enabled);
+        assert!(decoded.radio.btm_enabled);
+        assert!(decoded.radio.ft_enabled);
+        assert!(decoded.radio.power_save_off);
+        assert!(decoded.radio.enable_11ax);
+        assert_eq!(decoded.radio.roam_rssi_threshold, -72);
+        assert_eq!(decoded.radio.roam_hysteresis_db, 8);
+        assert_eq!(decoded.radio.roam_debounce_samples, 3);
+        assert_eq!(decoded.radio.roam_scan_interval_s, 10);
+        assert_eq!(decoded.radio.roam_sample_ms, 250);
+        assert!(decoded.radio.ip_pinning);
+        assert_eq!(decoded.radio.ip_pin_max_gap_s, 120);
+        assert_eq!(decoded.radio.dhcp_discover_timeout_s, 2);
+    }
+
+    #[test]
+    fn roundtrip_radio_custom() {
+        let mut rec = PersistRecord::default();
+        rec.radio.roam_enabled = true;
+        rec.radio.rrm_enabled = false;
+        rec.radio.btm_enabled = false;
+        rec.radio.ft_enabled = false;
+        rec.radio.power_save_off = false;
+        rec.radio.enable_11ax = false;
+        rec.radio.roam_rssi_threshold = -80;
+        rec.radio.roam_hysteresis_db = 12;
+        rec.radio.roam_debounce_samples = 5;
+        rec.radio.roam_scan_interval_s = 20;
+        rec.radio.roam_sample_ms = 500;
+        rec.radio.ip_pinning = false;
+        rec.radio.ip_pin_max_gap_s = 600;
+        rec.radio.dhcp_discover_timeout_s = 5;
+        let mut buf = [0u8; 512];
+        let n = rec.encode(&mut buf).unwrap();
+        let decoded = PersistRecord::decode(&buf[..n]).unwrap();
+        assert_eq!(decoded.radio, rec.radio);
+    }
+
+    #[test]
+    fn decode_v5_without_radio_defaults() {
+        // A v5 record (pre-TAG_RADIO) must decode and yield default RadioConfig.
+        let mut rec = PersistRecord::default();
+        rec.device.id = 4242;
+        let mut buf = [0u8; 512];
+        let mut off = 0;
+        off = write_u32(&mut buf, off, MAGIC).unwrap();
+        off = write_u16(&mut buf, off, 5).unwrap();
+        off = write_u16(&mut buf, off, 0).unwrap();
+        off = write_u16(&mut buf, off, 0).unwrap();
+        off = write_u8(&mut buf, off, TAG_DEV).unwrap();
+        off = write_u8(&mut buf, off, 0).unwrap();
+        off = write_u16(&mut buf, off, 4242).unwrap();
+        let crc = crc32(&buf[0..off]);
+        off = write_u32(&mut buf, off, crc).unwrap();
+        let decoded = PersistRecord::decode(&buf[..off]).unwrap();
+        assert_eq!(decoded.device.id, 4242);
+        assert_eq!(decoded.radio, RadioConfig::default());
+    }
+
+    #[test]
+    fn decode_radio_forward_compat_truncated_payload() {
+        // A future TAG_RADIO payload with extra trailing bytes must
+        // still decode the known prefix and skip the rest.
+        let mut buf = [0u8; 512];
+        let mut off = 0;
+        off = write_u32(&mut buf, off, MAGIC).unwrap();
+        off = write_u16(&mut buf, off, 6).unwrap();
+        off = write_u16(&mut buf, off, 0).unwrap();
+        off = write_u16(&mut buf, off, 0).unwrap();
+        off = write_u8(&mut buf, off, TAG_RADIO).unwrap();
+        // 2-byte payload: flags + rssi only. Future firmware writing
+        // more fields would produce a longer payload that we skip here.
+        let flags = 0x01u8; // roam_enabled
+        let payload = [flags, (-68i8) as u8];
+        off = write_u8(&mut buf, off, payload.len() as u8).unwrap();
+        off = write_bytes(&mut buf, off, &payload).unwrap();
+        let crc = crc32(&buf[0..off]);
+        off = write_u32(&mut buf, off, crc).unwrap();
+        let decoded = PersistRecord::decode(&buf[..off]).unwrap();
+        assert!(decoded.radio.roam_enabled);
+        assert_eq!(decoded.radio.roam_rssi_threshold, -68);
+        // Fields beyond the 2-byte payload keep defaults.
+        assert_eq!(decoded.radio.roam_hysteresis_db, RadioConfig::default().roam_hysteresis_db);
+        assert_eq!(decoded.radio.roam_sample_ms, RadioConfig::default().roam_sample_ms);
+    }
+
+    #[test]
+    fn radio_clamped_ranges() {
+        let mut r = RadioConfig::default();
+        r.roam_rssi_threshold = -128;
+        r.roam_hysteresis_db = 100;
+        r.roam_debounce_samples = 0;
+        r.roam_scan_interval_s = 0;
+        r.roam_sample_ms = 10_000;
+        r.ip_pin_max_gap_s = 1;
+        r.dhcp_discover_timeout_s = 0;
+        let c = r.clamped();
+        assert_eq!(c.roam_rssi_threshold, -90);
+        assert_eq!(c.roam_hysteresis_db, 20);
+        assert_eq!(c.roam_debounce_samples, 1);
+        assert_eq!(c.roam_scan_interval_s, 1);
+        assert_eq!(c.roam_sample_ms, 2000);
+        assert_eq!(c.ip_pin_max_gap_s, 5);
+        assert_eq!(c.dhcp_discover_timeout_s, 1);
     }
 
     #[test]
