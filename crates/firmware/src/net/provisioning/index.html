@@ -45,6 +45,23 @@ legend{padding:0 4px;color:#9cf;font-size:12px}
 <button type="button" onclick="uploadFw()">Upload firmware</button>
 </row>
 </fieldset>
+<fieldset>
+<legend>Radio</legend>
+<label><input type="checkbox" id="ro_roam"> Roaming</label>
+<label><input type="checkbox" id="ro_rrm"> 802.11k (RRM)</label>
+<label><input type="checkbox" id="ro_btm"> 802.11v (BTM)</label>
+<label><input type="checkbox" id="ro_ft"> 802.11r (FT)</label>
+<label><input type="checkbox" id="ro_ps_off" checked> Disable power-save</label>
+<label><input type="checkbox" id="ro_11ax" checked> 802.11ax (OFDMA)</label>
+<label><input type="checkbox" id="ro_ip_pin" checked> IP pinning</label>
+<label>RSSI threshold (-dBm) <input type="number" id="ro_rssi" value="72" min="50" max="90"></label>
+<label>Hysteresis (dB) <input type="number" id="ro_hyst" value="8" min="3" max="20"></label>
+<label>Debounce (samples) <input type="number" id="ro_debounce" value="3" min="1" max="10"></label>
+<label>Scan interval (s) <input type="number" id="ro_scan_int" value="10" min="1" max="60"></label>
+<label>Sample period (ms) <input type="number" id="ro_sample_ms" value="250" min="100" max="2000"></label>
+<label>Pin gap (s) <input type="number" id="ro_pin_gap" value="120" min="5" max="3600"></label>
+<label>DHCP discover timeout (s) <input type="number" id="ro_dhcp_to" value="2" min="1" max="30"></label>
+</fieldset>
 <row>
 <button type="button" class="sec" onclick="load()">Load</button>
 <button type="button" onclick="save()">Save</button>
@@ -79,6 +96,22 @@ async function load(){
     if(j.wifi&&j.wifi.networks&&j.wifi.networks[0])$('ssid').value=j.wifi.networks[0];
     $('roster_mode').value=(j.roster&&j.roster.mode)||'auto';
     $('roster').value=rosterText(j.roster&&j.roster.entries);
+    if(j.radio){
+      $('ro_roam').checked=!!j.radio.roam_enabled;
+      $('ro_rrm').checked=!!j.radio.rrm_enabled;
+      $('ro_btm').checked=!!j.radio.btm_enabled;
+      $('ro_ft').checked=!!j.radio.ft_enabled;
+      $('ro_ps_off').checked=!!j.radio.power_save_off;
+      $('ro_11ax').checked=!!j.radio.enable_11ax;
+      $('ro_ip_pin').checked=!!j.radio.ip_pinning;
+      $('ro_rssi').value=Math.abs(j.radio.roam_rssi_threshold||-72);
+      $('ro_hyst').value=j.radio.roam_hysteresis_db||8;
+      $('ro_debounce').value=j.radio.roam_debounce_samples||3;
+      $('ro_scan_int').value=j.radio.roam_scan_interval_s||10;
+      $('ro_sample_ms').value=j.radio.roam_sample_ms||250;
+      $('ro_pin_gap').value=j.radio.ip_pin_max_gap_s||120;
+      $('ro_dhcp_to').value=j.radio.dhcp_discover_timeout_s||2;
+    }
     status('Loaded',true);
   }catch(e){status('Load failed: '+e,false)}
 }
@@ -90,6 +123,22 @@ async function save(){
     roster_mode:$('roster_mode').value,
     roster:parseRoster($('roster').value)
   };
+  const r={};
+  if($('ro_roam').checked)r.roam_enabled=true;
+  if($('ro_rrm').checked)r.rrm_enabled=true;
+  if($('ro_btm').checked)r.btm_enabled=true;
+  if($('ro_ft').checked)r.ft_enabled=true;
+  if($('ro_ps_off').checked)r.power_save_off=true;
+  if($('ro_11ax').checked)r.enable_11ax=true;
+  if($('ro_ip_pin').checked)r.ip_pinning=true;
+  r.roam_rssi_threshold=-parseInt($('ro_rssi').value||'72',10);
+  r.roam_hysteresis_db=parseInt($('ro_hyst').value||'8',10);
+  r.roam_debounce_samples=parseInt($('ro_debounce').value||'3',10);
+  r.roam_scan_interval_s=parseInt($('ro_scan_int').value||'10',10);
+  r.roam_sample_ms=parseInt($('ro_sample_ms').value||'250',10);
+  r.ip_pin_max_gap_s=parseInt($('ro_pin_gap').value||'120',10);
+  r.dhcp_discover_timeout_s=parseInt($('ro_dhcp_to').value||'2',10);
+  if(Object.keys(r).length)body.radio=r;
   if(!body.wifi.ssid)delete body.wifi;
   else if(body.wifi.password===undefined)body.wifi.password='';
   if(!body.bigfred.login&&!body.bigfred.pin&&!body.bigfred.pairingCode)delete body.bigfred;

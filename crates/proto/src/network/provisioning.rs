@@ -3,7 +3,7 @@
 #[cfg(test)]
 use crate::persist::{MAX_BIGFRED_LOGIN_LEN, MAX_WIFI_HOSTNAME_LEN};
 use crate::persist::{
-    MAX_CREDENTIALS, MAX_SAVED_LOCOS, PersistRecord, RadioConfig, RosterMode, StaticRosterEntry,
+    MAX_CREDENTIALS, MAX_SAVED_LOCOS, PersistRecord, RosterMode, StaticRosterEntry,
 };
 
 use serde::{Deserialize, Serialize};
