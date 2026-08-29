@@ -14,8 +14,8 @@ use log::{error, info, warn};
 use crate::config;
 use crate::config::sizes;
 use crate::net::{
-    NET_CONFIG_CTRL, NetStatus, STA_NET, STATE, SsidInfo, StaNet, WIFI_CTRL, WIFI_CTRL_DEPTH,
-    WIFI_HOSTNAME, WIFI_LINK, WIFI_SCAN, WifiCmd, WifiLink,
+    NET_CONFIG_CTRL, NetStatus, RADIO, STA_NET, STATE, SsidInfo, StaNet, WIFI_CTRL,
+    WIFI_CTRL_DEPTH, WIFI_HOSTNAME, WIFI_LINK, WIFI_SCAN, WifiCmd, WifiLink,
 };
 
 /// embassy-net driver type provided by esp-radio (STA).
@@ -30,6 +30,14 @@ fn dhcp_config_with_hostname() -> ConfigV4 {
             dhcp.hostname = Some(hostname);
         }
     }
+    // Shorten DHCP timeouts for faster recovery after link-down.
+    // smoltcp defaults: discover 10 s, request 5 s, 5 retries.
+    let radio = RADIO.try_get().unwrap_or_default();
+    let mut retry = smoltcp::socket::dhcpv4::RetryConfig::default();
+    retry.discover_timeout = smoltcp::time::Duration::from_secs(radio.dhcp_discover_timeout_s as u64);
+    retry.initial_request_timeout = smoltcp::time::Duration::from_secs(1);
+    retry.request_retries = 3;
+    dhcp.retry_config = retry;
     ConfigV4::Dhcp(dhcp)
 }
 

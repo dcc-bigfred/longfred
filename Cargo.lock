@@ -1391,6 +1391,7 @@ dependencies = [
  "longfred-proto",
  "longfred-ui",
  "nb 1.1.0",
+ "smoltcp",
  "ssd1306",
  "static_cell",
 ]
