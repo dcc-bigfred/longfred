@@ -291,6 +291,13 @@ fn interpret(
             state.refresh_effective_source();
             state.show_message(i18n::tr().saved_roster);
         }
+        Intent::SaveRadio(radio) => {
+            let radio = radio.clamped();
+            state.persist.radio = radio;
+            let _ = storage_tx.try_send(StorageCmd::SaveRadio(radio));
+            crate::net::RADIO.sender().send(radio);
+            state.show_message(i18n::tr().saved_radio);
+        }
         Intent::EnterProgrammingMode => {
             log::info!("domain: EnterProgrammingMode intent (already applied)");
         }

@@ -14,8 +14,8 @@ use esp_storage::FlashStorage;
 use heapless::String;
 use log::{info, warn};
 use longfred_proto::persist::{
-    DeviceIdentity, Language, MAX_SAVED_LOCOS, MAX_WIFI_HOSTNAME_LEN, PersistRecord, RosterMode,
-    SavedLoco, SavedServer, StaticIpConfig, id_from_entropy, wifi_hostname_from_entropy,
+    DeviceIdentity, Language, MAX_SAVED_LOCOS, MAX_WIFI_HOSTNAME_LEN, PersistRecord, RadioConfig,
+    RosterMode, SavedLoco, SavedServer, StaticIpConfig, id_from_entropy, wifi_hostname_from_entropy,
 };
 
 /// Latest NVS snapshot. `Watch` (not `Signal`) so domain **and** HTTP provisioning
@@ -43,6 +43,7 @@ pub enum StorageCmd {
     RegenerateDeviceId,
     SaveLanguage(Language),
     SaveRosterMode(RosterMode),
+    SaveRadio(RadioConfig),
     SavePairingCode(String<6>),
     SaveServer(SavedServer),
     SetProgrammingMode(bool),
@@ -257,6 +258,11 @@ pub async fn task(flash: &'static SharedFlash, boot_entropy: u32) {
             }
             StorageCmd::SaveRosterMode(mode) => {
                 rec.roster_mode = mode;
+                let _ = persist_shared(flash, &rec).await;
+                publish_persist(&rec);
+            }
+            StorageCmd::SaveRadio(radio) => {
+                rec.radio = radio.clamped();
                 let _ = persist_shared(flash, &rec).await;
                 publish_persist(&rec);
             }
