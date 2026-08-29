@@ -72,6 +72,36 @@ All EAPs on the same L2 (TL-SF1006P without routing between them).
 | `ip_pin_max_gap_s` | 5..=3600 | 120 | Unpin after this many seconds of link-down gap |
 | `dhcp_discover_timeout_s` | 1..=30 | 2 | smoltcp DISCOVER timeout (default 10) |
 
+### Threshold vs hysteresis
+
+These are independent levers. **Threshold** decides *when to look*; **hysteresis**
+decides *whether the candidate is worth switching to*.
+
+- `roam_rssi_threshold`: while the current AP's RSSI is **≥ threshold**,
+  `RoamEngine` does nothing. A scan starts only after RSSI stays **below**
+  threshold for `roam_debounce_samples` consecutive samples.
+- `roam_hysteresis_db`: the candidate must satisfy
+
+  ```
+  candidate.rssi  ≥  current.rssi  +  hysteresis
+  ```
+
+  It is not a second absolute RSSI floor. It compares the candidate against
+  whatever you have *now*, so a few-dB fade on the coverage edge does not
+  ping-pong between EAPs.
+
+Example with hysteresis = **8** and threshold = **−72**:
+
+| Current AP | Candidate | Delta | Roam? |
+|---|---|---|---|
+| −78 dBm | −70 dBm | +8 dB | yes (exactly 8) |
+| −78 dBm | −72 dBm | +6 dB | no |
+| −78 dBm | −65 dBm | +13 dB | yes |
+| −60 dBm | −50 dBm | +10 dB | no — scan never starts (still above threshold) |
+
+On the OLED, RSSI is entered as a magnitude (`72` → `−72`); hysteresis is an
+unsigned dB value.
+
 ## 4. IPv4 pinning
 
 ### Mechanism
