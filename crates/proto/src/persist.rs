@@ -47,7 +47,8 @@ pub struct RadioConfig {
     pub btm_enabled: bool,
     /// 802.11r (FT). Default `true`; no-op until Tier C lands in esp-radio.
     pub ft_enabled: bool,
-    /// Disable modem power-save / TWT (latency over energy).
+    /// When `true` (default), modem power-save is off (latency over energy).
+    /// When `false`, STA uses DTIM `Minimum` power-save.
     pub power_save_off: bool,
     /// Enable 802.11ax (OFDMA) on 2.4 GHz.
     pub enable_11ax: bool,

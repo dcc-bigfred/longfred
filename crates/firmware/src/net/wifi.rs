@@ -290,8 +290,13 @@ pub async fn connection(mut controller: WifiController<'static>) {
                 let mut engine =
                     RoamEngine::new(controller.ap_info().map(|a| a.bssid).unwrap_or([0; 6]));
                 let mut dropped = false;
+                let mut last_power_save_off = RADIO.try_get().unwrap_or_default().power_save_off;
                 loop {
                     let radio = RADIO.try_get().unwrap_or_default();
+                    if radio.power_save_off != last_power_save_off {
+                        apply_radio_phy(&mut controller);
+                        last_power_save_off = radio.power_save_off;
+                    }
                     let sample = Duration::from_millis(radio.roam_sample_ms as u64);
                     match select3(
                         controller.wait_for_disconnect_async(),
@@ -407,13 +412,20 @@ pub async fn connection(mut controller: WifiController<'static>) {
 
 /// Apply power-save mode and 802.11ax protocols from the live `RADIO` config.
 /// Called after every `set_config` (initial connect and BSSID-locked roam),
-/// since the radio may reset PHY settings on a config change.
+/// since the radio may reset PHY settings on a config change, and again when
+/// `power_save_off` changes while associated.
+///
+/// Energy saving is off by default (`power_save_off`): `None` keeps STA
+/// latency low. When the user enables it, `Minimum` wakes each DTIM.
 fn apply_radio_phy(controller: &mut WifiController<'static>) {
     let radio = RADIO.try_get().unwrap_or_default();
-    if radio.power_save_off {
-        if let Err(e) = controller.set_power_saving(PowerSaveMode::None) {
-            warn!("wifi set_power_saving error: {:?}", e);
-        }
+    let ps = if radio.power_save_off {
+        PowerSaveMode::None
+    } else {
+        PowerSaveMode::Minimum
+    };
+    if let Err(e) = controller.set_power_saving(ps) {
+        warn!("wifi set_power_saving error: {:?}", e);
     }
     if radio.enable_11ax {
         let protocols =

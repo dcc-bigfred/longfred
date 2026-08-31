@@ -61,7 +61,7 @@ All EAPs on the same L2 (TL-SF1006P without routing between them).
 | `rrm_enabled` | bool | true | 802.11k (RRM). No-op until Tier B lands in esp-radio |
 | `btm_enabled` | bool | true | 802.11v (BTM). No-op until Tier B lands in esp-radio |
 | `ft_enabled` | bool | true | 802.11r (FT). No-op until Tier C lands in esp-radio |
-| `power_save_off` | bool | true | Disables TWT/modem-sleep (latency over energy) |
+| `power_save_off` | bool | true | Energy saving off (default): modem PS `None`. Uncheck / `false` enables DTIM `Minimum` power-save |
 | `enable_11ax` | bool | true | 802.11ax (OFDMA) on 2.4 GHz |
 | `roam_rssi_threshold` | -90..=-50 | -72 | Threshold in -dBm below which `RoamEngine` starts looking for a better AP |
 | `roam_hysteresis_db` | 3..=20 | 8 | Minimum RSSI delta (dB) between current and candidate for a roam to fire. Ping-pong guard |

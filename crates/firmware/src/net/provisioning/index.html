@@ -51,7 +51,7 @@ legend{padding:0 4px;color:#9cf;font-size:12px}
 <label><input type="checkbox" id="ro_rrm"> 802.11k (RRM)</label>
 <label><input type="checkbox" id="ro_btm"> 802.11v (BTM)</label>
 <label><input type="checkbox" id="ro_ft"> 802.11r (FT)</label>
-<label><input type="checkbox" id="ro_ps_off" checked> Disable power-save</label>
+<label><input type="checkbox" id="ro_energy"> Energy saving</label>
 <label><input type="checkbox" id="ro_11ax" checked> 802.11ax (OFDMA)</label>
 <label><input type="checkbox" id="ro_ip_pin" checked> IP pinning</label>
 <label>RSSI threshold (-dBm) <input type="number" id="ro_rssi" value="72" min="50" max="90"></label>
@@ -101,7 +101,7 @@ async function load(){
       $('ro_rrm').checked=!!j.radio.rrm_enabled;
       $('ro_btm').checked=!!j.radio.btm_enabled;
       $('ro_ft').checked=!!j.radio.ft_enabled;
-      $('ro_ps_off').checked=!!j.radio.power_save_off;
+      $('ro_energy').checked=!j.radio.power_save_off;
       $('ro_11ax').checked=!!j.radio.enable_11ax;
       $('ro_ip_pin').checked=!!j.radio.ip_pinning;
       $('ro_rssi').value=Math.abs(j.radio.roam_rssi_threshold||-72);
@@ -123,14 +123,15 @@ async function save(){
     roster_mode:$('roster_mode').value,
     roster:parseRoster($('roster').value)
   };
-  const r={};
-  if($('ro_roam').checked)r.roam_enabled=true;
-  if($('ro_rrm').checked)r.rrm_enabled=true;
-  if($('ro_btm').checked)r.btm_enabled=true;
-  if($('ro_ft').checked)r.ft_enabled=true;
-  if($('ro_ps_off').checked)r.power_save_off=true;
-  if($('ro_11ax').checked)r.enable_11ax=true;
-  if($('ro_ip_pin').checked)r.ip_pinning=true;
+  const r={
+    roam_enabled:$('ro_roam').checked,
+    rrm_enabled:$('ro_rrm').checked,
+    btm_enabled:$('ro_btm').checked,
+    ft_enabled:$('ro_ft').checked,
+    power_save_off:!$('ro_energy').checked,
+    enable_11ax:$('ro_11ax').checked,
+    ip_pinning:$('ro_ip_pin').checked
+  };
   r.roam_rssi_threshold=-parseInt($('ro_rssi').value||'72',10);
   r.roam_hysteresis_db=parseInt($('ro_hyst').value||'8',10);
   r.roam_debounce_samples=parseInt($('ro_debounce').value||'3',10);

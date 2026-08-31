@@ -1782,3 +1782,49 @@ fn wifi_settings_address_opens_dhcp_static() {
     assert!(grid_line(&view, 1).contains("DHCP"));
     assert!(grid_line(&view, 2).contains("Static"));
 }
+
+#[test]
+fn radio_settings_energy_saving_off_by_default() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::WifiSettings);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::RadioSettings);
+    let view = router.view(&fx.ctx());
+    let body: String = (0..8)
+        .map(|i| grid_line(&view, i))
+        .collect::<Vec<_>>()
+        .join("|");
+    assert!(body.contains("SavePwr off"), "{body}");
+}
+
+#[test]
+fn radio_settings_toggle_energy_saving_saves() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::WifiSettings);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+    }
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+    }
+    assert_eq!(overlay_first_line(&router.view(&fx.ctx())), "SavePwr on");
+    {
+        let mut cx = fx.ctx();
+        cx.now_ms = 5_000;
+        let _ = router.tick(&mut cx);
+    }
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Back, &mut cx)
+    };
+    let Some(Intent::SaveRadio(cfg)) = intents.iter().find(|i| matches!(i, Intent::SaveRadio(_)))
+    else {
+        panic!("expected SaveRadio, got {intents:?}");
+    };
+    assert!(!cfg.power_save_off);
+}

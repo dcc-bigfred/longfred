@@ -685,6 +685,24 @@ mod tests {
     }
 
     #[test]
+    fn apply_radio_can_clear_flags() {
+        let json = br#"{"radio":{"roam_enabled":false,"rrm_enabled":false,"btm_enabled":false,"ft_enabled":false,"power_save_off":false,"enable_11ax":false,"ip_pinning":false}}"#;
+        let put = deserialize_settings_put(json).unwrap();
+        let mut rec = PersistRecord::default();
+        assert!(rec.radio.rrm_enabled);
+        assert!(rec.radio.power_save_off);
+        assert!(rec.radio.ip_pinning);
+        assert!(apply_settings_put(&mut rec, &put).is_ok());
+        assert!(!rec.radio.roam_enabled);
+        assert!(!rec.radio.rrm_enabled);
+        assert!(!rec.radio.btm_enabled);
+        assert!(!rec.radio.ft_enabled);
+        assert!(!rec.radio.power_save_off);
+        assert!(!rec.radio.enable_11ax);
+        assert!(!rec.radio.ip_pinning);
+    }
+
+    #[test]
     fn apply_radio_out_of_range() {
         let json = br#"{"radio":{"roam_hysteresis_db":100}}"#;
         let put = deserialize_settings_put(json).unwrap();

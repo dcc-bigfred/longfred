@@ -111,8 +111,12 @@ fn apply_persist(state: &mut DomainState, rec: PersistRecord) {
     let device = rec.device.clone();
     let hostname = rec.wifi_hostname.clone();
     let language = rec.language;
+    let mut rec = rec;
+    rec.radio = rec.radio.clamped();
+    let radio = rec.radio;
     state.load_persist(rec);
     crate::net::DEAD_MAN.sender().send(state.dead_man_switch_on);
+    crate::net::RADIO.sender().send(radio);
     i18n::set_language(language);
     DEVICE.sender().send(device);
     if !hostname.is_empty() {

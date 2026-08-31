@@ -63,7 +63,7 @@ impl RadioItem {
             Self::Rrm => "11k",
             Self::Btm => "11v",
             Self::Ft => "11r",
-            Self::PowerSaveOff => "PS off",
+            Self::PowerSaveOff => "SavePwr",
             Self::Enable11ax => "11ax",
             Self::RssiThreshold => "RSSI",
             Self::HysteresisDb => "Hysteresis",
@@ -125,7 +125,7 @@ impl RadioItem {
             }
             Self::PowerSaveOff => {
                 cfg.power_save_off = !cfg.power_save_off;
-                cfg.power_save_off
+                !cfg.power_save_off
             }
             Self::Enable11ax => {
                 cfg.enable_11ax = !cfg.enable_11ax;
@@ -151,7 +151,7 @@ fn radio_labels(cfg: &RadioConfig) -> [heapless::String<16>; 14] {
     let _ = write!(out[1], "11k {}", b(cfg.rrm_enabled));
     let _ = write!(out[2], "11v {}", b(cfg.btm_enabled));
     let _ = write!(out[3], "11r {}", b(cfg.ft_enabled));
-    let _ = write!(out[4], "PS {}", b(cfg.power_save_off));
+    let _ = write!(out[4], "SavePwr {}", b(!cfg.power_save_off));
     let _ = write!(out[5], "11ax {}", b(cfg.enable_11ax));
     let _ = write!(out[6], "RSSI {}", cfg.roam_rssi_threshold);
     let _ = write!(out[7], "Hyst {}", cfg.roam_hysteresis_db);
