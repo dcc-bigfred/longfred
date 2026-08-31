@@ -356,6 +356,8 @@ pub struct ThrottleView {
     pub consist_len: u8,
     /// Command-station session: live, self-heal, or down.
     pub conn: ConnState,
+    /// Blink the conn icon: session or Wi-Fi join is retrying.
+    pub conn_busy: bool,
     /// Bitmask of DCC functions 0–31.
     pub functions: u32,
     /// Loco name / address line.
@@ -378,6 +380,7 @@ impl Default for ThrottleView {
             forward: true,
             consist_len: 0,
             conn: ConnState::Disconnected,
+            conn_busy: false,
             functions: 0,
             loco: Line::new(),
             footer: Line::new(),

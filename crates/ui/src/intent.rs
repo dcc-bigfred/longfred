@@ -27,6 +27,8 @@ pub enum Intent {
     WifiScan,
     /// Join the SSID/password currently in the session.
     WifiConnect,
+    /// Leave the boot connect wizard (`Connecting`) for the main menu.
+    AbortConnect,
     /// Connect to discovered server `i`.
     ServerSelect(usize),
     /// Connect using [`crate::session::UiSession::server_digits`].

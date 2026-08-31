@@ -249,6 +249,13 @@ fn interpret(
         Intent::ServerDisconnect => {
             srv_tx.send(None);
         }
+        Intent::AbortConnect => {
+            if SERVER.sender().try_get().flatten().is_none()
+                && let Some(saved) = state.persist.last_server
+            {
+                srv_tx.send(Some(endpoint_from_saved(saved)));
+            }
+        }
         Intent::DeadManSwitchToggle => {
             let _ = state.toggle_dead_man_switch(out);
         }
@@ -666,6 +673,7 @@ pub async fn task() {
                             pairing_active = true;
                             pairing_user_initiated = true;
                         }
+                        let abort_connect = intents.iter().any(|i| *i == Intent::AbortConnect);
                         run_intents(
                             &mut ui,
                             intents,
@@ -675,6 +683,10 @@ pub async fn task() {
                             &srv_tx,
                             &storage_tx,
                         );
+                        if abort_connect {
+                            boot_wait = BootWait::Done;
+                            phase_until = None;
+                        }
                         if ui.router.screen_id() == ScreenId::ServerList
                             && boot_wait != BootWait::ServerConnect
                         {
