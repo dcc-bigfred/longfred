@@ -39,6 +39,7 @@ pub const BATTERY_ADC: Gpio = 4;
 /// Onboard VBUS sense (USB present). Not on the header.
 pub const VBUS_PIN: Gpio = 10;
 
-/// UM TinyC6 VBAT divider 442 kΩ / 160 kΩ → (442+160)/160 ≈ 3.76.
-/// Calibrate from the `suggested_factor` battery log on a full cell.
-pub const BATTERY_CONVERSION_FACTOR: f32 = 3.76;
+/// ADC counts → pack millivolts. Same empirical scale as a 1:2 WiTcontroller
+/// divider: C6 oneshot includes a large DC offset, so this is **not** the
+/// 442 kΩ / 160 kΩ ratio (3.76). Override from a full-cell `suggested_factor`.
+pub const BATTERY_CONVERSION_FACTOR: f32 = 1.7;

@@ -15,4 +15,5 @@ pub use crate::config::board::{
 };
 
 #[cfg(not(feature = "variant-markwtech"))]
+/// ADC counts → pack millivolts (1:2 divider, WiTcontroller scale).
 pub const BATTERY_CONVERSION_FACTOR: f32 = 1.7;

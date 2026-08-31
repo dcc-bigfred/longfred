@@ -69,9 +69,9 @@ pub struct NetInfo<'a> {
 pub struct BatteryInfo {
     /// Estimated charge `0..=100`.
     pub percent: u8,
-    /// Pack millivolts.
+    /// Pack millivolts (`raw * factor`).
     pub millivolts: u16,
-    /// Raw ADC counts.
+    /// Averaged oneshot ADC counts.
     pub raw: u16,
     /// USB / VBUS present (plugged in / charging).
     pub charging: bool,
@@ -122,7 +122,7 @@ pub struct UiEnv {
     pub board_id: &'static str,
     /// MCU identifier (Diagnostics).
     pub board_mcu: &'static str,
-    /// ADC → millivolt scale.
+    /// ADC counts → pack millivolt scale.
     pub battery_factor: f32,
 }
 

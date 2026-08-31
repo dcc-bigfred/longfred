@@ -1124,6 +1124,27 @@ fn diagnostics_pages_wrap() {
 }
 
 #[test]
+fn diagnostics_battery_page_shows_pack_and_suggested() {
+    let mut fx = Fixture::new();
+    fx.battery = Some(BatteryInfo {
+        percent: 50,
+        millivolts: 3700,
+        raw: 2144,
+        charging: false,
+    });
+    let router = Router::new(&LONGFRED, ScreenId::Diagnostics);
+    let view = router.view(&fx.ctx());
+    let body: String = (0..8)
+        .map(|i| grid_line(&view, i))
+        .collect::<Vec<_>>()
+        .join("|");
+    assert!(body.contains("50%"), "{body}");
+    assert!(body.contains("3700 mV"), "{body}");
+    assert!(body.contains("ADC 2144"), "{body}");
+    assert!(body.contains("sug 1.96"), "{body}");
+}
+
+#[test]
 fn diagnostics_rssi_and_ping_chart_pages() {
     let mut fx = Fixture::new();
     let mut router = Router::new(&LONGFRED, ScreenId::Diagnostics);

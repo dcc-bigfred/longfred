@@ -36,8 +36,8 @@ else
 ESPFLASH_PORT ?= /dev/ttyUSB0
 endif
 
-# Optional ADC calibration override (full-cell `suggested_factor` from UART).
-#   make flash VARIANT=markwtech-v1-1 BATTERY_FACTOR=3.81
+# Optional ADC scale override (full-cell `suggested_factor` from UART / Diagnostics).
+#   make flash VARIANT=markwtech-v1-1 BATTERY_FACTOR=1.72
 ifdef BATTERY_FACTOR
 export LONGFRED_BATTERY_FACTOR := $(BATTERY_FACTOR)
 endif

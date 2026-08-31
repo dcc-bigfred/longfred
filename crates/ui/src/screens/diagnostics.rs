@@ -183,9 +183,15 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
             let mut l = Line::new();
             let _ = write!(l, "factor {:.1}", cx.env.battery_factor);
             let _ = lines.push(l);
-            let mut l = Line::new();
-            let _ = l.push_str("3.2-4.2 V");
-            let _ = lines.push(l);
+            if let Some(b) = cx.battery.filter(|b| b.raw > 0) {
+                let mut l = Line::new();
+                let _ = write!(l, "sug {:.2}", 4200.0 / f32::from(b.raw));
+                let _ = lines.push(l);
+            } else {
+                let mut l = Line::new();
+                let _ = l.push_str("3.2-4.2 V");
+                let _ = lines.push(l);
+            }
         }
         1 => {
             let mut l = Line::new();

@@ -16,7 +16,9 @@ use longfred_proto::command::ClientCommand;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BatterySample {
     pub percent: u8,
+    /// Pack millivolts (`raw * factor`).
     pub millivolts: u16,
+    /// Averaged oneshot ADC counts.
     pub raw: u16,
     /// USB / VBUS present (charge in progress or at least plugged in).
     pub charging: bool,

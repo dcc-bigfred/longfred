@@ -86,6 +86,45 @@ async fn publish_scan(controller: &mut WifiController<'static>) {
     WIFI_SCAN.signal(out);
 }
 
+/// Result of a single STA association attempt.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConnectOutcome {
+    /// Station associated with the AP.
+    Associated,
+    /// Connect finished with a disconnect or other error.
+    Failed,
+    /// `connect_async` did not complete; IDF STA is still connecting.
+    /// Caller must [`abort_connecting`] before `set_config` or scan.
+    Wedged,
+}
+
+#[allow(unsafe_code)]
+unsafe extern "C" {
+    /// Same symbol `esp-radio` calls; the public `esp_wifi_disconnect` is not
+    /// in the prebuilt C6 blobs and does not link.
+    fn esp_wifi_disconnect_internal() -> i32;
+}
+
+/// Abort an in-flight STA connect.
+///
+/// `disconnect_async` is a no-op while `is_connected()` is false, so dropping
+/// a timed-out `connect_async` leaves the IDF driver in Connecting. The next
+/// `set_config` then returns `ESP_ERR_WIFI_STATE` (12294) and `esp-radio`
+/// 1.0.0-beta.0 panics on that unmapped code.
+#[allow(unsafe_code)]
+async fn abort_connecting() {
+    // SAFETY: `esp_wifi_disconnect_internal` is the IDF entry used by
+    // `WifiController::disconnect_impl` to cancel a STA connect-in-progress.
+    // Called only after `connect_async` was dropped while the radio was still
+    // connecting (`ConnectOutcome::Wedged`). The public `esp_wifi_disconnect`
+    // is not exported by the C6 blobs.
+    let rc = unsafe { esp_wifi_disconnect_internal() };
+    if rc != 0 {
+        warn!("wifi abort disconnect rc={rc}");
+    }
+    Timer::after(Duration::from_millis(config::network::WIFI_ABORT_SETTLE_MS)).await;
+}
+
 /// Wait for `connect_async` to finish so a later scan cannot hit IDF
 /// `ESP_ERR_WIFI_STATE` (12294). `esp-radio` panics on that unmapped code.
 ///
@@ -93,28 +132,45 @@ async fn publish_scan(controller: &mut WifiController<'static>) {
 /// `is_connected()` is false, so a cancelled connect leaves STA connecting.
 /// The settle timeout bounds how long we wait for a wedged radio so the
 /// connection task can still service WIFI_CTRL (scan / connect commands).
-async fn connect_sta(controller: &mut WifiController<'static>, timeout: Duration) -> bool {
+/// A [`ConnectOutcome::Wedged`] return **must** be followed by
+/// [`abort_connecting`] before the next `set_config` or scan.
+async fn connect_sta(
+    controller: &mut WifiController<'static>,
+    timeout: Duration,
+) -> ConnectOutcome {
     let settle = Duration::from_millis(config::network::WIFI_SETTLE_TIMEOUT_MS);
     let mut connect = pin!(controller.connect_async());
     match select(&mut connect, Timer::after(timeout)).await {
-        Either::First(Ok(_)) => true,
+        Either::First(Ok(_)) => ConnectOutcome::Associated,
         Either::First(Err(e)) => {
             warn!("wifi connect error: {:?}", e);
-            false
+            ConnectOutcome::Failed
         }
         Either::Second(()) => {
             warn!("wifi connect timeout; waiting for radio to settle");
             match select(&mut connect, Timer::after(settle)).await {
-                Either::First(Ok(_)) => true,
+                Either::First(Ok(_)) => ConnectOutcome::Associated,
                 Either::First(Err(e)) => {
                     warn!("wifi connect error after timeout: {:?}", e);
-                    false
+                    ConnectOutcome::Failed
                 }
                 Either::Second(()) => {
                     error!("wifi connect wedged after settle timeout; radio unresponsive");
-                    false
+                    ConnectOutcome::Wedged
                 }
             }
+        }
+    }
+}
+
+/// Run [`connect_sta`] and abort the IDF connect if the radio wedged.
+async fn connect_sta_recover(controller: &mut WifiController<'static>, timeout: Duration) -> bool {
+    match connect_sta(controller, timeout).await {
+        ConnectOutcome::Associated => true,
+        ConnectOutcome::Failed => false,
+        ConnectOutcome::Wedged => {
+            abort_connecting().await;
+            false
         }
     }
 }
@@ -190,7 +246,7 @@ pub async fn connection(mut controller: WifiController<'static>) {
                 apply_radio_phy(&mut controller);
                 info!("wifi connecting to SSID={}", ssid.as_str());
                 let timeout = Duration::from_millis(config::network::SSID_CONNECTION_TIMEOUT_MS);
-                let associated = connect_sta(&mut controller, timeout).await;
+                let associated = connect_sta_recover(&mut controller, timeout).await;
                 if !associated {
                     state_tx.send(NetStatus::Disconnected);
                 }
@@ -420,7 +476,7 @@ async fn roam_to(
         return false;
     }
     apply_radio_phy(controller);
-    connect_sta(controller, timeout).await
+    connect_sta_recover(controller, timeout).await
 }
 
 /// Reconnect to the SSID without a BSSID lock (let the radio pick the best AP).
@@ -440,7 +496,7 @@ async fn reconnect_open(
         return false;
     }
     apply_radio_phy(controller);
-    connect_sta(controller, timeout).await
+    connect_sta_recover(controller, timeout).await
 }
 
 /// embassy-net stack task (packet handling / DHCP).
