@@ -27,7 +27,7 @@ make build VARIANT=markwtech-v1-1
 make flash VARIANT=markwtech-v1-1 BATTERY_FACTOR=1.72
 ```
 
-`BATTERY_FACTOR` (or `LONGFRED_BATTERY_FACTOR` when invoking cargo) overrides the variant's pin-map ADC scale (`raw * factor` millivolts). Omit it to keep the stock default (`1.7`).
+`BATTERY_FACTOR` (or `LONGFRED_BATTERY_FACTOR` when invoking cargo) overrides the variant's pin-map divider ratio, applied to calibrated pin millivolts (`pin_mv * factor`). Omit it to keep the stock default (`3.76` on TinyC6, `2.0` elsewhere).
 
 ## Host tests
 

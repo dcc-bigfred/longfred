@@ -59,7 +59,7 @@ impl Fixture {
                 default_prefix_len: 24,
                 board_id: "test",
                 board_mcu: "host",
-                battery_factor: 1.7,
+                battery_factor: 3.76,
             },
             strings: strings(Language::En, HintSet::Joystick),
             conn: ConnState::Disconnected,
@@ -1129,7 +1129,9 @@ fn diagnostics_battery_page_shows_pack_and_suggested() {
     fx.battery = Some(BatteryInfo {
         percent: 50,
         millivolts: 3700,
-        raw: 2144,
+        pin_mv: 984,
+        pin_mv_min: 984,
+        pin_mv_max: 984,
         charging: false,
     });
     let router = Router::new(&LONGFRED, ScreenId::Diagnostics);
@@ -1140,8 +1142,30 @@ fn diagnostics_battery_page_shows_pack_and_suggested() {
         .join("|");
     assert!(body.contains("50%"), "{body}");
     assert!(body.contains("3700 mV"), "{body}");
-    assert!(body.contains("ADC 2144"), "{body}");
-    assert!(body.contains("sug 1.96"), "{body}");
+    assert!(body.contains("pin 984 mV"), "{body}");
+    assert!(body.contains("sug 4.27"), "{body}");
+}
+
+#[test]
+fn diagnostics_battery_page_shows_adc_span_while_charging() {
+    let mut fx = Fixture::new();
+    fx.battery = Some(BatteryInfo {
+        percent: 44,
+        millivolts: 3645,
+        pin_mv: 969,
+        pin_mv_min: 955,
+        pin_mv_max: 969,
+        charging: true,
+    });
+    let router = Router::new(&LONGFRED, ScreenId::Diagnostics);
+    let view = router.view(&fx.ctx());
+    let body: String = (0..8)
+        .map(|i| grid_line(&view, i))
+        .collect::<Vec<_>>()
+        .join("|");
+    assert!(body.contains("pin 969 mV"), "{body}");
+    assert!(body.contains("955-969"), "{body}");
+    assert!(!body.contains("sug "), "{body}");
 }
 
 #[test]
@@ -1542,7 +1566,9 @@ fn battery_chart_shows_eta_and_volts() {
     fx.battery = Some(BatteryInfo {
         percent: 50,
         millivolts: 3850,
-        raw: 2000,
+        pin_mv: 1024,
+        pin_mv_min: 1024,
+        pin_mv_max: 1024,
         charging: false,
     });
     let _ = fx.battery_history.push(100);

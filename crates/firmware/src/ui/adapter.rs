@@ -302,7 +302,9 @@ pub fn screen_ctx<'a>(
         battery: battery.map(|b| BatteryInfo {
             percent: b.percent,
             millivolts: b.millivolts,
-            raw: b.raw,
+            pin_mv: b.pin_mv,
+            pin_mv_min: b.pin_mv_min,
+            pin_mv_max: b.pin_mv_max,
             charging: b.charging,
         }),
         battery_history,

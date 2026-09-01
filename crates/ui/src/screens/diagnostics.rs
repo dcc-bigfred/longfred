@@ -169,7 +169,7 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
                 let _ = write!(l, "{} mV", b.millivolts);
                 let _ = lines.push(l);
                 let mut l = Line::new();
-                let _ = write!(l, "ADC {}", b.raw);
+                let _ = write!(l, "pin {} mV", b.pin_mv);
                 let _ = lines.push(l);
                 let mut l = Line::new();
                 let yn = if b.charging { t.diag_yes } else { t.diag_no };
@@ -183,9 +183,13 @@ fn draw_diagnostics(g: &mut crate::view::GridView, page: usize, cx: &ScreenCtx<'
             let mut l = Line::new();
             let _ = write!(l, "factor {:.1}", cx.env.battery_factor);
             let _ = lines.push(l);
-            if let Some(b) = cx.battery.filter(|b| b.raw > 0) {
+            if let Some(b) = cx.battery.filter(|b| b.pin_mv > 0) {
                 let mut l = Line::new();
-                let _ = write!(l, "sug {:.2}", 4200.0 / f32::from(b.raw));
+                if b.charging {
+                    let _ = write!(l, "{}-{}", b.pin_mv_min, b.pin_mv_max);
+                } else {
+                    let _ = write!(l, "sug {:.2}", 4200.0 / f32::from(b.pin_mv));
+                }
                 let _ = lines.push(l);
             } else {
                 let mut l = Line::new();

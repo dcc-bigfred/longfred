@@ -69,7 +69,7 @@ help:
 	@echo ""
 	@echo "VARIANT (default: $(VARIANT)): $(VARIANTS)"
 	@echo "ESPFLASH_PORT             - override serial device (defaults: ttyUSB0, TinyC6 ttyACM0)"
-	@echo "BATTERY_FACTOR            - optional ADC scale override (any variant)"
+	@echo "BATTERY_FACTOR            - optional divider-ratio override (any variant)"
 
 build:
 	$(CARGO) build -p $(PACKAGE) --target-dir $(TARGET_DIR) $(FEATURES)
