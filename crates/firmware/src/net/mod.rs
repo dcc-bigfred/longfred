@@ -16,7 +16,9 @@ use heapless::String;
 use longfred_proto::command::ClientCommand;
 use longfred_proto::events::ServerEvent;
 use longfred_proto::network::WitServer;
-use longfred_proto::persist::{DeviceIdentity, StaticIpConfig};
+use longfred_proto::persist::{DeviceIdentity, RadioConfig, StaticIpConfig};
+
+use embassy_net::StaticConfigV4;
 
 use crate::config::sizes;
 
@@ -59,6 +61,12 @@ pub enum WifiCmd {
     Connect {
         ssid: String<32>,
         password: String<64>,
+        /// Lock to a specific BSSID for BSSID-locked roaming.
+        /// `None` = pick the best AP by signal.
+        bssid: Option<[u8; 6]>,
+        /// Lock to a specific channel.
+        /// `None` = scan all channels.
+        channel: Option<u8>,
     },
 }
 
@@ -89,12 +97,35 @@ pub static WIFI_HOSTNAME: Watch<CriticalSectionRawMutex, heapless::String<16>, 2
 /// Live IPv4 stack configuration (domain → config_task).
 pub static NET_CONFIG_CTRL: Signal<CriticalSectionRawMutex, StaticIpConfig> = Signal::new();
 
+/// Whether the current IPv4 config is DHCP (`true`) or a user-set static IP
+/// (`false`). Set by `config_task` when it applies a config; read by
+/// `status_task` to decide whether IP pinning applies. Defaults to `true`
+/// (the stack boots in DHCP mode before any config is applied).
+pub static IS_DHCP: Watch<CriticalSectionRawMutex, bool, 2> = Watch::new_with(true);
+
 /// STA IPv4 once DHCP/static config is up (UI + mDNS OTA announce).
 pub static STA_IPV4: Watch<CriticalSectionRawMutex, Option<[u8; 4]>, 2> = Watch::new_with(None);
 
 pub static STA_NET: Watch<CriticalSectionRawMutex, Option<StaNet>, 2> = Watch::new_with(None);
 
+/// Last DHCP lease + SSID for IP pinning (status_task owns the lifecycle).
+///
+/// `None` until the first DHCP config-up. Carries `(StaticConfigV4, SSID)` —
+/// the lease and the SSID it came from. Validation on link return checks the
+/// SSID (roaming keeps the SSID while changing BSSID) and gateway
+/// reachability via ICMP. A watchdog (`ip_pin_max_gap_s`) unpins after a long
+/// gap to avoid returning to a different network.
+pub static LAST_LEASE: Watch<
+    CriticalSectionRawMutex,
+    Option<(StaticConfigV4, heapless::String<32>)>,
+    2,
+> = Watch::new_with(None);
+
 pub static WIFI_LINK: Watch<CriticalSectionRawMutex, Option<WifiLink>, 2> = Watch::new_with(None);
+
+/// Radio / roaming configuration (domain → wifi connection task).
+pub static RADIO: Watch<CriticalSectionRawMutex, RadioConfig, 2> =
+    Watch::new_with(RadioConfig::default());
 
 pub static PING: Watch<CriticalSectionRawMutex, PingStatus, 2> = Watch::new_with(PingStatus::Idle);
 

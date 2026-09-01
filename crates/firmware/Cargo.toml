@@ -43,6 +43,7 @@ esp-backtrace = { version = "0.19.0", features = ["esp32c6", "panic-handler", "p
 embassy-executor = { version = "0.10.0", features = ["log"] }
 embassy-futures = "0.1"
 embassy-net = { version = "0.9", features = ["dhcpv4", "dhcpv4-hostname", "tcp", "udp", "dns", "medium-ethernet", "proto-ipv4", "multicast", "log", "auto-icmp-echo-reply", "icmp"] }
+smoltcp = { version = "0.13", default-features = false }
 embassy-sync = { version = "0.8", features = ["log"] }
 embassy-time = { version = "0.5.0", features = ["log"] }
 

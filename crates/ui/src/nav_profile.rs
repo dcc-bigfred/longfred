@@ -126,10 +126,14 @@ impl NavProfile for MarkwtechNav {
                     NavAction::PageNext
                 }
             }
-            InputEvent::Digit('#') | InputEvent::Ok => NavAction::Select,
+            InputEvent::Ok => NavAction::Select,
+            InputEvent::Digit('#') => match mode {
+                InputMode::Throttle => NavAction::PassThrough(InputEvent::DirectionToggle),
+                InputMode::Text | InputMode::Navigation => NavAction::Select,
+            },
             InputEvent::Digit('*') => match mode {
                 InputMode::Text => NavAction::CaseToggle,
-                InputMode::Throttle => NavAction::PassThrough(InputEvent::DirectionToggle),
+                InputMode::Throttle => NavAction::Digit('*'),
                 InputMode::Navigation => NavAction::Cancel,
             },
             InputEvent::Digit(c) => NavAction::Digit(c),

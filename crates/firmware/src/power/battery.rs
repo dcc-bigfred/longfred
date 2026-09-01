@@ -3,7 +3,7 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Timer};
-use esp_hal::analog::adc::{Adc, AdcConfig, AdcPin, Attenuation};
+use esp_hal::analog::adc::{Adc, AdcCalCurve, AdcConfig, Attenuation};
 use esp_hal::gpio::AnalogPin;
 use esp_hal::peripherals::ADC1;
 
@@ -16,8 +16,14 @@ use longfred_proto::command::ClientCommand;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BatterySample {
     pub percent: u8,
+    /// Pack millivolts (`pin_mv * factor`).
     pub millivolts: u16,
-    pub raw: u16,
+    /// Calibrated millivolts at the ADC pin, averaged.
+    pub pin_mv: u16,
+    /// Lowest single pin sample this boot (Diagnostics: is the cell moving?).
+    pub pin_mv_min: u16,
+    /// Highest single pin sample this boot.
+    pub pin_mv_max: u16,
     /// USB / VBUS present (charge in progress or at least plugged in).
     pub charging: bool,
 }
@@ -46,37 +52,54 @@ async fn run<PIN>(
     }
 
     let mut adc_config = AdcConfig::new();
-    let mut pin: AdcPin<PIN, ADC1> = adc_config.enable_pin(battery_pin, Attenuation::_11dB);
+    // Curve fitting also applies the efuse bias (`AdcCalBasic`). Without it the
+    // C6 clips its own output before the 12-bit truncation and the reading
+    // sticks at a fixed code. Result is millivolts at the pin, so
+    // `BATTERY_CONVERSION_FACTOR` is the divider ratio (Vbat / Vpin).
+    let mut pin = adc_config
+        .enable_pin_with_cal::<PIN, AdcCalCurve<ADC1<'static>>>(battery_pin, Attenuation::_11dB);
     let mut adc = Adc::new(adc1, adc_config);
     let tx = BATTERY.sender();
+    let mut pin_mv_min = u16::MAX;
+    let mut pin_mv_max = 0u16;
+    let mut charging = false;
 
     loop {
+        for _ in 0..power::ADC_DUMMY_READS {
+            let _ = nb::block!(adc.read_oneshot(&mut pin));
+            Timer::after(Duration::from_millis(power::ADC_SETTLE_MS)).await;
+        }
         let mut sum = 0u32;
         let mut count = 0u32;
         for _ in 0..power::ADC_READS {
+            Timer::after(Duration::from_millis(power::ADC_SETTLE_MS)).await;
             if let Ok(v) = nb::block!(adc.read_oneshot(&mut pin)) {
-                sum += v as u32;
+                pin_mv_min = pin_mv_min.min(v);
+                pin_mv_max = pin_mv_max.max(v);
+                sum += u32::from(v);
                 count += 1;
             }
         }
         if count > 0 {
-            let raw = sum / count;
-            let volts = raw as f32 * power::BATTERY_CONVERSION_FACTOR / 1000.0;
+            let pin_mv = sum / count;
+            let volts = pin_mv as f32 * power::BATTERY_CONVERSION_FACTOR / 1000.0;
             let percent = volts_to_percent(volts);
-            let charging = charging_pin.as_ref().is_some_and(|p| p.is_high());
-            // Suggested factor makes `raw * factor / 1000 == 4.2` on a full cell.
-            if raw > 0 {
-                let suggested = 4200.0 / raw as f32;
+            charging = charging_pin.as_ref().is_some_and(|p| p.is_high());
+            let millivolts = (pin_mv as f32 * power::BATTERY_CONVERSION_FACTOR) as u16;
+            // Suggested factor makes `pin_mv * factor / 1000 == 4.2` on a full cell.
+            if pin_mv > 0 {
+                let suggested = 4200.0 / pin_mv as f32;
                 let current = power::BATTERY_CONVERSION_FACTOR;
                 log::info!(
-                    "battery: raw={raw} volts={volts:.3} percent={percent} charging={charging} suggested_factor={suggested:.4} (current={current})"
+                    "battery: pin_mv={pin_mv} volts={volts:.3} percent={percent} charging={charging} pin_span={pin_mv_min}-{pin_mv_max} suggested_factor={suggested:.4} (current={current})"
                 );
             }
-            let millivolts = (raw as f32 * power::BATTERY_CONVERSION_FACTOR) as u16;
             tx.send(Some(BatterySample {
                 percent,
                 millivolts,
-                raw: raw as u16,
+                pin_mv: pin_mv as u16,
+                pin_mv_min,
+                pin_mv_max,
                 charging,
             }));
             if power::USE_BATTERY_SLEEP_AT_PERCENT > 0
@@ -101,7 +124,12 @@ async fn run<PIN>(
                 sleep::begin_sleep(SleepReason::Battery);
             }
         }
-        Timer::after(Duration::from_secs(power::BATTERY_POLL_S)).await;
+        let poll_s = if charging {
+            power::BATTERY_POLL_CHARGING_S
+        } else {
+            power::BATTERY_POLL_S
+        };
+        Timer::after(Duration::from_secs(poll_s)).await;
     }
 }
 

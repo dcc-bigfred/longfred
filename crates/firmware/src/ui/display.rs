@@ -251,7 +251,10 @@ fn draw_direction_arrow(display: &mut Display, forward: bool, x: i32, y: i32) {
     }
 }
 
-fn draw_conn_icon(display: &mut Display, conn: ConnState, x: i32, y: i32) {
+fn draw_conn_icon(display: &mut Display, conn: ConnState, x: i32, y: i32, show: bool) {
+    if !show {
+        return;
+    }
     let style = stroke_on();
     match conn {
         ConnState::Connected => {
@@ -368,6 +371,7 @@ fn draw_throttle_standard(
     t: &ThrottleView,
     title_style: MonoTextStyle<'_, BinaryColor>,
     text_style: MonoTextStyle<'_, BinaryColor>,
+    blink: bool,
 ) {
     if let Some((pos, len)) = t.list_index {
         draw_list_index(display, pos, len, text_style);
@@ -386,7 +390,7 @@ fn draw_throttle_standard(
         .ok();
 
     draw_direction_arrow(display, t.forward, 76, 4);
-    draw_conn_icon(display, t.conn, 94, 2);
+    draw_conn_icon(display, t.conn, 94, 2, !t.conn_busy || blink);
 
     if let Some(pct) = t.battery {
         draw_battery_percent(display, pct, t.battery_charging, text_style);
@@ -467,12 +471,13 @@ fn draw_throttle(
     t: &ThrottleView,
     title_style: MonoTextStyle<'_, BinaryColor>,
     text_style: MonoTextStyle<'_, BinaryColor>,
+    blink: bool,
 ) {
     let geom = geometry();
     if geom.height <= 32 {
         draw_throttle_mini(display, t, text_style);
     } else {
-        draw_throttle_standard(display, t, title_style, text_style);
+        draw_throttle_standard(display, t, title_style, text_style, blink);
     }
 }
 
@@ -814,7 +819,7 @@ pub async fn task(i2c: SharedI2cDevice) {
         match &view {
             UiView::Grid(g) => draw_grid(&mut display, g, text_style),
             UiView::Overlay(o) => draw_grid(&mut display, &o.grid, text_style),
-            UiView::Throttle(t) => draw_throttle(&mut display, t, title_style, text_style),
+            UiView::Throttle(t) => draw_throttle(&mut display, t, title_style, text_style, blink),
             UiView::Splash => draw_splash(&mut display),
             UiView::PairingQr => draw_pairing_qr(&mut display, text_style),
             UiView::Chart(c) => draw_chart(&mut display, c, text_style),

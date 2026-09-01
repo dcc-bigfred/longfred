@@ -12,7 +12,13 @@ pub const USE_BATTERY_PERCENT_WITH_ICON: bool = false;
 pub const USE_BATTERY_SLEEP_AT_PERCENT: u8 = 5;
 
 pub const BATTERY_POLL_S: u64 = 10;
+/// Faster ADC while VBUS is present so Diagnostics can show a rising range.
+pub const BATTERY_POLL_CHARGING_S: u64 = 2;
 pub const ADC_READS: usize = 20;
+/// Discarded conversions so the SAR hold cap can follow a high-Z divider.
+pub const ADC_DUMMY_READS: usize = 8;
+/// Pause between conversions (TinyC6 442 kΩ / 160 kΩ has no filter cap).
+pub const ADC_SETTLE_MS: u64 = 5;
 
 /// OLED panel off after this much input inactivity, ms, when no acquired
 /// loco has speed > 0. 0 = disabled. Ignored on headless variants

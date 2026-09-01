@@ -29,6 +29,7 @@ struct Fixture {
     env: UiEnv,
     strings: &'static longfred_ui::i18n::Strings,
     conn: ConnState,
+    net_status: NetStatus,
     battery: Option<BatteryInfo>,
     battery_history: heapless::Vec<u8, 30>,
 }
@@ -58,10 +59,11 @@ impl Fixture {
                 default_prefix_len: 24,
                 board_id: "test",
                 board_mcu: "host",
-                battery_factor: 1.7,
+                battery_factor: 3.76,
             },
             strings: strings(Language::En, HintSet::Joystick),
             conn: ConnState::Disconnected,
+            net_status: NetStatus::Disconnected,
             battery: None,
             battery_history: heapless::Vec::new(),
         }
@@ -82,7 +84,7 @@ impl Fixture {
                 dead_man_switch_on: true,
             },
             net: NetInfo {
-                status: NetStatus::Disconnected,
+                status: self.net_status,
                 conn: self.conn,
                 server: None,
                 scanned_ssids: &self.scanned,
@@ -215,7 +217,19 @@ fn markwtech_star_is_cancel_off_throttle() {
     );
     assert_eq!(
         p.map(InputEvent::Digit('*'), InputMode::Throttle),
+        NavAction::Digit('*')
+    );
+    assert_eq!(
+        p.map(InputEvent::Digit('#'), InputMode::Throttle),
         NavAction::PassThrough(InputEvent::DirectionToggle)
+    );
+    assert_eq!(
+        p.map(InputEvent::Ok, InputMode::Throttle),
+        NavAction::Select
+    );
+    assert_eq!(
+        p.map(InputEvent::Digit('#'), InputMode::Navigation),
+        NavAction::Select
     );
 }
 
@@ -228,6 +242,156 @@ fn throttle_estop_passthrough() {
         router.handle(InputEvent::EStop, &mut cx)
     };
     assert!(intents.contains(&Intent::Action(Action::EStop)));
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+}
+
+fn acquire_test_loco(fx: &mut Fixture) {
+    let mut addr = heapless::String::new();
+    let _ = addr.push('3');
+    let _ = fx.slots[0].consist.push(addr);
+}
+
+#[test]
+fn throttle_hash_toggles_direction_and_ok_opens_direct() {
+    let mut fx = Fixture::new();
+    acquire_test_loco(&mut fx);
+    let mut router = Router::new(&MARKWTECH, ScreenId::Throttle);
+    let hash = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Digit('#'), &mut cx)
+    };
+    assert!(hash.contains(&Intent::Action(Action::DirectionToggle)));
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Ok, &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::DirectCommands);
+}
+
+#[test]
+fn throttle_star_types_function_above_nine() {
+    let mut fx = Fixture::new();
+    acquire_test_loco(&mut fx);
+    let mut router = Router::new(&MARKWTECH, ScreenId::Throttle);
+    {
+        let mut cx = fx.ctx();
+        let empty = router.handle(InputEvent::Digit('*'), &mut cx);
+        assert!(empty.is_empty());
+        let _ = router.handle(InputEvent::Digit('1'), &mut cx);
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+        let UiView::Throttle(view) = router.view(&cx) else {
+            panic!("expected throttle HUD");
+        };
+        assert_eq!(view.footer.as_str(), "*15");
+    }
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Digit('*'), &mut cx)
+    };
+    assert!(intents.contains(&Intent::Function(15)));
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+}
+
+#[test]
+fn throttle_digit_without_star_toggles_single_function() {
+    let mut fx = Fixture::new();
+    acquire_test_loco(&mut fx);
+    let mut router = Router::new(&MARKWTECH, ScreenId::Throttle);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Digit('3'), &mut cx)
+    };
+    assert!(intents.contains(&Intent::Function(3)));
+}
+
+#[test]
+fn throttle_star_star_without_digits_cancels() {
+    let mut fx = Fixture::new();
+    acquire_test_loco(&mut fx);
+    let mut router = Router::new(&MARKWTECH, ScreenId::Throttle);
+    let intents = {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('*'), &mut cx);
+        router.handle(InputEvent::Digit('*'), &mut cx)
+    };
+    assert!(intents.is_empty());
+    assert_eq!(router.screen_id(), ScreenId::Throttle);
+}
+
+fn assert_connect_aborted(router: &Router, intents: &[Intent], estop: bool) {
+    assert_eq!(router.screen_id(), ScreenId::Menu);
+    assert_eq!(router.stack_len(), 0);
+    assert!(intents.contains(&Intent::AbortConnect));
+    assert_eq!(intents.contains(&Intent::Action(Action::EStop)), estop);
+}
+
+#[test]
+fn connecting_estop_roots_menu_and_aborts_wizard() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Connecting);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::EStop, &mut cx)
+    };
+    assert_connect_aborted(&router, &intents, true);
+}
+
+#[test]
+fn connecting_stop_and_back_root_menu_without_estop() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Connecting);
+    let stop = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Stop, &mut cx)
+    };
+    assert_connect_aborted(&router, &stop, false);
+
+    let mut router = Router::new(&LONGFRED, ScreenId::Connecting);
+    let back = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Back, &mut cx)
+    };
+    assert_connect_aborted(&router, &back, false);
+}
+
+#[test]
+fn connecting_menu_key_roots_menu() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Connecting);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Menu, &mut cx)
+    };
+    assert_connect_aborted(&router, &intents, false);
+}
+
+#[test]
+fn connecting_overlay_estop_roots_menu() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::Connecting);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.show_overlay("Laczenie dluzsze...", cx.now_ms, 5_000);
+        assert!(matches!(router.view(&cx), UiView::Overlay(_)));
+        router.handle(InputEvent::EStop, &mut cx)
+    };
+    assert_connect_aborted(&router, &intents, false);
+    {
+        let cx = fx.ctx();
+        assert!(!matches!(router.view(&cx), UiView::Overlay(_)));
+    }
+}
+
+#[test]
+fn connecting_markwtech_stop_is_estop_and_aborts() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&MARKWTECH, ScreenId::Connecting);
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::EStop, &mut cx)
+    };
+    assert_connect_aborted(&router, &intents, true);
 }
 
 #[test]
@@ -531,6 +695,7 @@ fn throttle_server_connected_follows_conn_state() {
             return;
         };
         assert_eq!(view.conn, ConnState::Disconnected);
+        assert!(!view.conn_busy);
     }
     fx.conn = ConnState::Connecting;
     {
@@ -539,6 +704,7 @@ fn throttle_server_connected_follows_conn_state() {
             return;
         };
         assert_eq!(view.conn, ConnState::Connecting);
+        assert!(view.conn_busy);
     }
     fx.conn = ConnState::Connected;
     {
@@ -549,6 +715,16 @@ fn throttle_server_connected_follows_conn_state() {
             return;
         };
         assert_eq!(view.conn, ConnState::Connected);
+        assert!(!view.conn_busy);
+    }
+    fx.net_status = NetStatus::Connecting;
+    {
+        let cx = fx.ctx();
+        let UiView::Throttle(view) = router.view(&cx) else {
+            return;
+        };
+        assert_eq!(view.conn, ConnState::Connected);
+        assert!(view.conn_busy);
     }
 }
 
@@ -945,6 +1121,51 @@ fn diagnostics_pages_wrap() {
         let cx = fx.ctx();
         assert!(grid_line(&router.view(&cx), 0).contains("Battery"));
     }
+}
+
+#[test]
+fn diagnostics_battery_page_shows_pack_and_suggested() {
+    let mut fx = Fixture::new();
+    fx.battery = Some(BatteryInfo {
+        percent: 50,
+        millivolts: 3700,
+        pin_mv: 984,
+        pin_mv_min: 984,
+        pin_mv_max: 984,
+        charging: false,
+    });
+    let router = Router::new(&LONGFRED, ScreenId::Diagnostics);
+    let view = router.view(&fx.ctx());
+    let body: String = (0..8)
+        .map(|i| grid_line(&view, i))
+        .collect::<Vec<_>>()
+        .join("|");
+    assert!(body.contains("50%"), "{body}");
+    assert!(body.contains("3700 mV"), "{body}");
+    assert!(body.contains("pin 984 mV"), "{body}");
+    assert!(body.contains("sug 4.27"), "{body}");
+}
+
+#[test]
+fn diagnostics_battery_page_shows_adc_span_while_charging() {
+    let mut fx = Fixture::new();
+    fx.battery = Some(BatteryInfo {
+        percent: 44,
+        millivolts: 3645,
+        pin_mv: 969,
+        pin_mv_min: 955,
+        pin_mv_max: 969,
+        charging: true,
+    });
+    let router = Router::new(&LONGFRED, ScreenId::Diagnostics);
+    let view = router.view(&fx.ctx());
+    let body: String = (0..8)
+        .map(|i| grid_line(&view, i))
+        .collect::<Vec<_>>()
+        .join("|");
+    assert!(body.contains("pin 969 mV"), "{body}");
+    assert!(body.contains("955-969"), "{body}");
+    assert!(!body.contains("sug "), "{body}");
 }
 
 #[test]
@@ -1345,7 +1566,9 @@ fn battery_chart_shows_eta_and_volts() {
     fx.battery = Some(BatteryInfo {
         percent: 50,
         millivolts: 3850,
-        raw: 2000,
+        pin_mv: 1024,
+        pin_mv_min: 1024,
+        pin_mv_max: 1024,
         charging: false,
     });
     let _ = fx.battery_history.push(100);
@@ -1584,4 +1807,50 @@ fn wifi_settings_address_opens_dhcp_static() {
     assert!(grid_line(&view, 0).contains("Address"));
     assert!(grid_line(&view, 1).contains("DHCP"));
     assert!(grid_line(&view, 2).contains("Static"));
+}
+
+#[test]
+fn radio_settings_energy_saving_off_by_default() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::WifiSettings);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+    }
+    assert_eq!(router.screen_id(), ScreenId::RadioSettings);
+    let view = router.view(&fx.ctx());
+    let body: String = (0..8)
+        .map(|i| grid_line(&view, i))
+        .collect::<Vec<_>>()
+        .join("|");
+    assert!(body.contains("SavePwr off"), "{body}");
+}
+
+#[test]
+fn radio_settings_toggle_energy_saving_saves() {
+    let mut fx = Fixture::new();
+    let mut router = Router::new(&LONGFRED, ScreenId::WifiSettings);
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('3'), &mut cx);
+    }
+    {
+        let mut cx = fx.ctx();
+        let _ = router.handle(InputEvent::Digit('5'), &mut cx);
+    }
+    assert_eq!(overlay_first_line(&router.view(&fx.ctx())), "SavePwr on");
+    {
+        let mut cx = fx.ctx();
+        cx.now_ms = 5_000;
+        let _ = router.tick(&mut cx);
+    }
+    let intents = {
+        let mut cx = fx.ctx();
+        router.handle(InputEvent::Back, &mut cx)
+    };
+    let Some(Intent::SaveRadio(cfg)) = intents.iter().find(|i| matches!(i, Intent::SaveRadio(_)))
+    else {
+        panic!("expected SaveRadio, got {intents:?}");
+    };
+    assert!(!cfg.power_save_off);
 }

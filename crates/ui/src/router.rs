@@ -130,7 +130,9 @@ impl Router {
             return self.handle_overlay_input(ev, cx);
         }
         let mode = self.current.key_bindings(cx);
-        if mode == InputMode::Navigation && ev == InputEvent::Digit('*') {
+        if ev == InputEvent::Digit('*')
+            && matches!(mode, InputMode::Navigation | InputMode::Throttle)
+        {
             return self.with_nav(cx, super::screen::Screen::on_star);
         }
         let action = self.profile.map(ev, mode);
@@ -140,12 +142,15 @@ impl Router {
     fn handle_overlay_input(
         &mut self,
         ev: InputEvent,
-        cx: &ScreenCtx<'_>,
+        cx: &mut ScreenCtx<'_>,
     ) -> heapless::Vec<Intent, 4> {
         if !matches!(ev, InputEvent::EStop | InputEvent::Stop) {
             return heapless::Vec::new();
         }
         self.dismiss_overlay();
+        if self.current.id() == ScreenId::Connecting {
+            return self.abort_connecting(cx, has_loco(cx));
+        }
         if !has_loco(cx) {
             return heapless::Vec::new();
         }
@@ -216,8 +221,23 @@ impl Router {
         }
     }
 
+    fn abort_connecting(
+        &mut self,
+        cx: &mut ScreenCtx<'_>,
+        estop: bool,
+    ) -> heapless::Vec<Intent, 4> {
+        let mut intents = self.with_nav(cx, super::screen::Screen::on_cancel);
+        if estop {
+            let _ = intents.push(Intent::Action(longfred_proto::action::Action::EStop));
+        }
+        intents
+    }
+
     fn passthrough(&mut self, ev: InputEvent, cx: &mut ScreenCtx<'_>) -> heapless::Vec<Intent, 4> {
         match ev {
+            InputEvent::EStop if self.current.id() == ScreenId::Connecting => {
+                self.abort_connecting(cx, true)
+            }
             InputEvent::EStop => {
                 let mut out = heapless::Vec::new();
                 let _ = out.push(Intent::Action(longfred_proto::action::Action::EStop));

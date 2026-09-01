@@ -71,6 +71,10 @@ pub enum ScreenId {
     Diagnostics,
     /// Battery percent chart, voltage, and estimated time-to-empty.
     Battery,
+    /// Radio / roaming settings list (toggles + numeric editors).
+    RadioSettings,
+    /// Numeric editor for one [`crate::session::RadioField`].
+    RadioEdit,
 }
 
 /// List cursor step.

@@ -1,7 +1,7 @@
 //! UI intents (effects) and inbound app events.
 
 use longfred_proto::action::Action;
-use longfred_proto::persist::{DeviceIdentity, Language, RosterMode, StaticIpConfig};
+use longfred_proto::persist::{DeviceIdentity, Language, RadioConfig, RosterMode, StaticIpConfig};
 
 use crate::nav::PageDir;
 
@@ -27,6 +27,8 @@ pub enum Intent {
     WifiScan,
     /// Join the SSID/password currently in the session.
     WifiConnect,
+    /// Leave the boot connect wizard (`Connecting`) for the main menu.
+    AbortConnect,
     /// Connect to discovered server `i`.
     ServerSelect(usize),
     /// Connect using [`crate::session::UiSession::server_digits`].
@@ -53,6 +55,8 @@ pub enum Intent {
     SetLanguage(Language),
     /// Persist preferred locomotive source (`TAG_ROSTER`).
     SetRosterMode(RosterMode),
+    /// Persist radio / roaming configuration (`TAG_RADIO`).
+    SaveRadio(RadioConfig),
     /// Enter programming mode.
     EnterProgrammingMode,
     /// Enable or disable HTTP OTA.

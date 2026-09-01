@@ -40,5 +40,5 @@ pub const BATTERY_ADC: Gpio = 4;
 pub const VBUS_PIN: Gpio = 10;
 
 /// UM TinyC6 VBAT divider 442 kΩ / 160 kΩ → (442+160)/160 ≈ 3.76.
-/// Calibrate from the `suggested_factor` battery log on a full cell.
+/// Multiplies calibrated pin millivolts.
 pub const BATTERY_CONVERSION_FACTOR: f32 = 3.76;

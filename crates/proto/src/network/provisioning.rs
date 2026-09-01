@@ -68,6 +68,25 @@ pub struct RosterView<'a> {
     pub entries: RosterEntriesView<'a>,
 }
 
+/// Radio / roaming section for GET.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct RadioView {
+    pub roam_enabled: bool,
+    pub rrm_enabled: bool,
+    pub btm_enabled: bool,
+    pub ft_enabled: bool,
+    pub power_save_off: bool,
+    pub enable_11ax: bool,
+    pub roam_rssi_threshold: i8,
+    pub roam_hysteresis_db: u8,
+    pub roam_debounce_samples: u8,
+    pub roam_scan_interval_s: u8,
+    pub roam_sample_ms: u16,
+    pub ip_pinning: bool,
+    pub ip_pin_max_gap_s: u16,
+    pub dhcp_discover_timeout_s: u8,
+}
+
 /// Serialize roster entries as a JSON array (variable length).
 #[derive(Clone, Copy, Debug)]
 pub struct RosterEntriesView<'a> {
@@ -129,6 +148,7 @@ pub struct SettingsGet<'a> {
     pub wifi: WifiView<'a>,
     pub bigfred: BigfredView<'a>,
     pub roster: RosterView<'a>,
+    pub radio: RadioView,
     pub programming_mode: bool,
     pub firmware: FirmwareView<'a>,
 }
@@ -175,6 +195,22 @@ pub fn serialize_settings(
             entries: RosterEntriesView {
                 entries: rec.static_roster.as_slice(),
             },
+        },
+        radio: RadioView {
+            roam_enabled: rec.radio.roam_enabled,
+            rrm_enabled: rec.radio.rrm_enabled,
+            btm_enabled: rec.radio.btm_enabled,
+            ft_enabled: rec.radio.ft_enabled,
+            power_save_off: rec.radio.power_save_off,
+            enable_11ax: rec.radio.enable_11ax,
+            roam_rssi_threshold: rec.radio.roam_rssi_threshold,
+            roam_hysteresis_db: rec.radio.roam_hysteresis_db,
+            roam_debounce_samples: rec.radio.roam_debounce_samples,
+            roam_scan_interval_s: rec.radio.roam_scan_interval_s,
+            roam_sample_ms: rec.radio.roam_sample_ms,
+            ip_pinning: rec.radio.ip_pinning,
+            ip_pin_max_gap_s: rec.radio.ip_pin_max_gap_s,
+            dhcp_discover_timeout_s: rec.radio.dhcp_discover_timeout_s,
         },
         programming_mode: rec.programming_mode,
         firmware: FirmwareView {
@@ -237,6 +273,39 @@ pub struct RosterEntryPut<'a> {
     pub name: Option<&'a str>,
 }
 
+/// Optional radio / roaming fields in a PUT body.
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+pub struct RadioPut {
+    #[serde(default)]
+    pub roam_enabled: Option<bool>,
+    #[serde(default)]
+    pub rrm_enabled: Option<bool>,
+    #[serde(default)]
+    pub btm_enabled: Option<bool>,
+    #[serde(default)]
+    pub ft_enabled: Option<bool>,
+    #[serde(default)]
+    pub power_save_off: Option<bool>,
+    #[serde(default)]
+    pub enable_11ax: Option<bool>,
+    #[serde(default)]
+    pub roam_rssi_threshold: Option<i8>,
+    #[serde(default)]
+    pub roam_hysteresis_db: Option<u8>,
+    #[serde(default)]
+    pub roam_debounce_samples: Option<u8>,
+    #[serde(default)]
+    pub roam_scan_interval_s: Option<u8>,
+    #[serde(default)]
+    pub roam_sample_ms: Option<u16>,
+    #[serde(default)]
+    pub ip_pinning: Option<bool>,
+    #[serde(default)]
+    pub ip_pin_max_gap_s: Option<u16>,
+    #[serde(default)]
+    pub dhcp_discover_timeout_s: Option<u8>,
+}
+
 /// PUT `/settings` body. All fields optional; missing tags leave persist unchanged.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct SettingsPut<'a> {
@@ -250,6 +319,8 @@ pub struct SettingsPut<'a> {
     pub programming_mode: Option<bool>,
     #[serde(default)]
     pub roster_mode: Option<RosterModeName>,
+    #[serde(default)]
+    pub radio: Option<RadioPut>,
     /// Up to [`MAX_SAVED_LOCOS`] entries; shorter JSON arrays are accepted.
     #[serde(default)]
     #[serde(borrow)]
@@ -316,6 +387,8 @@ pub enum ApplyError {
     RosterNameTooLong,
     /// More roster entries than `MAX_SAVED_LOCOS`.
     RosterFull,
+    /// A radio numeric field outside its valid range.
+    RadioOutOfRange,
 }
 
 /// Apply a PUT body onto a persist record.
@@ -372,6 +445,72 @@ pub fn apply_settings_put(
         rec.roster_mode = mode.into();
     }
 
+    if let Some(r) = &put.radio {
+        if let Some(v) = r.roam_enabled {
+            rec.radio.roam_enabled = v;
+        }
+        if let Some(v) = r.rrm_enabled {
+            rec.radio.rrm_enabled = v;
+        }
+        if let Some(v) = r.btm_enabled {
+            rec.radio.btm_enabled = v;
+        }
+        if let Some(v) = r.ft_enabled {
+            rec.radio.ft_enabled = v;
+        }
+        if let Some(v) = r.power_save_off {
+            rec.radio.power_save_off = v;
+        }
+        if let Some(v) = r.enable_11ax {
+            rec.radio.enable_11ax = v;
+        }
+        if let Some(v) = r.roam_rssi_threshold {
+            if !(-90..=-50).contains(&v) {
+                return Err(ApplyError::RadioOutOfRange);
+            }
+            rec.radio.roam_rssi_threshold = v;
+        }
+        if let Some(v) = r.roam_hysteresis_db {
+            if !(3..=20).contains(&v) {
+                return Err(ApplyError::RadioOutOfRange);
+            }
+            rec.radio.roam_hysteresis_db = v;
+        }
+        if let Some(v) = r.roam_debounce_samples {
+            if !(1..=10).contains(&v) {
+                return Err(ApplyError::RadioOutOfRange);
+            }
+            rec.radio.roam_debounce_samples = v;
+        }
+        if let Some(v) = r.roam_scan_interval_s {
+            if !(1..=60).contains(&v) {
+                return Err(ApplyError::RadioOutOfRange);
+            }
+            rec.radio.roam_scan_interval_s = v;
+        }
+        if let Some(v) = r.roam_sample_ms {
+            if !(100..=2000).contains(&v) {
+                return Err(ApplyError::RadioOutOfRange);
+            }
+            rec.radio.roam_sample_ms = v;
+        }
+        if let Some(v) = r.ip_pinning {
+            rec.radio.ip_pinning = v;
+        }
+        if let Some(v) = r.ip_pin_max_gap_s {
+            if !(5..=3600).contains(&v) {
+                return Err(ApplyError::RadioOutOfRange);
+            }
+            rec.radio.ip_pin_max_gap_s = v;
+        }
+        if let Some(v) = r.dhcp_discover_timeout_s {
+            if !(1..=30).contains(&v) {
+                return Err(ApplyError::RadioOutOfRange);
+            }
+            rec.radio.dhcp_discover_timeout_s = v;
+        }
+    }
+
     // Replace roster when any entry is present. Missing `roster` key deserializes
     // to all-None and leaves the existing roster unchanged.
     let has_entries = put.roster.iter().any(|e| e.is_some());
@@ -405,7 +544,7 @@ mod tests {
     #[test]
     fn serialize_empty_settings() {
         let rec = PersistRecord::default();
-        let mut buf = [0u8; 512];
+        let mut buf = [0u8; 1024];
         let n = serialize_settings_from_record(&mut buf, &rec, "0.1.0").unwrap();
         let s = core::str::from_utf8(&buf[..n]).unwrap();
         assert!(s.contains("\"programming_mode\":false"));
@@ -491,7 +630,7 @@ mod tests {
         let mut rec = PersistRecord::default();
         assert!(apply_settings_put(&mut rec, &put).is_ok());
         assert_eq!(rec.roster_mode, RosterMode::AddressOnly);
-        let mut buf = [0u8; 512];
+        let mut buf = [0u8; 1024];
         let n = serialize_settings_from_record(&mut buf, &rec, "0.1.0").unwrap();
         let s = core::str::from_utf8(&buf[..n]).unwrap();
         assert!(s.contains("\"mode\":\"address\""));
@@ -518,6 +657,60 @@ mod tests {
         let mut rec = PersistRecord::default();
         assert!(apply_settings_put(&mut rec, &put).is_ok());
         assert_eq!(rec.find_password("Club"), Some("x"));
+    }
+
+    #[test]
+    fn serialize_radio_defaults() {
+        let rec = PersistRecord::default();
+        let mut buf = [0u8; 1024];
+        let n = serialize_settings_from_record(&mut buf, &rec, "0.1.0").unwrap();
+        let s = core::str::from_utf8(&buf[..n]).unwrap();
+        assert!(s.contains("\"roam_enabled\":false"));
+        assert!(s.contains("\"rrm_enabled\":true"));
+        assert!(s.contains("\"ip_pinning\":true"));
+        assert!(s.contains("\"roam_rssi_threshold\":-72"));
+    }
+
+    #[test]
+    fn apply_radio_partial() {
+        let json = br#"{"radio":{"roam_enabled":true,"roam_rssi_threshold":-80}}"#;
+        let put = deserialize_settings_put(json).unwrap();
+        let mut rec = PersistRecord::default();
+        assert!(apply_settings_put(&mut rec, &put).is_ok());
+        assert!(rec.radio.roam_enabled);
+        assert_eq!(rec.radio.roam_rssi_threshold, -80);
+        // Unspecified fields keep defaults.
+        assert!(rec.radio.rrm_enabled);
+        assert!(rec.radio.ip_pinning);
+    }
+
+    #[test]
+    fn apply_radio_can_clear_flags() {
+        let json = br#"{"radio":{"roam_enabled":false,"rrm_enabled":false,"btm_enabled":false,"ft_enabled":false,"power_save_off":false,"enable_11ax":false,"ip_pinning":false}}"#;
+        let put = deserialize_settings_put(json).unwrap();
+        let mut rec = PersistRecord::default();
+        assert!(rec.radio.rrm_enabled);
+        assert!(rec.radio.power_save_off);
+        assert!(rec.radio.ip_pinning);
+        assert!(apply_settings_put(&mut rec, &put).is_ok());
+        assert!(!rec.radio.roam_enabled);
+        assert!(!rec.radio.rrm_enabled);
+        assert!(!rec.radio.btm_enabled);
+        assert!(!rec.radio.ft_enabled);
+        assert!(!rec.radio.power_save_off);
+        assert!(!rec.radio.enable_11ax);
+        assert!(!rec.radio.ip_pinning);
+    }
+
+    #[test]
+    fn apply_radio_out_of_range() {
+        let json = br#"{"radio":{"roam_hysteresis_db":100}}"#;
+        let put = deserialize_settings_put(json).unwrap();
+        let mut rec = PersistRecord::default();
+        assert_eq!(
+            apply_settings_put(&mut rec, &put),
+            Err(ApplyError::RadioOutOfRange)
+        );
     }
 
     #[test]
