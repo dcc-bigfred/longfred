@@ -105,8 +105,6 @@ fn logical_to_button(btn: LogicalButton) -> Option<ButtonId> {
         LogicalButton::F6 => ButtonId::F6,
         LogicalButton::F7 => ButtonId::F7,
         LogicalButton::F8 => ButtonId::F8,
-        LogicalButton::F9 => ButtonId::Extra(9),
-        LogicalButton::F10 => ButtonId::Extra(10),
     })
 }
 

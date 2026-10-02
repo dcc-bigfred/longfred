@@ -1,38 +1,14 @@
-//! LongFred family ControlSurface (standard + mini).
+//! LongFred v1 ControlSurface.
 
 use embassy_time::Instant;
 use longfred_proto::model::Direction;
 
 use crate::board::ControlSurface;
 use crate::board::chord::{ChordDetector, PROGRAMMING_CHORD_MS};
-use crate::board::descriptor::{LAYOUT_128X32, LAYOUT_128X64, VariantDescriptor};
+use crate::board::descriptor::{LAYOUT_128X32, VariantDescriptor};
 use crate::board::raw::{AnalogId, ButtonId, RawEvent, SwitchId};
 use crate::board::shift_layers::map_fn;
 use crate::input::{InputEvent, NavDir};
-
-pub const STANDARD: VariantDescriptor = VariantDescriptor {
-    id: "longfred-standard",
-    name: "LongFred Standard",
-    mcu: "esp32c6",
-    display: Some(LAYOUT_128X64),
-    has_expanders: true,
-    has_encoder: true,
-    has_keypad: false,
-    has_pot: false,
-    auto_pair_when_unconfigured: false,
-};
-
-pub const MINI: VariantDescriptor = VariantDescriptor {
-    id: "longfred-mini",
-    name: "LongFred Mini",
-    mcu: "esp32c6",
-    display: Some(LAYOUT_128X32),
-    has_expanders: true,
-    has_encoder: true,
-    has_keypad: false,
-    has_pot: false,
-    auto_pair_when_unconfigured: false,
-};
 
 /// Custom PCB (longfred-hardware/longfred-v1): OLED 0.91" 128×32, MCP map from 004.
 pub const V1: VariantDescriptor = VariantDescriptor {
@@ -57,26 +33,6 @@ pub struct LongFredSurface {
 }
 
 impl LongFredSurface {
-    pub const fn standard() -> Self {
-        Self {
-            descriptor: &STANDARD,
-            shift1: false,
-            shift2: false,
-            stop: false,
-            chord: ChordDetector::new(),
-        }
-    }
-
-    pub const fn mini() -> Self {
-        Self {
-            descriptor: &MINI,
-            shift1: false,
-            shift2: false,
-            stop: false,
-            chord: ChordDetector::new(),
-        }
-    }
-
     pub const fn v1() -> Self {
         Self {
             descriptor: &V1,

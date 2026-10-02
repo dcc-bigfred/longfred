@@ -4,8 +4,6 @@ pub mod adapter;
 pub mod display;
 pub mod fonts;
 pub mod i18n;
-#[cfg(feature = "variant-heiko-wifred")]
-pub mod led_presenter;
 pub mod splash;
 pub mod view;
 

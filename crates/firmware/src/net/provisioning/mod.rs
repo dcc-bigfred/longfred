@@ -142,17 +142,8 @@ pub async fn pairing_ui_task(ssid: String<32>) {
     if has_display {
         publish_pairing_page(page, ssid.as_str(), qr_ok);
         info!("programming: display shows pairing wizard");
-    }
-    #[cfg(feature = "variant-heiko-wifred")]
-    {
-        crate::ui::led_presenter::LED_MODE
-            .sender()
-            .send(crate::ui::led_presenter::LedMode::Pairing);
-        info!("programming: LED pairing pattern");
-    }
-    #[cfg(not(feature = "variant-heiko-wifred"))]
-    if !has_display {
-        info!("programming: pairing active (no display/LEDs)");
+    } else {
+        info!("programming: pairing active (no display)");
     }
 
     let rx = INPUT_CHANNEL.receiver();

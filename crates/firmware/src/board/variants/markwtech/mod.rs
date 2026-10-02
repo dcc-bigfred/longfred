@@ -3,12 +3,9 @@
 //! Hardware: 3×4 keypad matrix, extra tact cluster, KY-040 encoder, OLED 128×64
 //! (SSD1309), no MCP expanders. Programming chord: Star (`*`) + Stop held for 8 s.
 //!
-//! GPIO numbers live in [`pins`] (`pins_v1_0` DevKitC-1 or `pins_v1_1` TinyC6).
+//! GPIO numbers live in [`pins`] (TinyC6, `pins_v1_1`).
 
 pub mod pins;
-#[cfg(not(feature = "variant-markwtech-v1-1"))]
-mod pins_v1_0;
-#[cfg(feature = "variant-markwtech-v1-1")]
 mod pins_v1_1;
 
 pub use pins::{
@@ -61,14 +58,7 @@ pub const EXTRA_BUTTON_MAP: [ButtonId; 5] = [
 /// Silkscreen names matching `docs/hardware/markwtech/` (same order as [`EXTRA_BUTTON_PINS`]).
 pub const EXTRA_BUTTON_NAMES: [&str; 5] = ["Menu left", "Stop", "Menu right", "Back", "Menu"];
 
-#[cfg(not(feature = "variant-markwtech-v1-1"))]
-const VARIANT_ID: &str = "markwtech";
-#[cfg(feature = "variant-markwtech-v1-1")]
 const VARIANT_ID: &str = "markwtech-v1.1";
-
-#[cfg(not(feature = "variant-markwtech-v1-1"))]
-const VARIANT_NAME: &str = "MarkWTech";
-#[cfg(feature = "variant-markwtech-v1-1")]
 const VARIANT_NAME: &str = "MarkWTech v1.1 (TinyC6)";
 
 pub const DESCRIPTOR: VariantDescriptor = VariantDescriptor {

@@ -127,13 +127,6 @@ async fn main(spawner: Spawner) -> ! {
 
     longfred_firmware::spawn_or_reset!(spawner, storage::task(flash, boot_entropy), "storage");
     if config::power::USE_BATTERY_TEST {
-        #[cfg(not(any(feature = "variant-markwtech-v1-1", feature = "variant-longfred-v1")))]
-        longfred_firmware::spawn_or_reset!(
-            spawner,
-            power::battery::task(peripherals.ADC1, peripherals.GPIO1),
-            "battery"
-        );
-        #[cfg(any(feature = "variant-markwtech-v1-1", feature = "variant-longfred-v1"))]
         longfred_firmware::spawn_or_reset!(
             spawner,
             power::battery::task(peripherals.ADC1, peripherals.GPIO4, peripherals.GPIO10),
@@ -152,41 +145,7 @@ async fn main(spawner: Spawner) -> ! {
     info!("main: i2c init");
     let (oled_i2c, expander_i2c) = input::i2c_bus::init(peripherals.I2C0);
 
-    // OLED for variants with a display; heiko uses LED presenter instead.
-    #[cfg(not(feature = "variant-heiko-wifred"))]
     longfred_firmware::spawn_or_reset!(spawner, ui::display::task(oled_i2c), "display");
-    #[cfg(feature = "variant-heiko-wifred")]
-    {
-        let _ = oled_i2c;
-        let (led_stop, led_fwd, led_rev) = ui::led_presenter::build();
-        longfred_firmware::spawn_or_reset!(
-            spawner,
-            ui::led_presenter::task(led_stop, led_fwd, led_rev),
-            "leds"
-        );
-    }
-
-    // LongFred family: GPIO nav cluster.
-    #[cfg(any(
-        feature = "variant-longfred-standard",
-        feature = "variant-longfred-mini"
-    ))]
-    {
-        let nav = input::gpio_nav::build(
-            peripherals.GPIO18,
-            peripherals.GPIO19,
-            peripherals.GPIO20,
-            peripherals.GPIO21,
-            peripherals.GPIO22,
-            peripherals.GPIO23,
-            peripherals.GPIO10,
-        );
-        longfred_firmware::spawn_or_reset!(
-            spawner,
-            input::gpio_nav::task(nav, raw_sender),
-            "gpio-nav"
-        );
-    }
 
     // MarkWTech: 3×4 keypad matrix + extra tact cluster (pins from markwtech constants).
     #[cfg(feature = "variant-markwtech")]
@@ -205,13 +164,7 @@ async fn main(spawner: Spawner) -> ! {
         );
     }
 
-    // Expanders: LongFred family + heiko-wifred.
-    #[cfg(any(
-        feature = "variant-longfred-standard",
-        feature = "variant-longfred-mini",
-        feature = "variant-longfred-v1",
-        feature = "variant-heiko-wifred"
-    ))]
+    #[cfg(feature = "variant-longfred-v1")]
     longfred_firmware::spawn_or_reset!(
         spawner,
         input::expander::task(expander_i2c, raw_sender),
@@ -222,21 +175,17 @@ async fn main(spawner: Spawner) -> ! {
         let _ = expander_i2c;
     }
 
-    // Encoder: LongFred family + markwtech (heiko uses pot).
-    #[cfg(not(feature = "variant-heiko-wifred"))]
-    {
-        let enc = input::encoder::build();
-        longfred_firmware::spawn_or_reset!(
-            spawner,
-            input::encoder::task(enc.a, enc.b, raw_sender),
-            "encoder"
-        );
-        longfred_firmware::spawn_or_reset!(
-            spawner,
-            input::encoder::button_task(enc.button, raw_sender),
-            "encoder-btn"
-        );
-    }
+    let enc = input::encoder::build();
+    longfred_firmware::spawn_or_reset!(
+        spawner,
+        input::encoder::task(enc.a, enc.b, raw_sender),
+        "encoder"
+    );
+    longfred_firmware::spawn_or_reset!(
+        spawner,
+        input::encoder::button_task(enc.button, raw_sender),
+        "encoder-btn"
+    );
 
     longfred_firmware::spawn_or_reset!(spawner, board::bridge::task(), "bridge");
 

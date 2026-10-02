@@ -8,7 +8,7 @@
 # Usage:
 #   ./scripts/check-esp32c6-size.sh              # build each variant, then check
 #   ./scripts/check-esp32c6-size.sh --check-only # check existing dist/*.elf (no cargo)
-#   VARIANTS="markwtech heiko-wifred" ./scripts/check-esp32c6-size.sh --check-only
+#   VARIANTS="longfred-v1" ./scripts/check-esp32c6-size.sh --check-only
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,7 +23,7 @@ DIST_DIR="${DIST_DIR:-dist}"
 RAM_LIMIT_BYTES="${RAM_LIMIT_BYTES:-$((0x6E610))}"
 OTA_SLOT_BYTES="${OTA_SLOT_BYTES:-$((0x3C0000))}"
 PARTITION_TABLE="${PARTITION_TABLE:-$ROOT/partitions.csv}"
-VARIANTS=(${VARIANTS:-longfred-standard longfred-mini longfred-v1 markwtech markwtech-v1-1 heiko-wifred})
+VARIANTS=(${VARIANTS:-longfred-v1 markwtech-v1-1})
 
 CHECK_ONLY=0
 for arg in "$@"; do
@@ -116,9 +116,6 @@ for variant in "${VARIANTS[@]}"; do
 
     echo "==> release build variant-${variant}" >&2
     features="variant-${variant}"
-    if [[ "$variant" == "markwtech" ]]; then
-      features="variant-markwtech,print-auto"
-    fi
     if ! cargo build -p longfred-firmware --release --bin "$BIN" \
         --target-dir "$target_dir" \
         --no-default-features --features "$features" \

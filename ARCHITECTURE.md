@@ -32,10 +32,8 @@ historical designs in [`docs/plans/`](docs/plans/).
    version + tags) in a single flash sector. Unknown tags are skipped;
    older versions decode with defaults.
 6. **Hardware variants are compile-time features.**
-   `variant-longfred-standard`, `variant-longfred-mini`,
-   `variant-longfred-v1`,
-   `variant-markwtech` (and `variant-markwtech-v1-1`, which implies
-   `variant-markwtech`), `variant-heiko-wifred` are mutually exclusive.
+   `variant-longfred-v1` (default) and `variant-markwtech-v1-1`
+   (implies `variant-markwtech`) are mutually exclusive.
 7. **Closed protocol set, enum dispatch.** WiThrottle, Z21, and BigFred
    are known at compile time. `Adapter` is an enum; no `dyn`, no `Box`
    ([CODING-GUIDELINES.md](CODING-GUIDELINES.md) §8.2).
@@ -341,12 +339,8 @@ workflow.
 
 | Feature | Display | Input |
 |---|---|---|
-| `variant-longfred-standard` (default) | OLED 128×64 | GPIO 5-way + F-keys + encoder + MCP23017×2 |
-| `variant-longfred-mini` | OLED 128×32 | same as standard |
-| `variant-longfred-v1` | OLED 0.91" 128×32 | MCP23017×2 (004 map) + encoder; no GPIO nav |
-| `variant-markwtech` | 2.42" OLED | 3×4 keypad + extra tact cluster + encoder (DevKitC-1) |
-| `variant-markwtech-v1-1` | 2.42" OLED | same controls; TinyC6 pin map (implies `variant-markwtech`) |
-| `variant-heiko-wifred` | LEDs (no OLED) | expander + pot; Wi-Fi config only |
+| `variant-longfred-v1` (default) | OLED 0.91" 128×32 | MCP23017×2 (004 map) + encoder |
+| `variant-markwtech-v1-1` | 2.42" OLED | 3×4 keypad + extra tact cluster + encoder (TinyC6; implies `variant-markwtech`) |
 
 Nav profiles (`LONGFRED` / `MARKWTECH`) live in `longfred-ui` so host
 tests can drive both layouts.
@@ -378,9 +372,6 @@ flash/RAM budget (`scripts/check-esp32c6-size.sh`).
   HTTP probe on remaining WiThrottle hits is the fallback. There is no
   `_bigfred._tcp` service. The OLED list sorts BigFred first and shows
   `{layoutName}/BigFred` when TXT `layoutName=` is present.
-- Headless `heiko-wifred` has no roster UI; address/static lists are
-  still provisioned over Soft-AP. It has no OLED blanking; auto deep
-  sleep still runs, but GPIO 0 is not a wired wake button.
 - Historical loco-source and pairing design:
   [docs/plans/loco_sources_and_bigfred_pairing_55b0060a.md](docs/plans/loco_sources_and_bigfred_pairing_55b0060a.md).
   Z21 adapter introduction:
