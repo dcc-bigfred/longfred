@@ -140,6 +140,7 @@ pub struct Strings {
     pub hint_select_found: &'static str,
     pub hint_scanning_wifi: &'static str,
     pub hint_wifi_fail: &'static str,
+    pub hint_connecting: &'static str,
     pub hint_enter_password: &'static str,
     pub hint_select_wit: &'static str,
     pub hint_server_list: &'static str,
@@ -237,6 +238,16 @@ pub struct Strings {
     pub diag_charging: &'static str,
     pub diag_yes: &'static str,
     pub diag_no: &'static str,
+    /// Wi-Fi settings → Radio / roaming submenu row.
+    pub wifi_radio: &'static str,
+    /// Title of the radio settings list.
+    pub msg_radio: &'static str,
+    /// Overlay shown after radio settings are saved.
+    pub saved_radio: &'static str,
+    /// Hint line for the radio settings list.
+    pub hint_radio: &'static str,
+    /// Hint line for the radio numeric editor.
+    pub hint_radio_edit: &'static str,
 }
 
 pub const EN: Strings = Strings {
@@ -274,6 +285,7 @@ pub const EN: Strings = Strings {
     hint_select_found: "OK Menu scan Back",
     hint_scanning_wifi: "Back cancel",
     hint_wifi_fail: "Back skip  wait scan",
+    hint_connecting: "EStop menu",
     hint_enter_password: "",
     hint_select_wit: "Nav OK  < IP",
     hint_server_list: "",
@@ -371,6 +383,11 @@ pub const EN: Strings = Strings {
     diag_charging: "Charge",
     diag_yes: "yes",
     diag_no: "no",
+    wifi_radio: "Radio settings",
+    msg_radio: "Radio",
+    saved_radio: "Radio saved",
+    hint_radio: "Nav OK Tgl  Back",
+    hint_radio_edit: "Menu SW  Back",
 };
 
 pub const PL: Strings = Strings {
@@ -408,6 +425,7 @@ pub const PL: Strings = Strings {
     hint_select_found: "OK Menu skan Wst",
     hint_scanning_wifi: "Cofnij",
     hint_wifi_fail: "Wst pomin  czekaj",
+    hint_connecting: "EStop menu",
     hint_enter_password: "",
     hint_select_wit: "Nav OK  < IP",
     hint_server_list: "",
@@ -505,6 +523,11 @@ pub const PL: Strings = Strings {
     diag_charging: "Ladowanie",
     diag_yes: "tak",
     diag_no: "nie",
+    wifi_radio: "Ustawienia radia",
+    msg_radio: "Radio",
+    saved_radio: "Radio zapisane",
+    hint_radio: "Nav OK Przel  Wst",
+    hint_radio_edit: "Menu SW  Wst",
 };
 
 pub const DE: Strings = Strings {
@@ -542,6 +565,7 @@ pub const DE: Strings = Strings {
     hint_select_found: "OK Menu Scan Zur",
     hint_scanning_wifi: "Zur abbrechen",
     hint_wifi_fail: "Zur skip  warte Scan",
+    hint_connecting: "EStop Menu",
     hint_enter_password: "",
     hint_select_wit: "Nav OK  < IP",
     hint_server_list: "",
@@ -639,6 +663,11 @@ pub const DE: Strings = Strings {
     diag_charging: "Laden",
     diag_yes: "ja",
     diag_no: "nein",
+    wifi_radio: "Funk-Einstellung",
+    msg_radio: "Funk",
+    saved_radio: "Funk gespeichert",
+    hint_radio: "Nav OK Ums  Zur",
+    hint_radio_edit: "Menu SW  Zur",
 };
 
 const fn with_hints(mut s: Strings, h: HintRow) -> Strings {

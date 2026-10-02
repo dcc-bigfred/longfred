@@ -1,7 +1,7 @@
 //! Shared draft state that outlives a single screen object.
 
 use longfred_proto::command::Protocol;
-use longfred_proto::persist::{DeviceIdentity, StaticIpConfig};
+use longfred_proto::persist::{DeviceIdentity, RadioConfig, StaticIpConfig};
 
 /// Battery icon mode on the throttle HUD.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -63,6 +63,66 @@ impl NetField {
             Self::Gateway => Some(Self::Dns),
             Self::Dns => None,
         }
+    }
+}
+
+/// Numeric radio/roaming field being edited on [`crate::nav::ScreenId::RadioEdit`].
+/// Boolean toggles are handled in-place on the radio list and do not use this enum.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum RadioField {
+    /// `roam_rssi_threshold` (signed, -90..=-50).
+    #[default]
+    RssiThreshold,
+    /// `roam_hysteresis_db` (3..=20).
+    HysteresisDb,
+    /// `roam_debounce_samples` (1..=10).
+    DebounceSamples,
+    /// `roam_scan_interval_s` (1..=60).
+    ScanIntervalS,
+    /// `roam_sample_ms` (100..=2000).
+    SampleMs,
+    /// `ip_pin_max_gap_s` (5..=3600).
+    PinMaxGapS,
+    /// `dhcp_discover_timeout_s` (1..=30).
+    DhcpDiscoverTimeoutS,
+}
+
+impl RadioField {
+    /// Short OLED label for this field.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::RssiThreshold => "RSSI",
+            Self::HysteresisDb => "Hysteresis",
+            Self::DebounceSamples => "Debounce",
+            Self::ScanIntervalS => "Scan int",
+            Self::SampleMs => "Sample ms",
+            Self::PinMaxGapS => "Pin gap",
+            Self::DhcpDiscoverTimeoutS => "DHCP tmo",
+        }
+    }
+
+    /// Maximum digit characters accepted by the editor. RSSI is entered as a
+    /// magnitude (50..=90) and stored negative, so it uses two digits like the
+    /// other small unsigned fields.
+    #[must_use]
+    pub const fn max_digits(self) -> usize {
+        match self {
+            Self::RssiThreshold
+            | Self::HysteresisDb
+            | Self::DebounceSamples
+            | Self::ScanIntervalS
+            | Self::DhcpDiscoverTimeoutS => 2,
+            // 100..=2000 and 5..=3600 → up to 4 digits.
+            Self::SampleMs | Self::PinMaxGapS => 4,
+        }
+    }
+
+    /// Whether the stored value is negative (RSSI threshold). The editor
+    /// accepts a magnitude and the commit negates it.
+    #[must_use]
+    pub const fn is_signed(self) -> bool {
+        matches!(self, Self::RssiThreshold)
     }
 }
 
@@ -128,6 +188,10 @@ pub struct UiSession {
     pub choice: ChoiceKind,
     /// Scan opened from Server → Wi-Fi settings (Back returns there).
     pub wifi_from_settings: bool,
+    /// Radio / roaming config draft (loaded from NVS on entering the radio list).
+    pub radio_cfg: RadioConfig,
+    /// Numeric radio field shown on [`crate::nav::ScreenId::RadioEdit`].
+    pub radio_field: RadioField,
 }
 
 impl UiSession {
@@ -149,6 +213,8 @@ impl UiSession {
             boot_language: false,
             choice: ChoiceKind::DeadMan,
             wifi_from_settings: false,
+            radio_cfg: RadioConfig::default(),
+            radio_field: RadioField::RssiThreshold,
             server_entry_from_list: false,
             pending_server_idx: None,
             ip_field: NetField::Dhcp,

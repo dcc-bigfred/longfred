@@ -28,5 +28,5 @@ pub const WAKE_PIN: Gpio = ENCODER_BUTTON;
 /// External 47 kΩ / 47 kΩ divider into GPIO 1 (`ADC1_CH1`).
 pub const BATTERY_ADC: Gpio = 1;
 
-/// ADC-to-battery millivolt factor for the 1:2 divider (calibrate via log).
-pub const BATTERY_CONVERSION_FACTOR: f32 = 1.7;
+/// 47 kΩ / 47 kΩ divider ratio, applied to calibrated pin millivolts.
+pub const BATTERY_CONVERSION_FACTOR: f32 = 2.0;

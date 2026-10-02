@@ -111,8 +111,12 @@ fn apply_persist(state: &mut DomainState, rec: PersistRecord) {
     let device = rec.device.clone();
     let hostname = rec.wifi_hostname.clone();
     let language = rec.language;
+    let mut rec = rec;
+    rec.radio = rec.radio.clamped();
+    let radio = rec.radio;
     state.load_persist(rec);
     crate::net::DEAD_MAN.sender().send(state.dead_man_switch_on);
+    crate::net::RADIO.sender().send(radio);
     i18n::set_language(language);
     DEVICE.sender().send(device);
     if !hostname.is_empty() {
@@ -212,6 +216,8 @@ fn interpret(
                 let _ = wifi_tx.try_send(WifiCmd::Connect {
                     ssid: ss,
                     password: pp,
+                    bssid: None,
+                    channel: None,
                 });
             }
         }
@@ -246,6 +252,13 @@ fn interpret(
         }
         Intent::ServerDisconnect => {
             srv_tx.send(None);
+        }
+        Intent::AbortConnect => {
+            if SERVER.sender().try_get().flatten().is_none()
+                && let Some(saved) = state.persist.last_server
+            {
+                srv_tx.send(Some(endpoint_from_saved(saved)));
+            }
         }
         Intent::DeadManSwitchToggle => {
             let _ = state.toggle_dead_man_switch(out);
@@ -288,6 +301,13 @@ fn interpret(
             let _ = storage_tx.try_send(StorageCmd::SaveRosterMode(mode));
             state.refresh_effective_source();
             state.show_message(i18n::tr().saved_roster);
+        }
+        Intent::SaveRadio(radio) => {
+            let radio = radio.clamped();
+            state.persist.radio = radio;
+            let _ = storage_tx.try_send(StorageCmd::SaveRadio(radio));
+            crate::net::RADIO.sender().send(radio);
+            state.show_message(i18n::tr().saved_radio);
         }
         Intent::EnterProgrammingMode => {
             log::info!("domain: EnterProgrammingMode intent (already applied)");
@@ -657,6 +677,7 @@ pub async fn task() {
                             pairing_active = true;
                             pairing_user_initiated = true;
                         }
+                        let abort_connect = intents.iter().any(|i| *i == Intent::AbortConnect);
                         run_intents(
                             &mut ui,
                             intents,
@@ -666,6 +687,10 @@ pub async fn task() {
                             &srv_tx,
                             &storage_tx,
                         );
+                        if abort_connect {
+                            boot_wait = BootWait::Done;
+                            phase_until = None;
+                        }
                         if ui.router.screen_id() == ScreenId::ServerList
                             && boot_wait != BootWait::ServerConnect
                         {

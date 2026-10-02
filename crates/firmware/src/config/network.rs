@@ -39,6 +39,9 @@ pub const RECONNECT_MAX_MS: u64 = 5_000;
 /// after the connect timeout, so the connection task can still service
 /// WIFI_CTRL (scan / connect) instead of blocking forever.
 pub const WIFI_SETTLE_TIMEOUT_MS: u64 = 3_000;
+/// After aborting a wedged connect, wait for IDF to leave Connecting so the
+/// next `set_config` does not hit `ESP_ERR_WIFI_STATE` (12294).
+pub const WIFI_ABORT_SETTLE_MS: u64 = 200;
 
 // --- WiFi 6 (bigfred event infrastructure) ---
 /// Enable 802.11ax on 2.4 GHz for OFDMA scheduling with WiFi 6 APs.

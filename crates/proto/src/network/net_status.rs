@@ -34,6 +34,10 @@ pub struct SsidInfo {
     pub ssid: heapless::String<32>,
     pub rssi: i8,
     pub open: bool,
+    /// BSSID (MAC) of the AP. Needed for BSSID-locked roaming.
+    pub bssid: [u8; 6],
+    /// Operating channel. Needed for channel-filtered scan.
+    pub channel: u8,
 }
 
 /// STA IPv4 config + MAC (Diagnostics).

@@ -13,15 +13,17 @@ use crate::widgets::PagedList;
 enum WifiSettingsItem {
     Search,
     Address,
+    Radio,
 }
 
 impl WifiSettingsItem {
-    const ALL: [Self; 2] = [Self::Search, Self::Address];
+    const ALL: [Self; 3] = [Self::Search, Self::Address, Self::Radio];
 
     fn label(self, s: &Strings) -> &'static str {
         match self {
             Self::Search => s.wifi_search,
             Self::Address => s.wifi_address,
+            Self::Radio => s.wifi_radio,
         }
     }
 
@@ -35,6 +37,11 @@ impl WifiSettingsItem {
                 cx.session.choice = ChoiceKind::IpMode;
                 nav.go(ScreenId::Choice);
             }
+            Self::Radio => {
+                // Load the NVS draft once, when entering the radio submenu.
+                cx.session.radio_cfg = cx.drive.persist.radio;
+                nav.go(ScreenId::RadioSettings);
+            }
         }
     }
 }
@@ -45,7 +52,7 @@ pub struct WifiSettingsScreen {
 }
 
 impl WifiSettingsScreen {
-    /// Numbered two-item Wi-Fi menu.
+    /// Numbered three-item Wi-Fi menu.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -53,7 +60,7 @@ impl WifiSettingsScreen {
         }
     }
 
-    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 2] {
+    fn labels(cx: &ScreenCtx<'_>) -> [&'static str; 3] {
         WifiSettingsItem::ALL.map(|item| item.label(cx.s))
     }
 

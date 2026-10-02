@@ -3,6 +3,8 @@
 use core::fmt::Write as _;
 
 use longfred_proto::catalog::{Catalog, LocoCatalog};
+use longfred_proto::model::MAX_FUNCTIONS;
+use longfred_proto::network::{ConnState, NetStatus};
 use longfred_proto::{LocoId, LocoSource};
 
 use super::helpers::has_loco;
@@ -16,6 +18,8 @@ use crate::widgets::{KeyboardMode, TextKeyboard};
 /// Drive HUD (loco acquired) and address-entry mode (no loco).
 pub struct ThrottleScreen {
     addr_kbd: TextKeyboard<5>,
+    /// Keypad `*` prefix: `(value, digit_count)` while typing a DCC function.
+    fn_index: Option<(u8, u8)>,
 }
 
 impl ThrottleScreen {
@@ -24,7 +28,21 @@ impl ThrottleScreen {
     pub fn new() -> Self {
         Self {
             addr_kbd: TextKeyboard::new(KeyboardMode::Digits),
+            fn_index: None,
         }
+    }
+
+    fn fn_star_footer(&self) -> Option<Line> {
+        let (n, len) = self.fn_index?;
+        let mut line = Line::new();
+        let _ = line.push('*');
+        if len > 0 {
+            if n >= 10 {
+                let _ = line.push(char::from(b'0' + n / 10));
+            }
+            let _ = line.push(char::from(b'0' + n % 10));
+        }
+        Some(line)
     }
 }
 
@@ -96,7 +114,11 @@ impl Screen for ThrottleScreen {
             }
         }
         let mut footer = Line::new();
-        push_oled(&mut footer, cx.s.hint_throttle);
+        if let Some(star) = self.fn_star_footer() {
+            footer = star;
+        } else {
+            push_oled(&mut footer, cx.s.hint_throttle);
+        }
         let mut functions = 0u32;
         let (speed, forward, consist_len) = match slot {
             Some(s) => {
@@ -119,6 +141,8 @@ impl Screen for ThrottleScreen {
             forward,
             consist_len,
             conn: cx.net.conn,
+            conn_busy: cx.net.conn == ConnState::Connecting
+                || cx.net.status == NetStatus::Connecting,
             functions,
             loco,
             footer,
@@ -130,14 +154,17 @@ impl Screen for ThrottleScreen {
 
     /// Open the main menu (keep a typed address in the session).
     fn on_menu_key(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        self.fn_index = None;
         let _ = self.addr_kbd.ok();
         cx.session.addr.clear();
         let _ = cx.session.addr.push_str(self.addr_kbd.buffer.as_str());
         nav.go(ScreenId::Menu);
     }
 
-    /// Back is unused on the drive HUD.
-    fn on_cancel(&mut self, _cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {}
+    /// Back clears a pending `*` function prefix; otherwise unused on the HUD.
+    fn on_cancel(&mut self, _cx: &mut ScreenCtx<'_>, _nav: &mut Nav<'_>) {
+        self.fn_index = None;
+    }
 
     /// With loco: function list or direct commands. Without: acquire typed address.
     fn on_select(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
@@ -158,16 +185,40 @@ impl Screen for ThrottleScreen {
         }
     }
 
-    /// With loco: toggle function 0–9. Without: type a DCC address digit.
+    /// With loco: toggle function 0–9, or append to a `*` prefix. Without: type a DCC address digit.
     fn on_digit(&mut self, c: char, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
         if !c.is_ascii_digit() {
             return;
         }
+        let d = c as u8 - b'0';
         if has_loco(cx) {
-            nav.emit(Intent::Function(c as u8 - b'0'));
+            if let Some((n, len)) = self.fn_index {
+                if len < 2 {
+                    self.fn_index = Some((n.saturating_mul(10).saturating_add(d), len + 1));
+                }
+                return;
+            }
+            nav.emit(Intent::Function(d));
             return;
         }
-        let _ = self.addr_kbd.key_press(c as u8 - b'0', cx.now_ms);
+        let _ = self.addr_kbd.key_press(d, cx.now_ms);
+    }
+
+    /// With loco: start / confirm / cancel a DCC function number greater than 9.
+    fn on_star(&mut self, cx: &mut ScreenCtx<'_>, nav: &mut Nav<'_>) {
+        if !has_loco(cx) {
+            return;
+        }
+        match self.fn_index {
+            None => self.fn_index = Some((0, 0)),
+            Some((_, 0)) => self.fn_index = None,
+            Some((n, _)) => {
+                self.fn_index = None;
+                if usize::from(n) < MAX_FUNCTIONS {
+                    nav.emit(Intent::Function(n));
+                }
+            }
+        }
     }
 
     /// Encoder steps the pending address digit when no loco is acquired.

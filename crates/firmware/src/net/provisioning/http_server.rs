@@ -228,6 +228,9 @@ async fn handle_settings_put(
             "roster name too long"
         }
         Err(longfred_proto::network::provisioning::ApplyError::RosterFull) => "roster full",
+        Err(longfred_proto::network::provisioning::ApplyError::RadioOutOfRange) => {
+            "radio parameter out of range"
+        }
     };
     if !msg.is_empty() {
         return respond(sock, 400, "text/plain", msg.as_bytes()).await;

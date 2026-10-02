@@ -69,10 +69,14 @@ pub struct NetInfo<'a> {
 pub struct BatteryInfo {
     /// Estimated charge `0..=100`.
     pub percent: u8,
-    /// Pack millivolts.
+    /// Pack millivolts (`pin_mv * factor`).
     pub millivolts: u16,
-    /// Raw ADC counts.
-    pub raw: u16,
+    /// Calibrated millivolts at the ADC pin.
+    pub pin_mv: u16,
+    /// Lowest single pin sample this boot.
+    pub pin_mv_min: u16,
+    /// Highest single pin sample this boot.
+    pub pin_mv_max: u16,
     /// USB / VBUS present (plugged in / charging).
     pub charging: bool,
 }
@@ -122,7 +126,7 @@ pub struct UiEnv {
     pub board_id: &'static str,
     /// MCU identifier (Diagnostics).
     pub board_mcu: &'static str,
-    /// ADC → millivolt scale.
+    /// Divider ratio applied to calibrated pin millivolts (Vbat / Vpin).
     pub battery_factor: f32,
 }
 

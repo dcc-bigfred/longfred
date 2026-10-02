@@ -15,4 +15,5 @@ pub use crate::config::board::{
 };
 
 #[cfg(not(feature = "variant-markwtech"))]
-pub const BATTERY_CONVERSION_FACTOR: f32 = 1.7;
+/// 1:2 divider ratio, applied to calibrated pin millivolts.
+pub const BATTERY_CONVERSION_FACTOR: f32 = 2.0;
