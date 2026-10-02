@@ -354,7 +354,7 @@ Local:
 ```bash
 make lint          # rustfmt --check + clippy longfred-ui
 make test          # proto + ui host tests (incl. release-assertions)
-make build VARIANT=markwtech
+make build VARIANT=markwtech-v1-1
 ```
 
 CI (`.github/workflows/ci.yml`): host tests for proto, rustfmt, clippy

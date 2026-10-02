@@ -47,7 +47,7 @@ The first install of the dual-slot partition table (`partitions.csv`) must be do
 
 ```bash
 # First install (ELF + partition table), or a merged `.bin` from CI:
-wireless-programmer update-firmware --mode usb --port /dev/ttyUSB0 \
+wireless-programmer update-firmware --mode usb --port /dev/ttyACM0 \
   --file dist/longfred-markwtech-v1-1-esp32c6.elf --partition-table partitions.csv
 ```
 
