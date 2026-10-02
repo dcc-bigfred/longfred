@@ -12,44 +12,6 @@ pub const BROADCAST_TIMEOUT_MS: u64 = 10_000;
 pub const RECEIVING_REFRESH_MS: u64 = 2_000;
 pub const PW_BLANK_CHAR: u8 = 164;
 
-#[cfg(feature = "variant-markwtech")]
-mod text_hints {
-    pub const EN_PW: &str = "L/P *Caps Menu SW";
-    pub const EN_IP: &str = "L/P Menu SW  Back";
-    pub const EN_NET: &str = "L/P Menu SW  Next";
-    pub const EN_NAME: &str = "L/P *Caps Menu SW";
-    pub const EN_ID: &str = "L/P Menu SW  Back";
-    pub const PL_PW: &str = "L/P *Caps Menu SW";
-    pub const PL_IP: &str = "L/P Menu SW  Wst";
-    pub const PL_NET: &str = "L/P Menu SW  Dalej";
-    pub const PL_NAME: &str = "L/P *Caps Menu SW";
-    pub const PL_ID: &str = "L/P Menu SW  Wst";
-    pub const DE_PW: &str = "L/P *Caps Menu SW";
-    pub const DE_IP: &str = "L/P Menu SW  Zur";
-    pub const DE_NET: &str = "L/P Menu SW  Weiter";
-    pub const DE_NAME: &str = "L/P *Caps Menu SW";
-    pub const DE_ID: &str = "L/P Menu SW  Zur";
-}
-
-#[cfg(not(feature = "variant-markwtech"))]
-mod text_hints {
-    pub const EN_PW: &str = "Joy Menu SW  Back";
-    pub const EN_IP: &str = "Joy Menu SW  Back";
-    pub const EN_NET: &str = "Joy Menu SW  Next";
-    pub const EN_NAME: &str = "Joy Menu SW  Back";
-    pub const EN_ID: &str = "Joy Menu SW  Back";
-    pub const PL_PW: &str = "Joy Menu SW  Wst";
-    pub const PL_IP: &str = "Joy Menu SW  Wst";
-    pub const PL_NET: &str = "Joy Menu SW  Dalej";
-    pub const PL_NAME: &str = "Joy Menu SW  Wst";
-    pub const PL_ID: &str = "Joy Menu SW  Wst";
-    pub const DE_PW: &str = "Joy Menu SW  Zur";
-    pub const DE_IP: &str = "Joy Menu SW  Zur";
-    pub const DE_NET: &str = "Joy Menu SW  Weiter";
-    pub const DE_NAME: &str = "Joy Menu SW  Zur";
-    pub const DE_ID: &str = "Joy Menu SW  Zur";
-}
-
 static CURRENT: AtomicU8 = AtomicU8::new(0);
 
 pub fn set_language(lang: Language) {
@@ -100,16 +62,11 @@ pub struct Strings {
     pub hint_select_found: &'static str,
     pub hint_scanning_wifi: &'static str,
     pub hint_wifi_fail: &'static str,
-    pub hint_enter_password: &'static str,
     pub hint_select_wit: &'static str,
     pub hint_proto: &'static str,
-    pub hint_wit_entry: &'static str,
     pub hint_menu: &'static str,
     pub hint_net_config: &'static str,
-    pub hint_net_edit: &'static str,
     pub hint_device: &'static str,
-    pub hint_device_name_edit: &'static str,
-    pub hint_device_id_edit: &'static str,
     pub hint_list: &'static str,
     pub hint_language: &'static str,
     pub hint_extras_cmd: &'static str,
@@ -197,16 +154,11 @@ pub const EN: Strings = Strings {
     hint_select_found: "OK Menu scan Back",
     hint_scanning_wifi: "Back cancel",
     hint_wifi_fail: "Back skip  wait scan",
-    hint_enter_password: text_hints::EN_PW,
     hint_select_wit: "Nav OK  < IP",
     hint_proto: "Nav OK  Back",
-    hint_wit_entry: text_hints::EN_IP,
     hint_menu: "Nav OK  Fn+digits  Back",
     hint_net_config: "OK Edit  Back",
-    hint_net_edit: text_hints::EN_NET,
     hint_device: "Nav OK  Back",
-    hint_device_name_edit: text_hints::EN_NAME,
-    hint_device_id_edit: text_hints::EN_ID,
     hint_list: "Nav OK  > Pg  Back",
     hint_language: "0-2 OK  Back",
     hint_extras_cmd: "Nav OK  Back",
@@ -294,16 +246,11 @@ pub const PL: Strings = Strings {
     hint_select_found: "OK Menu skan Wst",
     hint_scanning_wifi: "Cofnij",
     hint_wifi_fail: "Wst pomin  czekaj",
-    hint_enter_password: text_hints::PL_PW,
     hint_select_wit: "Nav OK  < IP",
     hint_proto: "Nav OK  Wst",
-    hint_wit_entry: text_hints::PL_IP,
     hint_menu: "Nav OK  Fn+cyfry  Wst",
     hint_net_config: "OK Edytuj  Wst",
-    hint_net_edit: text_hints::PL_NET,
     hint_device: "Nav OK  Wst",
-    hint_device_name_edit: text_hints::PL_NAME,
-    hint_device_id_edit: text_hints::PL_ID,
     hint_list: "Nav OK  > Str  Wst",
     hint_language: "0-2 OK  Wst",
     hint_extras_cmd: "Nav OK  Wst",
@@ -391,16 +338,11 @@ pub const DE: Strings = Strings {
     hint_select_found: "OK Menu Scan Zur",
     hint_scanning_wifi: "Zur abbrechen",
     hint_wifi_fail: "Zur skip  warte Scan",
-    hint_enter_password: text_hints::DE_PW,
     hint_select_wit: "Nav OK  < IP",
     hint_proto: "Nav OK  Zur",
-    hint_wit_entry: text_hints::DE_IP,
     hint_menu: "Nav OK  Fn+Ziff  Zur",
     hint_net_config: "OK Aendern  Zur",
-    hint_net_edit: text_hints::DE_NET,
     hint_device: "Nav OK  Zur",
-    hint_device_name_edit: text_hints::DE_NAME,
-    hint_device_id_edit: text_hints::DE_ID,
     hint_list: "Nav OK  > Seite  Zur",
     hint_language: "0-2 OK  Zur",
     hint_extras_cmd: "Nav OK  Zur",

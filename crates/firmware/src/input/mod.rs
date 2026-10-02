@@ -1,15 +1,12 @@
-//! Input: MCP23017 (LongFred v1), encoder, keypad and extra buttons (MarkWTech).
+//! Input events and the drivers every board shares (encoder, I2C).
+//!
+//! Keypad, extra buttons, and MCP expanders are compiled from
+//! [`crate::board::variants`] so a variant feature is not named here.
 //! Drivers emit [`crate::board::raw::RawEvent`] to `RAW_CHANNEL`;
 //! the board bridge maps them to [`InputEvent`] on `INPUT_CHANNEL`.
 
 pub mod encoder;
-#[cfg(feature = "variant-longfred-v1")]
-pub mod expander;
-#[cfg(feature = "variant-markwtech")]
-pub mod extra_buttons;
 pub mod i2c_bus;
-#[cfg(feature = "variant-markwtech")]
-pub mod keypad;
 pub(crate) mod quadrature;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

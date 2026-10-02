@@ -31,9 +31,12 @@ historical designs in [`docs/plans/`](docs/plans/).
 5. **One NVS sector.** Persist is a tagged binary record (`MAGIC` +
    version + tags) in a single flash sector. Unknown tags are skipped;
    older versions decode with defaults.
-6. **Hardware variants are compile-time features.**
+6. **Hardware variants are compile-time features, queried as capabilities.**
    `variant-longfred-v1` (default) and `variant-markwtech-v1-1`
-   (implies `variant-markwtech`) are mutually exclusive.
+   (implies `variant-markwtech`) are mutually exclusive. Those feature
+   names appear only under `crates/firmware/src/board/variants/`.
+   Everywhere else asks `VariantDescriptor` (`has_keypad`, `has_oled()`)
+   or calls `board::spawn_inputs` / `variants::surface()`.
 7. **Closed protocol set, enum dispatch.** WiThrottle, Z21, and BigFred
    are known at compile time. `Adapter` is an enum; no `dyn`, no `Box`
    ([CODING-GUIDELINES.md](CODING-GUIDELINES.md) §8.2).
@@ -343,7 +346,14 @@ workflow.
 | `variant-markwtech-v1-1` | 2.42" OLED | 3×4 keypad + extra tact cluster + encoder (TinyC6; implies `variant-markwtech`) |
 
 Nav profiles (`LONGFRED` / `MARKWTECH`) live in `longfred-ui` so host
-tests can drive both layouts.
+tests can drive both layouts. Firmware picks one from `has_keypad`
+(`HintSet`), not from the Cargo feature name.
+
+`cfg(feature = "variant-…")` is confined to `board/variants/`. Input
+drivers that exist on only one board are declared there (their source
+files stay under `input/`) so unused embassy tasks are not linked.
+`scripts/check-variant-cfgs.sh` fails the build if a `variant-` name
+shows up anywhere else under `crates/firmware/src`.
 
 ---
 
@@ -358,8 +368,10 @@ make build VARIANT=markwtech-v1-1
 ```
 
 CI (`.github/workflows/ci.yml`): host tests for proto, rustfmt, clippy
-proto, then clippy + release build per variant, then ESP32-C6
-flash/RAM budget (`scripts/check-esp32c6-size.sh`).
+proto, a check that `variant-` feature names stay inside
+`board/variants/` (`scripts/check-variant-cfgs.sh`), then clippy +
+release build per variant, then ESP32-C6 flash/RAM budget
+(`scripts/check-esp32c6-size.sh`).
 
 ---
 

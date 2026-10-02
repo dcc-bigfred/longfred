@@ -22,6 +22,14 @@ pub struct VariantDescriptor {
     pub auto_pair_when_unconfigured: bool,
 }
 
+impl VariantDescriptor {
+    /// OLED panel is fitted.
+    #[must_use]
+    pub const fn has_oled(self) -> bool {
+        self.display.is_some()
+    }
+}
+
 pub const LAYOUT_128X64: DisplayGeometry = DisplayGeometry {
     width: 128,
     height: 64,

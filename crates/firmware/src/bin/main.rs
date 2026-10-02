@@ -146,46 +146,7 @@ async fn main(spawner: Spawner) -> ! {
     let (oled_i2c, expander_i2c) = input::i2c_bus::init(peripherals.I2C0);
 
     longfred_firmware::spawn_or_reset!(spawner, ui::display::task(oled_i2c), "display");
-
-    // MarkWTech: 3×4 keypad matrix + extra tact cluster (pins from markwtech constants).
-    #[cfg(feature = "variant-markwtech")]
-    {
-        let keypad = input::keypad::build();
-        longfred_firmware::spawn_or_reset!(
-            spawner,
-            input::keypad::task(keypad, raw_sender),
-            "keypad"
-        );
-        let extras = input::extra_buttons::build();
-        longfred_firmware::spawn_or_reset!(
-            spawner,
-            input::extra_buttons::task(extras, raw_sender),
-            "extra-buttons"
-        );
-    }
-
-    #[cfg(feature = "variant-longfred-v1")]
-    longfred_firmware::spawn_or_reset!(
-        spawner,
-        input::expander::task(expander_i2c, raw_sender),
-        "expander"
-    );
-    #[cfg(feature = "variant-markwtech")]
-    {
-        let _ = expander_i2c;
-    }
-
-    let enc = input::encoder::build();
-    longfred_firmware::spawn_or_reset!(
-        spawner,
-        input::encoder::task(enc.a, enc.b, raw_sender),
-        "encoder"
-    );
-    longfred_firmware::spawn_or_reset!(
-        spawner,
-        input::encoder::button_task(enc.button, raw_sender),
-        "encoder-btn"
-    );
+    board::spawn_inputs(&spawner, expander_i2c, raw_sender);
 
     longfred_firmware::spawn_or_reset!(spawner, board::bridge::task(), "bridge");
 
@@ -193,8 +154,6 @@ async fn main(spawner: Spawner) -> ! {
         longfred_firmware::spawn_or_reset!(spawner, domain::task::task(), "domain");
         longfred_firmware::spawn_or_reset!(spawner, domain::task::watchdog_task(), "domain-wdt");
     }
-
-    let _ = raw_sender;
 
     loop {
         Timer::after(Duration::from_secs(60)).await;

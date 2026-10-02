@@ -11,10 +11,7 @@ use longfred_ui::{
     BatteryInfo, BatteryMode, DriveInfo, NetInfo, Router, ScreenCtx, UiEnv, UiSession,
 };
 
-#[cfg(not(feature = "variant-markwtech"))]
-use longfred_ui::nav_profile::LONGFRED;
-#[cfg(feature = "variant-markwtech")]
-use longfred_ui::nav_profile::MARKWTECH;
+use longfred_ui::nav_profile::{LONGFRED, MARKWTECH};
 
 use crate::config::{buttons, network, power};
 use crate::domain::state::DomainState;
@@ -25,13 +22,9 @@ use crate::ui::i18n;
 use crate::ui::view::UiView;
 
 pub fn nav_profile() -> &'static dyn NavProfile {
-    #[cfg(feature = "variant-markwtech")]
-    {
-        &MARKWTECH
-    }
-    #[cfg(not(feature = "variant-markwtech"))]
-    {
-        &LONGFRED
+    match hint_set() {
+        HintSet::Keypad => &MARKWTECH,
+        HintSet::Joystick => &LONGFRED,
     }
 }
 

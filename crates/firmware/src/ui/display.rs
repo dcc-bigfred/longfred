@@ -13,6 +13,7 @@ use longfred_proto::network::ConnState;
 use ssd1306::{I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 
 use crate::board::descriptor::{DisplayGeometry, LAYOUT_128X64};
+use crate::board::variants::PanelSize;
 use crate::config::board;
 use crate::config::network::PAIRING_HTTP_URL;
 use crate::input::i2c_bus::SharedI2cDevice;
@@ -25,11 +26,6 @@ const GRID_LEFT_X: i32 = 0;
 const GRID_Y_64: [i32; 6] = [8, 16, 24, 32, 40, 48];
 /// Content-row Y for 128×32. `FONT_6X10` at last y=21 ends at 31 ≤ 32.
 const GRID_Y_32: [i32; 3] = [7, 14, 21];
-
-#[cfg(feature = "variant-longfred-v1")]
-type PanelSize = DisplaySize128x32;
-#[cfg(not(feature = "variant-longfred-v1"))]
-type PanelSize = DisplaySize128x64;
 
 pub type Display =
     Ssd1306<I2CInterface<SharedI2cDevice>, PanelSize, BufferedGraphicsMode<PanelSize>>;

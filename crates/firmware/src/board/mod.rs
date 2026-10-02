@@ -10,7 +10,7 @@ pub mod variants;
 
 pub use descriptor::{DisplayGeometry, LAYOUT_128X32, LAYOUT_128X64, VariantDescriptor};
 pub use raw::{AnalogId, ButtonId, RAW_CHANNEL, RawEvent, SwitchId};
-pub use variants::{active, active_variant};
+pub use variants::{active, active_variant, spawn_inputs};
 
 use embassy_time::Instant;
 

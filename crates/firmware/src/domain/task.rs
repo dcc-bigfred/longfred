@@ -466,7 +466,7 @@ fn request_device_sleep(
 }
 
 fn has_oled() -> bool {
-    crate::board::active().display.is_some()
+    crate::board::active().has_oled()
 }
 
 /// TinyC6 VBUS sense (`BatterySample.charging`). Other variants stay false.
@@ -553,7 +553,7 @@ pub async fn task() {
     let mut phase_until = Some(Instant::now() + Duration::from_millis(config::network::SPLASH_MS));
     let mut saw_wifi_connecting = false;
 
-    if crate::board::active_variant().display.is_none() {
+    if !crate::board::active_variant().has_oled() {
         let ssid = last_ssid_owned(&ui.state);
         let intents = ui.with_ctx(Instant::now().as_millis(), |router, cx| {
             adapter::begin_wifi_setup(router, cx, ssid.as_deref())
