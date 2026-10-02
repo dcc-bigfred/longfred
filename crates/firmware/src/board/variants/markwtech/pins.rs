@@ -1,8 +1,5 @@
-//! Active MarkWTech GPIO map (v1.0 DevKitC-1 or v1.1 TinyC6).
+//! MarkWTech v1.1 (TinyC6) GPIO map.
 
-#[cfg(not(feature = "variant-markwtech-v1-1"))]
-pub use super::pins_v1_0::*;
-#[cfg(feature = "variant-markwtech-v1-1")]
 pub use super::pins_v1_1::*;
 
 const fn pins_unique(pins: &[u8]) -> bool {

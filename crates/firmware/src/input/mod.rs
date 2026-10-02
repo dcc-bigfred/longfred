@@ -1,12 +1,12 @@
-//! Input: GPIO nav cluster, MCP23017 tact/F-keys, encoder, keypad, extra buttons.
+//! Input: MCP23017 (LongFred v1), encoder, keypad and extra buttons (MarkWTech).
 //! Drivers emit [`crate::board::raw::RawEvent`] to `RAW_CHANNEL`;
 //! the board bridge maps them to [`InputEvent`] on `INPUT_CHANNEL`.
 
 pub mod encoder;
+#[cfg(feature = "variant-longfred-v1")]
 pub mod expander;
 #[cfg(feature = "variant-markwtech")]
 pub mod extra_buttons;
-pub mod gpio_nav;
 pub mod i2c_bus;
 #[cfg(feature = "variant-markwtech")]
 pub mod keypad;

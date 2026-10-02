@@ -112,13 +112,6 @@ async fn run<PIN>(
     }
 }
 
-#[cfg(not(any(feature = "variant-markwtech-v1-1", feature = "variant-longfred-v1")))]
-#[embassy_executor::task]
-pub async fn task(adc1: ADC1<'static>, battery_pin: esp_hal::peripherals::GPIO1<'static>) {
-    run(adc1, battery_pin, None).await;
-}
-
-#[cfg(any(feature = "variant-markwtech-v1-1", feature = "variant-longfred-v1"))]
 #[embassy_executor::task]
 pub async fn task(
     adc1: ADC1<'static>,

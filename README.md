@@ -8,23 +8,16 @@ Build-time Cargo features (mutually exclusive):
 
 | Feature | Description |
 |---------|-------------|
-| `variant-longfred-standard` (default) | OLED 128×64, MCP23017×2, 5-way + F-keys + encoder |
-| `variant-longfred-mini` | Same as standard, OLED 128×32 |
-| `variant-longfred-v1` | Custom PCB (ESP32-C6 QFN-40): OLED 0.91" 128×32, MCP map from hardware 004 |
-| `variant-markwtech` | Keypad + 2.42" OLED, WiTcontroller-style (ESP32-C6-DevKitC-1) |
-| `variant-markwtech-v1-1` | Same as markwtech; Unexpected Maker TinyC6 pin map |
-| `variant-heiko-wifred` | Headless wiFred-style (LEDs + pot), Wi‑Fi config only |
+| `variant-longfred-v1` (default) | Custom PCB (ESP32-C6 QFN-40): OLED 0.91" 128×32, MCP map from hardware 004 |
+| `variant-markwtech-v1-1` | Keypad + 2.42" OLED on Unexpected Maker TinyC6 (implies `variant-markwtech`) |
 
 Docs: [ARCHITECTURE.md](ARCHITECTURE.md), [docs/hardware/](docs/hardware/)
-([MarkWTech v1.0](docs/hardware/markwtech/1.0.md) / [v1.1 TinyC6](docs/hardware/markwtech/v1.1.md)),
+([LongFred v1](docs/hardware/longfred-v1.md) / [MarkWTech v1.1 TinyC6](docs/hardware/markwtech/v1.1.md)),
 provisioning: [docs/provisioning.md](docs/provisioning.md).
 
 ```bash
 cargo build -p longfred-firmware --release --bin longfred
-cargo build -p longfred-firmware --release --bin longfred \
-  --no-default-features --features variant-longfred-mini
 make build VARIANT=longfred-v1
-make build VARIANT=markwtech
 make build VARIANT=markwtech-v1-1
 make flash VARIANT=markwtech-v1-1 BATTERY_FACTOR=1.72
 ```
