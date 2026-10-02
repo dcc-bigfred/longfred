@@ -11,7 +11,8 @@ use crate::input::INPUT_CHANNEL;
 use crate::board::variants::heiko_wifred::HeikoWifredSurface;
 #[cfg(any(
     feature = "variant-longfred-standard",
-    feature = "variant-longfred-mini"
+    feature = "variant-longfred-mini",
+    feature = "variant-longfred-v1"
 ))]
 use crate::board::variants::longfred_family::LongFredSurface;
 #[cfg(feature = "variant-markwtech")]
@@ -21,6 +22,8 @@ const TICK_MS: u64 = 50;
 
 #[embassy_executor::task]
 pub async fn task() {
+    #[cfg(feature = "variant-longfred-v1")]
+    let mut surface = LongFredSurface::v1();
     #[cfg(feature = "variant-longfred-mini")]
     let mut surface = LongFredSurface::mini();
     #[cfg(feature = "variant-longfred-standard")]

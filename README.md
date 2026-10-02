@@ -10,6 +10,7 @@ Build-time Cargo features (mutually exclusive):
 |---------|-------------|
 | `variant-longfred-standard` (default) | OLED 128×64, MCP23017×2, 5-way + F-keys + encoder |
 | `variant-longfred-mini` | Same as standard, OLED 128×32 |
+| `variant-longfred-v1` | Custom PCB (ESP32-C6 QFN-40): OLED 0.91" 128×32, MCP map from hardware 004 |
 | `variant-markwtech` | Keypad + 2.42" OLED, WiTcontroller-style (ESP32-C6-DevKitC-1) |
 | `variant-markwtech-v1-1` | Same as markwtech; Unexpected Maker TinyC6 pin map |
 | `variant-heiko-wifred` | Headless wiFred-style (LEDs + pot), Wi‑Fi config only |
@@ -22,12 +23,13 @@ provisioning: [docs/provisioning.md](docs/provisioning.md).
 cargo build -p longfred-firmware --release --bin longfred
 cargo build -p longfred-firmware --release --bin longfred \
   --no-default-features --features variant-longfred-mini
+make build VARIANT=longfred-v1
 make build VARIANT=markwtech
 make build VARIANT=markwtech-v1-1
-make flash VARIANT=markwtech-v1-1 BATTERY_FACTOR=3.81
+make flash VARIANT=markwtech-v1-1 BATTERY_FACTOR=1.72
 ```
 
-`BATTERY_FACTOR` (or `LONGFRED_BATTERY_FACTOR` when invoking cargo) overrides the variant's pin-map ADC scale. Omit it to keep the stock default (`1.7`, or `3.76` on TinyC6).
+`BATTERY_FACTOR` (or `LONGFRED_BATTERY_FACTOR` when invoking cargo) overrides the variant's pin-map ADC scale (`raw * factor` millivolts). Omit it to keep the stock default (`1.7`).
 
 ## Host tests
 

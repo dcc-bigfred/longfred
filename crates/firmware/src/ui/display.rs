@@ -26,9 +26,9 @@ const GRID_Y_64: [i32; 6] = [8, 16, 24, 32, 40, 48];
 /// Content-row Y for 128×32. `FONT_6X10` at last y=21 ends at 31 ≤ 32.
 const GRID_Y_32: [i32; 3] = [7, 14, 21];
 
-#[cfg(feature = "variant-longfred-mini")]
+#[cfg(any(feature = "variant-longfred-mini", feature = "variant-longfred-v1"))]
 type PanelSize = DisplaySize128x32;
-#[cfg(not(feature = "variant-longfred-mini"))]
+#[cfg(not(any(feature = "variant-longfred-mini", feature = "variant-longfred-v1")))]
 type PanelSize = DisplaySize128x64;
 
 pub type Display =

@@ -19,7 +19,13 @@ pub const MCP0_I2C_ADDRESS: u8 = 0x20;
 pub const MCP1_I2C_ADDRESS: u8 = 0x21;
 
 // --- Rotary encoder (KY-040 / EC11) ---
+#[cfg(feature = "variant-longfred-v1")]
+pub const ENCODER_A: Gpio = 1;
+#[cfg(feature = "variant-longfred-v1")]
+pub const ENCODER_B: Gpio = 2;
+#[cfg(not(feature = "variant-longfred-v1"))]
 pub const ENCODER_A: Gpio = 2;
+#[cfg(not(feature = "variant-longfred-v1"))]
 pub const ENCODER_B: Gpio = 3;
 pub const ENCODER_BUTTON: Gpio = 0;
 
@@ -34,6 +40,9 @@ pub const NAV_BACK: Gpio = 23;
 pub const NAV_MENU: Gpio = 10;
 
 // --- Battery measurement (ADC) ---
+#[cfg(feature = "variant-longfred-v1")]
+pub const BATTERY_ADC: Gpio = 4;
+#[cfg(not(feature = "variant-longfred-v1"))]
 pub const BATTERY_ADC: Gpio = 1;
 
 // --- Deep sleep wake (LP GPIO0) ---
@@ -75,9 +84,18 @@ pub enum LogicalButton {
     F9,
     F10,
     Direction,
+    Shift1,
+    Shift2,
 }
 
+/// GPA bit on MCP #1 used as the direction SPDT (active-low = Forward).
+#[cfg(feature = "variant-longfred-v1")]
+pub const MCP_DIR_PORT_A_BIT: u8 = 5;
+#[cfg(not(feature = "variant-longfred-v1"))]
+pub const MCP_DIR_PORT_A_BIT: u8 = 3;
+
 /// (expander address, port A/B, bit) -> logical button. `None` = unused / moved to GPIO.
+#[cfg(not(feature = "variant-longfred-v1"))]
 pub const BUTTON_MAP: [(u8, bool, u8, Option<LogicalButton>); 20] = [
     // MCP #0 port A — nav/back/menu are on ESP GPIO (see NAV_*)
     (MCP0_I2C_ADDRESS, true, 0, None),
@@ -102,6 +120,34 @@ pub const BUTTON_MAP: [(u8, bool, u8, Option<LogicalButton>); 20] = [
     (MCP1_I2C_ADDRESS, true, 1, Some(LogicalButton::F9)),
     (MCP1_I2C_ADDRESS, true, 2, Some(LogicalButton::F10)),
     (MCP1_I2C_ADDRESS, true, 3, Some(LogicalButton::Direction)),
+];
+
+/// MCP map for longfred-v1 PCB (`plans/004-schematic.md`). GPA7/GPB7 left unused (MCP23017 errata).
+#[cfg(feature = "variant-longfred-v1")]
+pub const BUTTON_MAP: [(u8, bool, u8, Option<LogicalButton>); 20] = [
+    // U5 0x20 port A — F0–F6
+    (MCP0_I2C_ADDRESS, true, 0, Some(LogicalButton::F0)),
+    (MCP0_I2C_ADDRESS, true, 1, Some(LogicalButton::F1)),
+    (MCP0_I2C_ADDRESS, true, 2, Some(LogicalButton::F2)),
+    (MCP0_I2C_ADDRESS, true, 3, Some(LogicalButton::F3)),
+    (MCP0_I2C_ADDRESS, true, 4, Some(LogicalButton::F4)),
+    (MCP0_I2C_ADDRESS, true, 5, Some(LogicalButton::F5)),
+    (MCP0_I2C_ADDRESS, true, 6, Some(LogicalButton::F6)),
+    // U5 0x20 port B — F7, F8, Shift1/2, EStop, Menu, Back
+    (MCP0_I2C_ADDRESS, false, 0, Some(LogicalButton::F7)),
+    (MCP0_I2C_ADDRESS, false, 1, Some(LogicalButton::F8)),
+    (MCP0_I2C_ADDRESS, false, 2, Some(LogicalButton::Shift1)),
+    (MCP0_I2C_ADDRESS, false, 3, Some(LogicalButton::Shift2)),
+    (MCP0_I2C_ADDRESS, false, 4, Some(LogicalButton::EStop)),
+    (MCP0_I2C_ADDRESS, false, 5, Some(LogicalButton::Menu)),
+    (MCP0_I2C_ADDRESS, false, 6, Some(LogicalButton::Back)),
+    // U6 0x21 port A — joystick + direction (GPA5)
+    (MCP1_I2C_ADDRESS, true, 0, Some(LogicalButton::JoyUp)),
+    (MCP1_I2C_ADDRESS, true, 1, Some(LogicalButton::JoyDown)),
+    (MCP1_I2C_ADDRESS, true, 2, Some(LogicalButton::JoyLeft)),
+    (MCP1_I2C_ADDRESS, true, 3, Some(LogicalButton::JoyRight)),
+    (MCP1_I2C_ADDRESS, true, 4, Some(LogicalButton::JoyOk)),
+    (MCP1_I2C_ADDRESS, true, 5, Some(LogicalButton::Direction)),
 ];
 
 pub const MCP_ADDRESSES: [u8; 2] = [MCP0_I2C_ADDRESS, MCP1_I2C_ADDRESS];

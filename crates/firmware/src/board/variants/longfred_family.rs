@@ -34,6 +34,19 @@ pub const MINI: VariantDescriptor = VariantDescriptor {
     auto_pair_when_unconfigured: false,
 };
 
+/// Custom PCB (longfred-hardware/longfred-v1): OLED 0.91" 128×32, MCP map from 004.
+pub const V1: VariantDescriptor = VariantDescriptor {
+    id: "longfred-v1",
+    name: "LongFred v1",
+    mcu: "esp32c6",
+    display: Some(LAYOUT_128X32),
+    has_expanders: true,
+    has_encoder: true,
+    has_keypad: false,
+    has_pot: false,
+    auto_pair_when_unconfigured: false,
+};
+
 /// Maps raw LongFred hardware events to domain `InputEvent`s.
 pub struct LongFredSurface {
     descriptor: &'static VariantDescriptor,
@@ -57,6 +70,16 @@ impl LongFredSurface {
     pub const fn mini() -> Self {
         Self {
             descriptor: &MINI,
+            shift1: false,
+            shift2: false,
+            stop: false,
+            chord: ChordDetector::new(),
+        }
+    }
+
+    pub const fn v1() -> Self {
+        Self {
+            descriptor: &V1,
             shift1: false,
             shift2: false,
             stop: false,

@@ -23,7 +23,7 @@ DIST_DIR="${DIST_DIR:-dist}"
 RAM_LIMIT_BYTES="${RAM_LIMIT_BYTES:-$((0x6E610))}"
 OTA_SLOT_BYTES="${OTA_SLOT_BYTES:-$((0x3C0000))}"
 PARTITION_TABLE="${PARTITION_TABLE:-$ROOT/partitions.csv}"
-VARIANTS=(${VARIANTS:-longfred-standard longfred-mini markwtech markwtech-v1-1 heiko-wifred})
+VARIANTS=(${VARIANTS:-longfred-standard longfred-mini longfred-v1 markwtech markwtech-v1-1 heiko-wifred})
 
 CHECK_ONLY=0
 for arg in "$@"; do

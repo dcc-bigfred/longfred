@@ -33,6 +33,7 @@ historical designs in [`docs/plans/`](docs/plans/).
    older versions decode with defaults.
 6. **Hardware variants are compile-time features.**
    `variant-longfred-standard`, `variant-longfred-mini`,
+   `variant-longfred-v1`,
    `variant-markwtech` (and `variant-markwtech-v1-1`, which implies
    `variant-markwtech`), `variant-heiko-wifred` are mutually exclusive.
 7. **Closed protocol set, enum dispatch.** WiThrottle, Z21, and BigFred
@@ -342,6 +343,7 @@ workflow.
 |---|---|---|
 | `variant-longfred-standard` (default) | OLED 128×64 | GPIO 5-way + F-keys + encoder + MCP23017×2 |
 | `variant-longfred-mini` | OLED 128×32 | same as standard |
+| `variant-longfred-v1` | OLED 0.91" 128×32 | MCP23017×2 (004 map) + encoder; no GPIO nav |
 | `variant-markwtech` | 2.42" OLED | 3×4 keypad + extra tact cluster + encoder (DevKitC-1) |
 | `variant-markwtech-v1-1` | 2.42" OLED | same controls; TinyC6 pin map (implies `variant-markwtech`) |
 | `variant-heiko-wifred` | LEDs (no OLED) | expander + pot; Wi-Fi config only |

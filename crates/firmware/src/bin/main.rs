@@ -127,13 +127,13 @@ async fn main(spawner: Spawner) -> ! {
 
     longfred_firmware::spawn_or_reset!(spawner, storage::task(flash, boot_entropy), "storage");
     if config::power::USE_BATTERY_TEST {
-        #[cfg(not(feature = "variant-markwtech-v1-1"))]
+        #[cfg(not(any(feature = "variant-markwtech-v1-1", feature = "variant-longfred-v1")))]
         longfred_firmware::spawn_or_reset!(
             spawner,
             power::battery::task(peripherals.ADC1, peripherals.GPIO1),
             "battery"
         );
-        #[cfg(feature = "variant-markwtech-v1-1")]
+        #[cfg(any(feature = "variant-markwtech-v1-1", feature = "variant-longfred-v1"))]
         longfred_firmware::spawn_or_reset!(
             spawner,
             power::battery::task(peripherals.ADC1, peripherals.GPIO4, peripherals.GPIO10),
@@ -209,6 +209,7 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(any(
         feature = "variant-longfred-standard",
         feature = "variant-longfred-mini",
+        feature = "variant-longfred-v1",
         feature = "variant-heiko-wifred"
     ))]
     longfred_firmware::spawn_or_reset!(

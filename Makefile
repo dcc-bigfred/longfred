@@ -12,7 +12,7 @@ PACKAGE := longfred-firmware
 BIN := longfred
 
 # Hardware variants (Cargo feature = variant-<name>).
-VARIANTS := longfred-standard longfred-mini markwtech markwtech-v1-1 heiko-wifred
+VARIANTS := longfred-standard longfred-mini longfred-v1 markwtech markwtech-v1-1 heiko-wifred
 VARIANT ?= longfred-standard
 
 ifeq ($(filter $(VARIANT),$(VARIANTS)),)
@@ -32,6 +32,8 @@ TARGET_DIR := target/$(VARIANT)
 # TinyC6 native USB Serial/JTAG is usually ttyACM*; DevKitC-1 UART bridge is ttyUSB*.
 ifeq ($(VARIANT),markwtech-v1-1)
 ESPFLASH_PORT ?= /dev/ttyACM0
+else ifeq ($(VARIANT),longfred-v1)
+ESPFLASH_PORT ?= /dev/ttyACM0
 else
 ESPFLASH_PORT ?= /dev/ttyUSB0
 endif
@@ -43,7 +45,7 @@ export LONGFRED_BATTERY_FACTOR := $(BATTERY_FACTOR)
 endif
 
 .PHONY: all build build-release build-all build-all-release \
-	build-longfred-standard build-longfred-mini build-markwtech \
+	build-longfred-standard build-longfred-mini build-longfred-v1 build-markwtech \
 	build-markwtech-v1-1 build-heiko-wifred \
 	flash flash-markwtech flash-markwtech-v1-1 \
 	size check-size check-size-only test lint help
@@ -94,6 +96,9 @@ build-longfred-standard:
 
 build-longfred-mini:
 	@$(MAKE) --no-print-directory build VARIANT=longfred-mini
+
+build-longfred-v1:
+	@$(MAKE) --no-print-directory build VARIANT=longfred-v1
 
 build-markwtech:
 	@$(MAKE) --no-print-directory build VARIANT=markwtech

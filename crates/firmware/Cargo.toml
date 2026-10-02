@@ -18,6 +18,7 @@ default = ["variant-longfred-standard"]
 # it in `variant-markwtech` because v1.1 would then enable both print backends).
 variant-longfred-standard = ["print-auto"]
 variant-longfred-mini = ["print-auto"]
+variant-longfred-v1 = ["print-auto"]
 variant-markwtech = []
 # TinyC6 pin map; implies variant-markwtech. Logging is USB Serial/JTAG only
 # because UART0 (GPIO 16/17) is used for extra buttons.

@@ -3,7 +3,7 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Timer};
-use esp_hal::analog::adc::{Adc, AdcConfig, AdcPin, Attenuation};
+use esp_hal::analog::adc::{Adc, AdcCalBasic, AdcConfig, Attenuation};
 use esp_hal::gpio::AnalogPin;
 use esp_hal::peripherals::ADC1;
 
@@ -46,7 +46,11 @@ async fn run<PIN>(
     }
 
     let mut adc_config = AdcConfig::new();
-    let mut pin: AdcPin<PIN, ADC1> = adc_config.enable_pin(battery_pin, Attenuation::_11dB);
+    // Bias only (`AdcCalBasic`): without it the C6 clips before 12-bit truncation
+    // and the reading sticks. Curve/line mapping returned 0 mV on TinyC6.
+    // Result is raw counts, so `BATTERY_CONVERSION_FACTOR` is empirical.
+    let mut pin = adc_config
+        .enable_pin_with_cal::<PIN, AdcCalBasic<ADC1<'static>>>(battery_pin, Attenuation::_11dB);
     let mut adc = Adc::new(adc1, adc_config);
     let tx = BATTERY.sender();
 
@@ -55,23 +59,24 @@ async fn run<PIN>(
         let mut count = 0u32;
         for _ in 0..power::ADC_READS {
             if let Ok(v) = nb::block!(adc.read_oneshot(&mut pin)) {
-                sum += v as u32;
+                if v == 0 {
+                    continue;
+                }
+                sum += u32::from(v);
                 count += 1;
             }
         }
+        let charging = charging_pin.as_ref().is_some_and(|p| p.is_high());
         if count > 0 {
             let raw = sum / count;
             let volts = raw as f32 * power::BATTERY_CONVERSION_FACTOR / 1000.0;
             let percent = volts_to_percent(volts);
-            let charging = charging_pin.as_ref().is_some_and(|p| p.is_high());
             // Suggested factor makes `raw * factor / 1000 == 4.2` on a full cell.
-            if raw > 0 {
-                let suggested = 4200.0 / raw as f32;
-                let current = power::BATTERY_CONVERSION_FACTOR;
-                log::info!(
-                    "battery: raw={raw} volts={volts:.3} percent={percent} charging={charging} suggested_factor={suggested:.4} (current={current})"
-                );
-            }
+            let suggested = 4200.0 / raw as f32;
+            let current = power::BATTERY_CONVERSION_FACTOR;
+            log::info!(
+                "battery: raw={raw} volts={volts:.3} percent={percent} charging={charging} suggested_factor={suggested:.4} (current={current})"
+            );
             let millivolts = (raw as f32 * power::BATTERY_CONVERSION_FACTOR) as u16;
             tx.send(Some(BatterySample {
                 percent,
@@ -100,18 +105,20 @@ async fn run<PIN>(
                 net::set_http_ota_enabled(false);
                 sleep::begin_sleep(SleepReason::Battery);
             }
+        } else {
+            log::info!("battery: no_nonzero_reads charging={charging}");
         }
         Timer::after(Duration::from_secs(power::BATTERY_POLL_S)).await;
     }
 }
 
-#[cfg(not(feature = "variant-markwtech-v1-1"))]
+#[cfg(not(any(feature = "variant-markwtech-v1-1", feature = "variant-longfred-v1")))]
 #[embassy_executor::task]
 pub async fn task(adc1: ADC1<'static>, battery_pin: esp_hal::peripherals::GPIO1<'static>) {
     run(adc1, battery_pin, None).await;
 }
 
-#[cfg(feature = "variant-markwtech-v1-1")]
+#[cfg(any(feature = "variant-markwtech-v1-1", feature = "variant-longfred-v1"))]
 #[embassy_executor::task]
 pub async fn task(
     adc1: ADC1<'static>,

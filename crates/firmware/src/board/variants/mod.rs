@@ -5,6 +5,8 @@
     feature = "variant-longfred-mini"
 ))]
 compile_error!("enable only one hardware variant feature");
+#[cfg(all(feature = "variant-longfred-standard", feature = "variant-longfred-v1"))]
+compile_error!("enable only one hardware variant feature");
 #[cfg(all(feature = "variant-longfred-standard", feature = "variant-markwtech"))]
 compile_error!("enable only one hardware variant feature");
 #[cfg(all(
@@ -12,18 +14,28 @@ compile_error!("enable only one hardware variant feature");
     feature = "variant-heiko-wifred"
 ))]
 compile_error!("enable only one hardware variant feature");
+#[cfg(all(feature = "variant-longfred-mini", feature = "variant-longfred-v1"))]
+compile_error!("enable only one hardware variant feature");
 #[cfg(all(feature = "variant-longfred-mini", feature = "variant-markwtech"))]
 compile_error!("enable only one hardware variant feature");
 #[cfg(all(feature = "variant-longfred-mini", feature = "variant-heiko-wifred"))]
+compile_error!("enable only one hardware variant feature");
+#[cfg(all(feature = "variant-longfred-v1", feature = "variant-markwtech"))]
+compile_error!("enable only one hardware variant feature");
+#[cfg(all(feature = "variant-longfred-v1", feature = "variant-heiko-wifred"))]
 compile_error!("enable only one hardware variant feature");
 #[cfg(all(feature = "variant-markwtech", feature = "variant-heiko-wifred"))]
 compile_error!("enable only one hardware variant feature");
 
 #[cfg(any(
     feature = "variant-longfred-standard",
-    feature = "variant-longfred-mini"
+    feature = "variant-longfred-mini",
+    feature = "variant-longfred-v1"
 ))]
 pub mod longfred_family;
+
+#[cfg(feature = "variant-longfred-v1")]
+pub mod longfred_v1;
 
 #[cfg(feature = "variant-markwtech")]
 pub mod markwtech;
@@ -43,6 +55,10 @@ pub fn active() -> &'static VariantDescriptor {
     {
         return &longfred_family::MINI;
     }
+    #[cfg(feature = "variant-longfred-v1")]
+    {
+        return &longfred_family::V1;
+    }
     #[cfg(feature = "variant-markwtech")]
     {
         return &markwtech::DESCRIPTOR;
@@ -54,6 +70,7 @@ pub fn active() -> &'static VariantDescriptor {
     #[cfg(not(any(
         feature = "variant-longfred-standard",
         feature = "variant-longfred-mini",
+        feature = "variant-longfred-v1",
         feature = "variant-markwtech",
         feature = "variant-heiko-wifred"
     )))]
@@ -70,9 +87,14 @@ pub fn active_variant() -> &'static VariantDescriptor {
 /// Control surface for the active LongFred-family variant.
 #[cfg(any(
     feature = "variant-longfred-standard",
-    feature = "variant-longfred-mini"
+    feature = "variant-longfred-mini",
+    feature = "variant-longfred-v1"
 ))]
 pub fn surface() -> longfred_family::LongFredSurface {
+    #[cfg(feature = "variant-longfred-v1")]
+    {
+        longfred_family::LongFredSurface::v1()
+    }
     #[cfg(feature = "variant-longfred-mini")]
     {
         longfred_family::LongFredSurface::mini()

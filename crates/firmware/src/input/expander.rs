@@ -6,7 +6,7 @@ use embedded_hal::i2c::I2c;
 
 use super::i2c_bus::SharedI2cDevice;
 use crate::board::raw::{ButtonId, RawEvent, RawSender, SwitchId};
-use crate::config::board::{BUTTON_MAP, LogicalButton, MCP_ADDRESSES};
+use crate::config::board::{BUTTON_MAP, LogicalButton, MCP_ADDRESSES, MCP_DIR_PORT_A_BIT};
 
 const POLL_MS: u64 = 10;
 const DEBOUNCE_TICKS: u8 = 2;
@@ -93,6 +93,8 @@ fn logical_to_button(btn: LogicalButton) -> Option<ButtonId> {
         LogicalButton::Back => ButtonId::Stop,
         LogicalButton::EStop => ButtonId::EStop,
         LogicalButton::Menu => ButtonId::Menu,
+        LogicalButton::Shift1 => ButtonId::Shift1,
+        LogicalButton::Shift2 => ButtonId::Shift2,
         LogicalButton::Direction => return None,
         LogicalButton::F0 => ButtonId::F0,
         LogicalButton::F1 => ButtonId::F1,
@@ -143,8 +145,12 @@ fn process_chip(
 }
 
 fn direction_value(stable_a: u8) -> u8 {
-    // GPA3 on MCP #1: LOW = Forward (COM to GND), HIGH = Reverse.
-    if pressed_bit(stable_a, 3) { 1 } else { 0 }
+    // Active-low on MCP #1 port A: LOW = Forward (COM to GND), HIGH = Reverse.
+    if pressed_bit(stable_a, MCP_DIR_PORT_A_BIT) {
+        1
+    } else {
+        0
+    }
 }
 
 #[embassy_executor::task]
