@@ -4,9 +4,9 @@
 use embassy_time::{Duration, Timer};
 use embedded_hal::i2c::I2c;
 
-use super::i2c_bus::SharedI2cDevice;
 use crate::board::raw::{ButtonId, RawEvent, RawSender, SwitchId};
 use crate::config::board::{BUTTON_MAP, LogicalButton, MCP_ADDRESSES, MCP_DIR_PORT_A_BIT};
+use crate::input::i2c_bus::SharedI2cDevice;
 
 const POLL_MS: u64 = 10;
 const DEBOUNCE_TICKS: u8 = 2;

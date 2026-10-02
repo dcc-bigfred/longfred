@@ -135,7 +135,7 @@ fn publish_pairing_page(page: PairingPage, ssid: &str, qr_ok: bool) {
 #[embassy_executor::task]
 pub async fn pairing_ui_task(ssid: String<32>) {
     let desc = board::active_variant();
-    let has_display = desc.display.is_some();
+    let has_display = desc.has_oled();
     let qr_ok = desc.display.is_some_and(|d| d.height > 32);
     let mut page = PairingPage::Ask;
 

@@ -50,7 +50,7 @@ help:
 	@echo "  size / check-size       - release-build all variants + ESP32-C6 flash/RAM report"
 	@echo "  check-size-only         - check existing dist/*.elf (no cargo; used by CI)"
 	@echo "  test                    - cargo test -p longfred-proto and longfred-ui (host)"
-	@echo "  lint                    - rustfmt --check on the workspace"
+	@echo "  lint                    - rustfmt --check, clippy longfred-ui, variant-cfg guard"
 	@echo "  flash [VARIANT=...]     - cargo run (build + espflash) for VARIANT"
 	@echo "  flash-markwtech-v1-1    - flash v1.1 (TinyC6 USB Serial/JTAG, /dev/ttyACM0)"
 	@echo "  all                     - build + test (default)"
@@ -99,6 +99,7 @@ test:
 lint:
 	$(CARGO) fmt --all -- --check
 	$(CARGO) clippy -p longfred-ui --all-targets --target x86_64-unknown-linux-gnu -- --no-deps -D warnings
+	./scripts/check-variant-cfgs.sh
 
 flash:
 	ESPFLASH_PORT=$(ESPFLASH_PORT) $(CARGO) run -p $(PACKAGE) \

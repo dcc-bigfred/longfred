@@ -7,7 +7,6 @@ use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{AnyPin, Input, InputConfig, Level, Output, OutputConfig, Pull};
 
 use crate::board::raw::{ButtonId, RawEvent, RawSender};
-#[cfg(feature = "variant-markwtech")]
 use crate::board::variants::markwtech::{KEYPAD_COL_PINS, KEYPAD_MAP, KEYPAD_ROW_PINS};
 
 const POLL_MS: u64 = 15;
@@ -23,7 +22,6 @@ pub struct Pins {
 /// # Safety
 ///
 /// Call once from `main`; pins must not overlap other drivers.
-#[cfg(feature = "variant-markwtech")]
 #[allow(unsafe_code)]
 pub fn build() -> Pins {
     let out_cfg = OutputConfig::default();
@@ -59,7 +57,6 @@ pub fn build() -> Pins {
     Pins { rows, cols }
 }
 
-#[cfg(feature = "variant-markwtech")]
 #[embassy_executor::task]
 pub async fn task(mut pins: Pins, sender: RawSender) {
     // Debounced pressed state [row][col].

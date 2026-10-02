@@ -7,19 +7,11 @@ use crate::board::ControlSurface;
 use crate::board::raw::RAW_CHANNEL;
 use crate::input::INPUT_CHANNEL;
 
-#[cfg(feature = "variant-longfred-v1")]
-use crate::board::variants::longfred_family::LongFredSurface;
-#[cfg(feature = "variant-markwtech")]
-use crate::board::variants::markwtech::MarkwtechSurface;
-
 const TICK_MS: u64 = 50;
 
 #[embassy_executor::task]
 pub async fn task() {
-    #[cfg(feature = "variant-longfred-v1")]
-    let mut surface = LongFredSurface::v1();
-    #[cfg(feature = "variant-markwtech")]
-    let mut surface = MarkwtechSurface::new();
+    let mut surface = crate::board::variants::surface();
 
     let raw_rx = RAW_CHANNEL.receiver();
     let input_tx = INPUT_CHANNEL.sender();
